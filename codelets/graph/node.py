@@ -7,11 +7,15 @@ class Node(object):
 
     counter = 0
 
-    def __init__(self):
+    def __init__(self, index=None):
 
         # index is a unique value for all the nodes created
-        Node.counter += 1
-        self.index = Node.counter
+        if index:
+            self.index = index
+            Node.counter = index + 1
+        else:
+            Node.counter += 1
+            self.index = Node.counter
         
         # connectivity
         self._succs = {}
@@ -44,6 +48,12 @@ class Node(object):
         
         # delete self
         del self
+
+    def get_all_attributes(self):
+        att_list = []
+        for k, v in self._attrs.items():
+            att_list.append({"key": k, "value": v})
+        return att_list
 
     def dissolve(self):
         # make connections between preds and succs

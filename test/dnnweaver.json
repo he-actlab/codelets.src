@@ -1,0 +1,488 @@
+{
+    "graph": {
+        "node_id": 1,
+        "name": "DnnWeaver",
+        "node_type": "ComputeNode",
+        "compute_node": {
+            "capabilities": []
+        },
+        "attributes": [
+            {
+                "key": "in_degree",
+                "value": 0
+            },
+            {
+                "key": "out_degree",
+                "value": 0
+            },
+            {
+                "key": "name",
+                "value": "DnnWeaver"
+            },
+            {
+                "key": "node_color",
+                "value": "#BFBFFF"
+            }
+        ],
+        "subgraph": {
+            "nodes": [
+                {
+                    "node_id": 2,
+                    "name": "SystolicArray",
+                    "node_type": "ComputeNode",
+                    "compute_node": {
+                        "capabilities": []
+                    },
+                    "attributes": [
+                        {
+                            "key": "in_degree",
+                            "value": 0
+                        },
+                        {
+                            "key": "out_degree",
+                            "value": 0
+                        },
+                        {
+                            "key": "name",
+                            "value": "SystolicArray"
+                        },
+                        {
+                            "key": "node_color",
+                            "value": "#BFBFFF"
+                        }
+                    ],
+                    "subgraph": {
+                        "nodes": [
+                            {
+                                "node_id": 3,
+                                "name": "IBUF",
+                                "node_type": "StorageNode",
+                                "storage_node": {
+                                    "capacity": 128,
+                                    "read_bw": 32,
+                                    "write_bw": 32,
+                                    "access_type": "RAM"
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "IBUF"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#7FFFFF"
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            },
+                            {
+                                "node_id": 4,
+                                "name": "BBUF",
+                                "node_type": "StorageNode",
+                                "storage_node": {
+                                    "capacity": 128,
+                                    "read_bw": 32,
+                                    "write_bw": 32,
+                                    "access_type": "RAM"
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "BBUF"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#7FFFFF"
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            },
+                            {
+                                "node_id": 5,
+                                "name": "WBUF",
+                                "node_type": "StorageNode",
+                                "storage_node": {
+                                    "capacity": 128,
+                                    "read_bw": 32,
+                                    "write_bw": 32,
+                                    "access_type": "RAM"
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "WBUF"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#7FFFFF"
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            },
+                            {
+                                "node_id": 6,
+                                "name": "OBUF",
+                                "node_type": "StorageNode",
+                                "storage_node": {
+                                    "capacity": 128,
+                                    "read_bw": 32,
+                                    "write_bw": 32,
+                                    "access_type": "RAM"
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 2
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 3
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "OBUF"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#7FFFFF"
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            },
+                            {
+                                "node_id": 7,
+                                "name": "PEArray",
+                                "node_type": "ComputeNode",
+                                "compute_node": {
+                                    "capabilities": []
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 4
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "PEArray"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#BFBFFF"
+                                    },
+                                    {
+                                        "key": "width",
+                                        "value": 32
+                                    },
+                                    {
+                                        "key": "height",
+                                        "value": 32
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            }
+                        ],
+                        "edges": [
+                            {
+                                "src": 3,
+                                "dst": 7,
+                                "attributes": []
+                            },
+                            {
+                                "src": 5,
+                                "dst": 7,
+                                "attributes": []
+                            },
+                            {
+                                "src": 4,
+                                "dst": 7,
+                                "attributes": []
+                            },
+                            {
+                                "src": 6,
+                                "dst": 7,
+                                "attributes": []
+                            },
+                            {
+                                "src": 7,
+                                "dst": 6,
+                                "attributes": []
+                            }
+                        ]
+                    }
+                },
+                {
+                    "node_id": 8,
+                    "name": "SIMDArray",
+                    "node_type": "ComputeNode",
+                    "compute_node": {
+                        "capabilities": []
+                    },
+                    "attributes": [
+                        {
+                            "key": "in_degree",
+                            "value": 0
+                        },
+                        {
+                            "key": "out_degree",
+                            "value": 0
+                        },
+                        {
+                            "key": "name",
+                            "value": "SIMDArray"
+                        },
+                        {
+                            "key": "node_color",
+                            "value": "#BFBFFF"
+                        }
+                    ],
+                    "subgraph": {
+                        "nodes": [
+                            {
+                                "node_id": 9,
+                                "name": "ALUArray",
+                                "node_type": "ComputeNode",
+                                "compute_node": {
+                                    "capabilities": []
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 2
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 1
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "ALUArray"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#BFBFFF"
+                                    },
+                                    {
+                                        "key": "width",
+                                        "value": 32
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            },
+                            {
+                                "node_id": 10,
+                                "name": "VectorRF",
+                                "node_type": "StorageNode",
+                                "storage_node": {
+                                    "capacity": 32,
+                                    "read_bw": 32,
+                                    "write_bw": 32,
+                                    "access_type": "FIFO"
+                                },
+                                "attributes": [
+                                    {
+                                        "key": "in_degree",
+                                        "value": 2
+                                    },
+                                    {
+                                        "key": "out_degree",
+                                        "value": 2
+                                    },
+                                    {
+                                        "key": "name",
+                                        "value": "VectorRF"
+                                    },
+                                    {
+                                        "key": "node_color",
+                                        "value": "#7FFFFF"
+                                    },
+                                    {
+                                        "key": "size",
+                                        "value": 32
+                                    }
+                                ],
+                                "subgraph": {
+                                    "nodes": [],
+                                    "edges": []
+                                }
+                            }
+                        ],
+                        "edges": [
+                            {
+                                "src": 10,
+                                "dst": 9,
+                                "attributes": []
+                            },
+                            {
+                                "src": 9,
+                                "dst": 10,
+                                "attributes": []
+                            }
+                        ]
+                    }
+                },
+                {
+                    "node_id": 11,
+                    "name": "Bus",
+                    "node_type": "CommunicationNode",
+                    "communication_node": {
+                        "comm_type": "bus",
+                        "bandwidth": 128
+                    },
+                    "attributes": [
+                        {
+                            "key": "in_degree",
+                            "value": 3
+                        },
+                        {
+                            "key": "out_degree",
+                            "value": 6
+                        },
+                        {
+                            "key": "name",
+                            "value": "Bus"
+                        },
+                        {
+                            "key": "node_color",
+                            "value": "#BFFFBF"
+                        }
+                    ],
+                    "subgraph": {
+                        "nodes": [],
+                        "edges": []
+                    }
+                },
+                {
+                    "node_id": 12,
+                    "name": "ExternalMem",
+                    "node_type": "StorageNode",
+                    "storage_node": {
+                        "capacity": 1024,
+                        "read_bw": 32,
+                        "write_bw": 32,
+                        "access_type": "RAM"
+                    },
+                    "attributes": [
+                        {
+                            "key": "in_degree",
+                            "value": 1
+                        },
+                        {
+                            "key": "out_degree",
+                            "value": 1
+                        },
+                        {
+                            "key": "name",
+                            "value": "ExternalMem"
+                        },
+                        {
+                            "key": "node_color",
+                            "value": "#7FFFFF"
+                        }
+                    ],
+                    "subgraph": {
+                        "nodes": [],
+                        "edges": []
+                    }
+                }
+            ],
+            "edges": [
+                {
+                    "src": 6,
+                    "dst": 9,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 6,
+                    "attributes": []
+                },
+                {
+                    "src": 6,
+                    "dst": 11,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 3,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 5,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 4,
+                    "attributes": []
+                },
+                {
+                    "src": 12,
+                    "dst": 11,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 12,
+                    "attributes": []
+                },
+                {
+                    "src": 11,
+                    "dst": 10,
+                    "attributes": []
+                },
+                {
+                    "src": 10,
+                    "dst": 11,
+                    "attributes": []
+                }
+            ]
+        }
+    }
+}

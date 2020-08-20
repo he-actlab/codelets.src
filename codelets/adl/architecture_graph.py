@@ -1,7 +1,8 @@
 from codelets.graph import Graph
 from graphviz import Digraph
 import networkx as nx
-from collections import defaultdict
+from collections import defaultdict, namedtuple
+
 
 class ArchitectureGraph(Graph):
     """
@@ -10,7 +11,7 @@ class ArchitectureGraph(Graph):
 
     def __init__(self, old_name=None):
         super().__init__()
-
+        self._edges = []
         # store the name of the graph from the .pb or .onnx
         self._old_name = old_name
 
@@ -154,6 +155,7 @@ class ArchitectureGraph(Graph):
     def add_node(self, node):
         self._add_node(node)
 
-    def add_edge(self, src, dest):
-        self._add_edge(src, dest)
+    def add_edge(self, src, dst, attributes=None):
+
+        self._add_edge(src, dst)
 

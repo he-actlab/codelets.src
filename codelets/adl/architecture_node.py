@@ -3,6 +3,9 @@ import numpy as np
 from codelets.graph import Node
 from codelets.adl.architecture_graph import ArchitectureGraph
 from pygraphviz import AGraph
+from collections import namedtuple
+
+Edge = namedtuple('Edge', ['src', 'dst', 'attributes'])
 
 class ArchitectureNode(Node):
     """
@@ -10,8 +13,8 @@ class ArchitectureNode(Node):
     Inherited from Node
     """
 
-    def __init__(self, name=None):
-        super().__init__()
+    def __init__(self, name, index=None):
+        super(ArchitectureNode, self).__init__(index=index)
         self._has_parent = None
         self._subgraph = ArchitectureGraph()
         self._name = name
@@ -20,11 +23,7 @@ class ArchitectureNode(Node):
         # type
         self._anode_type = type(self).__name__
         self._subgraph_nodes = {}
-
-        # capabilities: {name: {'delay': lambda function, 'encoding': TODO}}
-        # NOTE maybe other information need to be added such as inputs and outputs... and 
-        # their sources and destinations
-        self._capabilities = {}
+        self._subgraph_edges = []
 
         # occupied: [(op_node, capability, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
@@ -59,10 +58,19 @@ class ArchitectureNode(Node):
     def set_parent(self, node_id):
         self._has_parent = node_id
 
-    def add_subgraph_edge(self, src, dest):
+    def add_subgraph_edge(self, src, dst, attributes=None):
         if self._has_parent:
             raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
-        self.subgraph._add_edge(src, dest)
+        if attributes:
+            assert isinstance(attributes, dict)
+            attr = []
+            for k,v in attributes.items():
+                attr.append({k: v})
+        else:
+            attr = []
+        edge = Edge(src=src.index, dst=dst.index, attributes=attr)
+        self._subgraph_edges.append(edge)
+        self.subgraph.add_edge(src, dst)
 
     def add_subgraph_node(self, node: 'ArchitectureNode'):
         if self._has_parent:
@@ -86,34 +94,6 @@ class ArchitectureNode(Node):
             raise RuntimeError(f"Overlapping keys when merging nodes")
         self.subgraph._nodes.update(node.subgraph._nodes)
 
-    def set_capabilities(self, name, args):
-        assert 'delay' in args.keys(), 'delay is mandatory information'
-        self._capabilities[name] = args
-
-    def get_capabilities(self):
-        return self._capabilities
-
-    def is_compatible(self, op_name):
-        return op_name in self._capabilities.keys()
-
-    # inputs are dictionary
-    def use_capability(self, name, inputs):
-
-        # identify inputs and outputs?
-        # get begin_cycle and end_cycle
-        # check is_available
-        # set_occupied
-        pass
-    
-    def set_occupied(self, op_node, capability, begin_cycle, end_cycle):
-        
-        # check for overlaps, "o" is occupied and "n" is new
-        n = (begin_cycle, end_cycle)
-        overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
-        assert len(overlaps) == 0, 'this op_node cannot be mapped here, check before using set_occupied'
-
-        # append to _occupied
-        self._occupied.append((op_node, capability, begin_cycle, end_cycle))
 
     def get_occupied(self):
         
@@ -130,4 +110,30 @@ class ArchitectureNode(Node):
     def viz_color(self):
         raise NotImplementedError
 
+    def get_subgraph_nodes(self):
+        return list(self._subgraph_nodes.values())
 
+    def get_subgraph_edges(self):
+        return self._subgraph_edges
+
+    def get_graph_node_count(self):
+        count = 0
+        for n in self.get_subgraph_nodes():
+            count += (1 + n.get_graph_node_count())
+        return count
+
+    def get_graph_edge_count(self):
+        count = len(self.get_subgraph_edges())
+        for n in self.get_subgraph_nodes():
+            count += n.get_graph_edge_count()
+        return count
+
+    def print_subgraph_edges(self, tabs=""):
+        edge_pairs = [f"SRC: {self.subgraph.get_node_by_index(e.src).name}\t" \
+                      f"DST:{self.subgraph.get_node_by_index(e.dst).name}" for e in self.get_subgraph_edges()]
+        print(f"Total edges: {len(edge_pairs)}\n"
+              f"Unique: {len(set(edge_pairs))}")
+        print("\n".join(edge_pairs))
+        tabs = tabs+"\t"
+        for n in self.get_subgraph_nodes():
+            n.print_subgraph_edges(tabs=tabs)

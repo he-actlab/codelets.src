@@ -2,8 +2,9 @@ from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode, Stor
 from collections import namedtuple
 
 SysArrayConfig = namedtuple('SysArrayConfig', ['width', 'height', 'ibuf', 'obuf', 'bbuf', 'wbuf'])
-SIMDConfig = namedtuple('SIMDConfig', ['lanes'])
-ExtMem = namedtuple('ExtMem', ['size'])
+SIMDConfig = namedtuple('SIMDConfig', ['lanes', 'mem_cfg'])
+MemConfig = namedtuple('MemConfig', ['size', 'read_bw', 'write_bw', 'access_type'])
+ExtMem = namedtuple('ExtMem', ['size', 'read_bw', 'write_bw', 'access_type'])
 
 def generate_dnnweaver(sys_array_cfg, simd_cfg, extern_mem):
     
@@ -13,42 +14,41 @@ def generate_dnnweaver(sys_array_cfg, simd_cfg, extern_mem):
     dnnw_graph.add_subgraph_node(sys_array)
     simd_array = generate_simd_array(simd_cfg)
     dnnw_graph.add_subgraph_node(simd_array)
-    dnnw_graph.subgraph.add_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"))
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"))
 
 
-    mem_bus = CommunicationNode("Bus")
-    ext_mem = StorageNode("ExternalMem")
+    mem_bus = CommunicationNode("Bus", "bus", 128)
+    ext_mem = StorageNode("ExternalMem", extern_mem.read_bw, extern_mem.write_bw, extern_mem.access_type, extern_mem.size)
     dnnw_graph.add_subgraph_node(mem_bus)
     dnnw_graph.add_subgraph_node(ext_mem)
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("OBUF"))
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), mem_bus)
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("IBUF"))
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("WBUF"))
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("BBUF"))
+    dnnw_graph.add_subgraph_edge(ext_mem, mem_bus)
+    dnnw_graph.add_subgraph_edge(mem_bus, ext_mem)
 
-    ext_mem.set_attr("size", extern_mem.size)
-    dnnw_graph.subgraph.add_edge(mem_bus, sys_array.get_subgraph_node("OBUF"))
-    dnnw_graph.subgraph.add_edge(sys_array.get_subgraph_node("OBUF"), mem_bus)
-    dnnw_graph.subgraph.add_edge(mem_bus, sys_array.get_subgraph_node("IBUF"))
-    dnnw_graph.subgraph.add_edge(mem_bus, sys_array.get_subgraph_node("WBUF"))
-    dnnw_graph.subgraph.add_edge(mem_bus, sys_array.get_subgraph_node("BBUF"))
-    dnnw_graph.subgraph.add_edge(ext_mem, mem_bus)
-    dnnw_graph.subgraph.add_edge(mem_bus, ext_mem)
-
-    dnnw_graph.subgraph.add_edge(mem_bus, simd_array.get_subgraph_node("VectorRF"))
-    dnnw_graph.subgraph.add_edge(simd_array.get_subgraph_node("VectorRF"), mem_bus)
+    dnnw_graph.add_subgraph_edge(mem_bus, simd_array.get_subgraph_node("VectorRF"))
+    dnnw_graph.add_subgraph_edge(simd_array.get_subgraph_node("VectorRF"), mem_bus)
 
 
     return dnnw_graph
 
-def generate_buffers(sys_array_cfg):
+def generate_buffers(sys_array_cfg: SysArrayConfig):
     # Set buffer config options
-    ibuf_node = StorageNode("IBUF")
-    ibuf_node.set_attr("size", sys_array_cfg.ibuf)
+    ibuf_cfg = sys_array_cfg.ibuf
+    ibuf_node = StorageNode("IBUF", ibuf_cfg.read_bw, ibuf_cfg.write_bw, ibuf_cfg.access_type, ibuf_cfg.size)
 
-    bbuf_node = StorageNode("BBUF")
-    bbuf_node.set_attr("size", sys_array_cfg.bbuf)
+    bbuf_cfg = sys_array_cfg.bbuf
 
-    wbuf_node = StorageNode("WBUF")
-    wbuf_node.set_attr("size", sys_array_cfg.wbuf)
+    bbuf_node = StorageNode("BBUF", bbuf_cfg.read_bw, bbuf_cfg.write_bw, bbuf_cfg.access_type, bbuf_cfg.size)
 
-    obuf_node = StorageNode("OBUF")
-    obuf_node.set_attr("size", sys_array_cfg.obuf)
+    wbuf_cfg = sys_array_cfg.wbuf
+    wbuf_node = StorageNode("WBUF", wbuf_cfg.read_bw, wbuf_cfg.write_bw, wbuf_cfg.access_type, wbuf_cfg.size)
+
+    obuf_cfg = sys_array_cfg.bbuf
+    obuf_node = StorageNode("OBUF", obuf_cfg.read_bw, obuf_cfg.write_bw, obuf_cfg.access_type, obuf_cfg.size)
 
     return ibuf_node, bbuf_node, wbuf_node, obuf_node
 
@@ -85,13 +85,13 @@ def generate_simd_array(simd_cfg: SIMDConfig):
     simd_array = ComputeNode(name="SIMDArray")
     alu_array = ComputeNode(name="ALUArray")
     alu_array.set_attr("width", simd_cfg.lanes)
-    vec_rf = StorageNode("VectorRF")
+    rf_cfg = simd_cfg.mem_cfg
+    vec_rf = StorageNode("VectorRF", rf_cfg.read_bw, rf_cfg.write_bw, rf_cfg.access_type, rf_cfg.size)
     vec_rf.set_attr("size", simd_cfg.lanes)
 
     simd_array.add_subgraph_node(alu_array)
     simd_array.add_subgraph_node(vec_rf)
     simd_array.add_subgraph_edge(vec_rf, alu_array)
     simd_array.add_subgraph_edge(alu_array, vec_rf)
-
 
     return simd_array
