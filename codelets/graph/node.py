@@ -10,8 +10,8 @@ class Node(object):
     def __init__(self):
 
         # index is a unique value for all the nodes created
-        type(self).counter += 1
-        self.index = type(self).counter
+        Node.counter += 1
+        self.index = Node.counter
         
         # connectivity
         self._succs = {}
@@ -46,7 +46,6 @@ class Node(object):
         del self
 
     def dissolve(self):
-        
         # make connections between preds and succs
         for pred in self.get_preds():
             for succ in self.get_succs():
@@ -99,16 +98,16 @@ class Node(object):
 
     def remove_succ_by_index(self, dst_node_index:int):
         assert self._graph != None, 'remove_succ_by_index function cannot be used without setting graph'
-        assert dst_node.index in self._succs, 'dst_node_index is not in succs'
+        assert dst_node_index in self._succs, 'dst_node_index is not in succs'
         dst_node = self._graph.get_node_by_index(dst_node_index)
-        remove_succ(dst_node)
+        self.remove_succ(dst_node)
         assert self.get_attr('out_degree') == len(self.get_succs()), 'out_degree and length of succs should be same'
 
     def remove_pred_by_index(self, src_node_index:int):
         assert self._graph != None, 'remove_pred_by_index function cannot be used without setting graph'
-        assert src_node.index in self._preds, 'src_node_index is not in preds'
+        assert src_node_index in self._preds, 'src_node_index is not in preds'
         src_node = self._graph.get_node_by_index(src_node_index)
-        remove_pred(src_node)
+        self.remove_pred(src_node)
         assert self.get_attr('in_degree') == len(self.get_preds()), 'in_degree and length of preds should be same'
     
     def _remove_succ(self, dst_node):
@@ -160,7 +159,9 @@ class Node(object):
     def get_pred_by_index(self, node_index:int):
         return self._preds[node_index]
     
-    
+    def is_attr_key(self, attr_key:str):
+        return attr_key in self._attrs
+
     # attributes
     def set_attr(self, attr_key:str, attr_value):
         self._attrs[attr_key] = attr_value

@@ -1,7 +1,7 @@
 import os
 import graphviz
 from graphviz import Digraph
-
+import copy
 from .node import Node
 
 class Graph(object):
@@ -11,11 +11,10 @@ class Graph(object):
 
     def __init__(self):
         self._nodes = {}
-
         # attributes
         self._attrs = {}
 
-    def add_node(self, node:Node):
+    def _add_node(self, node: Node):
         node.set_graph(self)
         self._nodes[node.index] = node
 
@@ -31,7 +30,7 @@ class Graph(object):
     def get_node_indices(self):
         return self._nodes.keys()
 
-    def add_edge(self, src_node, dst_node):
+    def _add_edge(self, src_node, dst_node):
         
         # check if src and dst are both in the graph
         assert src_node.index in self._nodes.keys(), 'src_node is not in graph'
@@ -56,7 +55,7 @@ class Graph(object):
     def add_edge_by_index(self, src_node_index, dst_node_index):
         src_node = self.get_node_by_index(src_node_index)
         dst_node = self.get_node_by_index(dst_node_index)
-        self.add_edge(src_node, dst_node)
+        self._add_edge(src_node, dst_node)
 
 
     def delete_node(self, node:Node):

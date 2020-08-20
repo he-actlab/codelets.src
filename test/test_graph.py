@@ -15,10 +15,10 @@ if __name__ == '__main__':
 
     print('       add edges 1-->2')
     print('       now 1-->2')
-    graph1.add_node(node1)
-    graph1.add_node(node2)
-    graph1.add_node(node3)
-    graph1.add_edge(node1, node2)
+    graph1._add_node(node1)
+    graph1._add_node(node2)
+    graph1._add_node(node3)
+    graph1._add_edge(node1, node2)
 
     print(node1)
     print(node2)
@@ -32,8 +32,8 @@ if __name__ == '__main__':
     
     print('       add edges 1-->2-->3')
     print('       now 1-->2-->3')
-    graph1.add_edge(node1, node2)
-    graph1.add_edge(node2, node3)
+    graph1._add_edge(node1, node2)
+    graph1._add_edge(node2, node3)
     
     print(node1)
     print(node2)
@@ -49,8 +49,8 @@ if __name__ == '__main__':
     print('       add edges 4-->2')
     print('       now 4-->2-->3')
     node4 = Node()
-    graph1.add_node(node4)
-    graph1.add_edge(node4, node2)
+    graph1._add_node(node4)
+    graph1._add_edge(node4, node2)
     
     # visualize
     graph1.visualize()
@@ -68,7 +68,7 @@ if __name__ == '__main__':
 
     print('       add edges 3-->2')
     print('       now 2-->3-->2')
-    graph1.add_edge(node3, node2)
+    graph1._add_edge(node3, node2)
     
     print(node2)
     print(node3)
@@ -78,4 +78,5 @@ if __name__ == '__main__':
     node3.delete()
 
     print(node2)
+    graph1.visualize("test1")
 

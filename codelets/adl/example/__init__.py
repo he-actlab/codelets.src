@@ -1,1 +1,1 @@
-from dnnweaver import generate_dnnweaver
+from .dnnweaver import generate_dnnweaver
