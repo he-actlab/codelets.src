@@ -1,5 +1,9 @@
 import numpy as np
 
+# TODO does different on-chip dataflow need to be considered?
+#      if so, how should it be included?
+#      current implementation considers a single type of on-chip dataflow!
+
 class Capability(object):
     """
     Base class for capability
@@ -11,11 +15,14 @@ class Capability(object):
         # list of inputs should be identical regardless of dataflows
         # 'input name': 'dims'
         self._inputs = {}
+        self._outputs = {}
 
-        # basic instructions may have one 'default' dataflow, but some capabilities may have
-        # multiple dataflows for same functionality.
-        self._dataflows = {}
+        # latency can be either a fixed value or a lambda function
+        self._latency = None
 
+
+    def set_name(self, name)
+        self._name = name
 
     def get_name(self):
         return self._name
@@ -26,38 +33,37 @@ class Capability(object):
 
     def get_inputs(self):
         return self._inputs.keys()
-
-    def _get_required_dims_from_inputs(self):
+    
+    def get_required_input_dims(self):
         # this one liner identifies unique dimensions that are required by the capability
-        return set(sum(list(self._inputs['dims'].values()), []))
+        return set(sum([list(self._inputs[name]['dims'].keys()) for name in self._inputs.keys()], []))
+
+    def get_required_input_ranges(self, dim):
+        dim_ranges = [self._inputs[name]['dims'][dim] for name in self._inputs.keys()]
+        equal = len(set(dim_ranges)) <= 1
+        assert equal, 'ranges should be identically defined for same dim'
+        return set(dim_ranges)[0]
 
 
-    # TODO 
-    # list of things that determine delay... for example in communication nodes, it requires different things?
-    # dependencies... for example, additional or less delay due to dependencies
-    # encoding... for example, NCHW and NHWC may require different memory calculation
-    def add_dataflow(self, name='default', delay=None, constraint=None):
-        assert name not in self._dataflows.keys(), f'{name} dataflow is already defined'
-        self._dataflows[name] = {'delay': delay, 'constraint': constraint}
-        assert self._get_required_dims_from_inputs() == self._get_required_dims_from_dataflows(), 'required dims should be consistent'
+    def add_output(self, name, dst, dims):
+        self._outputs[name] = {'dst': dst, 'dims': dims}
 
-    def get_dataflows(self):
-        return self._dataflows.keys()
+    def get_outputs(self):
+        return self._outputs.keys()
 
-    def get_required_dims(self, dataflow='default'):
-        return self._dataflows[dataflow]['constraint'].keys()
+    def get_required_output_dims(self):
+        # this one liner identifies unique dimensions that are required by the capability
+        return set(sum([list(self._outputs[name]['dims'].keys()) for name in self._outputs.keys()], []))
 
-    # returns tuple (min, max) for the dimension, which denotes range: [min, max]
-    def get_required_dim_range(self, dataflow='default', dim=None):
-        return self._dataflows[dataflow]['constraint'][dim]
+    def get_required_output_ranges(self, dim):
+        dim_ranges = [self._outputs[name]['dims'][dim] for name in self._outputs.keys()]
+        equal = len(set(dim_ranges)) <= 1
+        assert equal, 'ranges should be identically defined for same dim'
+        return set(dim_ranges)[0]
+    
 
-    def _get_required_dims_from_dataflows(self):
-        return set(sum([list(self.get_required_dims(dataflow)) for dataflow in self.get_dataflows()], []))
+    def set_latency(self, latency):
+        self._latency = latency
 
-
-    # TODO
-    # dependencies... take as input a previous capability being executed, and see if they can be pipelined?
-    #                 this may yield different delays...
-    def get_delay(self, dataflow='default'):
-        delay = self._dataflows[dataflow]['delay']
-        assert delay, 'if delay is None, capability is invalid'
+    def get_latency(self):
+        return self._latency
