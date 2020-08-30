@@ -31,6 +31,12 @@ class ArchitectureNode(Node):
         # occupied: [(op_node, capability, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
         self._occupied = [] # NOTE state in TABLA compiler...
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exec_type, exec_value, exec_traceback):
+        pass
     
     def __str__(self):
         return f'op {self.index} ({self.get_type()}): \
