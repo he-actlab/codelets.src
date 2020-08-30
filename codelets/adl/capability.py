@@ -21,7 +21,7 @@ class Capability(object):
         self._latency = None
 
 
-    def set_name(self, name)
+    def set_name(self, name):
         self._name = name
 
     def get_name(self):
