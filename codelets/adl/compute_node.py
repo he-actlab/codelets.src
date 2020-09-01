@@ -6,11 +6,13 @@ from codelets.adl.architecture_node import ArchitectureNode
 
 class ComputeNode(ArchitectureNode):
 
-    def __init__(self, name, index=None):
+    def __init__(self, name, capabilities=None, index=None):
         super(ComputeNode, self).__init__(name, index=index)
         self.set_attr("node_color", self.viz_color)
-        
         self._capabilities = {}
+        if capabilities:
+            for c in capabilities:
+                self.add_capability(c)
 
 
     @property

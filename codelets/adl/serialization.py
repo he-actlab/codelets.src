@@ -17,41 +17,48 @@ def serialize_graph(graph, save_path, validate_graph=False):
     json_graph['graph'] = _serialize_node(graph)
     if validate_graph:
         validate_schema(json_graph)
-
     with open(f"{save_path}", "w") as file:
         json.dump(json_graph, file, indent=4)
 
 def get_compute_node_attr(node: ComputeNode):
     attr = {}
     key = 'compute_node'
-    attr['capabilities'] = get_json_capabilities(node.get_capabilities())
+    cap_names = node.get_capabilities()
+    cap_dict = {cname: node.get_capability(cname) for cname in cap_names}
+    attr['capabilities'] = get_json_capabilities(cap_dict)
     return key, attr
 
-def get_json_capabilities(capability_list):
+def get_json_capabilities(capabilities):
     caps = []
-    for cname, c in capability_list.items():
+    for cname, c in capabilities.items():
         cap = {'op_name': cname}
-        cap['latency'] = c['latency']
+        cap['latency'] = c.get_latency()
         cap['input_nodes'], cap['output_nodes'] = get_capability_operands(c)
-        cap['subcapabilities'] = get_json_capabilities(c['subcapabilities'])
+        cap_dict = {k.get_name(): k for k in c.get_sub_capabilities()}
+        cap['subcapabilities'] = get_json_capabilities(cap_dict)
         caps.append(cap)
     return caps
 
 def get_capability_operands(capability):
     inputs = []
-    for inode in capability['inputs']:
+    for inode in capability.get_inputs():
+        inp = capability.get_input(inode)
         json_operand = {}
-        json_operand['node_id'] = inode['node_id']
-        json_operand['dtype'] = inode['dtype']
-        json_operand['dimensions'] = inode['dimensions']
+        json_operand['name'] = inode
+        json_operand['src'] = inp['src']
+        #TODO: Change to create dims
+        json_operand['dimensions'] = list(inp['dims'])
         inputs.append(json_operand)
 
     outputs = []
-    for inode in capability['outputs']:
+    for onode in capability.get_outputs():
+        out = capability.get_output(onode)
         json_operand = {}
-        json_operand['node_id'] = inode['node_id']
-        json_operand['dtype'] = inode['dtype']
-        json_operand['dimensions'] = inode['dimensions']
+        json_operand['name'] = onode
+        json_operand['dst'] = out['dst']
+
+        #TODO: Change to create dims
+        json_operand['dimensions'] = list(out['dims'])
         outputs.append(json_operand)
 
     return inputs, outputs
@@ -59,7 +66,7 @@ def get_capability_operands(capability):
 def get_storage_node_attr(node: StorageNode):
     key = 'storage_node'
     attr = {}
-    attr['capacity'] = node.get_capacity()
+    attr['capacity'] = node.get_size()
     attr['read_bw'] = node.get_read_bw()
     attr['write_bw'] = node.get_write_bw()
     attr['access_type'] = node.get_access_type()
@@ -69,7 +76,7 @@ def get_communication_node_attr(node: CommunicationNode):
     attr = {}
     key = 'communication_node'
     attr['comm_type'] = node.get_comm_type()
-    attr['bandwidth'] = node.get_bandwidth()
+    attr['bandwidth'] = node.get_bw()
 
     return key, attr
 
@@ -132,6 +139,7 @@ def _deserialize_node(json_node):
     node_type = json_node['node_type']
     # init_args = DESER_NODE_ATTR_FN[node_type](json_node['type_attributes'])
     init_args = DESER_NODE_ATTR_FN[node_type](json_node)
+
     node = NODE_INITIALIZERS[node_type](node_name, *init_args, index=node_id)
     _set_node_attributes_from_json(node, json_node)
 
@@ -254,14 +262,14 @@ def compare_storage_attr(node1: StorageNode, node2: StorageNode):
         return False
     elif node1.get_access_type() != node2.get_access_type():
         return False
-    elif node1.get_capacity() != node2.get_capacity():
+    elif node1.get_size() != node2.get_size():
         return False
     return True
 
 def compare_communication_attr(node1: CommunicationNode, node2: CommunicationNode):
     if node1.get_comm_type() != node2.get_comm_type():
         return False
-    elif node1.get_bandwidth() != node2.get_bandwidth():
+    elif node1.get_bw() != node2.get_bw():
         return False
     return True
 

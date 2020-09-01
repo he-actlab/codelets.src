@@ -16,10 +16,10 @@ class Capability(object):
         # 'input name': 'dims'
         self._inputs = {}
         self._outputs = {}
+        self._subcapabilities = []
 
         # latency can be either a fixed value or a lambda function
-        self._latency = None
-
+        self._latency = 0
 
     def set_name(self, name):
         self._name = name
@@ -27,6 +27,8 @@ class Capability(object):
     def get_name(self):
         return self._name
 
+    def get_sub_capabilities(self):
+        return self._subcapabilities
 
     def add_input(self, name, src, dims):
         self._inputs[name] = {'src': src, 'dims': dims}
@@ -67,3 +69,11 @@ class Capability(object):
 
     def get_latency(self):
         return self._latency
+
+    def get_output(self, name):
+        assert name in self._outputs
+        return self._outputs[name]
+
+    def get_input(self, name):
+        assert name in self._inputs
+        return self._inputs[name]

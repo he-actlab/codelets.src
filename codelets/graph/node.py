@@ -95,7 +95,6 @@ class Node(object):
         self._preds[src_node.index] = src_node
         self.increment_in_degree()
 
-    
     def remove_succ(self, dst_node):
         self._remove_succ(dst_node)
         dst_node._remove_pred(self)

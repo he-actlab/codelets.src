@@ -190,7 +190,36 @@
                                 "name": "PEArray",
                                 "node_type": "ComputeNode",
                                 "compute_node": {
-                                    "capabilities": []
+                                    "capabilities": [
+                                        {
+                                            "op_name": "MatrixMatrixMul",
+                                            "latency": 0,
+                                            "input_nodes": [
+                                                {
+                                                    "name": "ifmap",
+                                                    "src": [
+                                                        "IBUF"
+                                                    ],
+                                                    "dimensions": [
+                                                        "b",
+                                                        "x"
+                                                    ]
+                                                },
+                                                {
+                                                    "name": "weight",
+                                                    "src": [
+                                                        "WBUF"
+                                                    ],
+                                                    "dimensions": [
+                                                        "x",
+                                                        "y"
+                                                    ]
+                                                }
+                                            ],
+                                            "output_nodes": [],
+                                            "subcapabilities": []
+                                        }
+                                    ]
                                 },
                                 "attributes": [
                                     {
@@ -228,27 +257,62 @@
                             {
                                 "src": 3,
                                 "dst": 7,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             },
                             {
                                 "src": 5,
                                 "dst": 7,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             },
                             {
                                 "src": 4,
                                 "dst": 7,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             },
                             {
                                 "src": 6,
                                 "dst": 7,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             },
                             {
                                 "src": 7,
                                 "dst": 6,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -356,12 +420,26 @@
                             {
                                 "src": 10,
                                 "dst": 9,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             },
                             {
                                 "src": 9,
                                 "dst": 10,
-                                "attributes": []
+                                "attributes": [
+                                    {
+                                        "latency": 1
+                                    },
+                                    {
+                                        "bw": 32
+                                    }
+                                ]
                             }
                         ]
                     }
@@ -435,42 +513,98 @@
                 {
                     "src": 6,
                     "dst": 9,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 11,
                     "dst": 6,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 6,
                     "dst": 11,
-                    "attributes": []
-                },
-                {
-                    "src": 11,
-                    "dst": 3,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 11,
                     "dst": 5,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
+                },
+                {
+                    "src": 11,
+                    "dst": 3,
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 11,
                     "dst": 4,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 12,
                     "dst": 11,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 11,
                     "dst": 12,
-                    "attributes": []
+                    "attributes": [
+                        {
+                            "latency": 1
+                        },
+                        {
+                            "bw": 32
+                        }
+                    ]
                 },
                 {
                     "src": 11,

@@ -21,20 +21,20 @@ def generate_dnnweaver(sys_array_cfg, simd_cfg, extern_mem):
     dnnw_graph.add_subgraph_node(sys_array)
     simd_array = generate_simd_array(simd_cfg)
     dnnw_graph.add_subgraph_node(simd_array)
-    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"), {'latency':1 'bw':32})
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"), {'latency':1, 'bw':32})
 
-
-    mem_bus = CommunicationNode("Bus", "bus", 128)
+    # TODO: Ask soroush the latency and bandwidth of the bus to external memory
+    mem_bus = CommunicationNode("Bus", "bus", 1, 128)
     ext_mem = StorageNode("ExternalMem", extern_mem.read_bw, extern_mem.write_bw, extern_mem.access_type, extern_mem.size)
     dnnw_graph.add_subgraph_node(mem_bus)
     dnnw_graph.add_subgraph_node(ext_mem)
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("OBUF"), {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), mem_bus, {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("IBUF"), {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("WBUF"), {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("BBUF"), {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(ext_mem, mem_bus, {'latency':1 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, ext_mem, {'latency':1 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("OBUF"), {'latency':1,'bw':32})
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), mem_bus, {'latency':1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("WBUF"), {'latency':1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("IBUF"), {'latency':1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("BBUF"), {'latency':1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(ext_mem, mem_bus, {'latency':1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, ext_mem, {'latency':1, 'bw':32})
 
     dnnw_graph.add_subgraph_edge(mem_bus, simd_array.get_subgraph_node("VectorRF"))
     dnnw_graph.add_subgraph_edge(simd_array.get_subgraph_node("VectorRF"), mem_bus)
@@ -68,26 +68,26 @@ def generate_pe_array(sys_array_cfg):
     matmul = Capability('MatrixMatrixMul')
     matmul.add_input(name='ifmap', src=["IBUF"], dims=['b', 'x'])
     matmul.add_input(name='weight', src=["WBUF"], dims=['x', 'y'])
-    matmul.add_dataflow(name='os',
-                        delay=lambda b,x,y: max(systolic_array.get_attr('array_height'),
-                                                systolic_array.get_attr('array_width'))+x,
-                        constraint={'b': (0, systolic_array.get_attr('array_height')),
-                                    'x': (0, 'inf'),
-                                    'y': (0, systolic_array.get_attr('array_width'))}
-                       )
-    matmul.add_dataflow(name='ws',
-                        delay=lambda b,x,y: systolic_array.get_attr('array_height')+b,
-                        constraint={'b': (0, 'inf'),
-                                    'x': (0, systolic_array.get_attr('array_height')),
-                                    'y': (0, systolic_array.get_attr('array_width'))}
-                       )
-    matmul.add_dataflow(name='is',
-                        delay=lambda b,x,y: systolic_array.get_attr('array_height')+b,
-                        constraint={'b': (0, systolic_array.get_attr('array_width')),
-                                    'x': (0, systolic_array.get_attr('array_height')),
-                                    'y': (0, 'inf')}
-                       )
-    systolic_array.add_capability(matmul)
+    # matmul.add_dataflow(name='os',
+    #                     delay=lambda b,x,y: max(pe_array.get_attr('array_height'),
+    #                                             pe_array.get_attr('array_width'))+x,
+    #                     constraint={'b': (0, pe_array.get_attr('array_height')),
+    #                                 'x': (0, 'inf'),
+    #                                 'y': (0, pe_array.get_attr('array_width'))}
+    #                    )
+    # matmul.add_dataflow(name='ws',
+    #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
+    #                     constraint={'b': (0, 'inf'),
+    #                                 'x': (0, pe_array.get_attr('array_height')),
+    #                                 'y': (0, pe_array.get_attr('array_width'))}
+    #                    )
+    # matmul.add_dataflow(name='is',
+    #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
+    #                     constraint={'b': (0, pe_array.get_attr('array_width')),
+    #                                 'x': (0, pe_array.get_attr('array_height')),
+    #                                 'y': (0, 'inf')}
+    #                    )
+    pe_array.add_capability(matmul)
     
     # TODO MatrixVectorMul & VectorVectorMul
 
@@ -106,11 +106,11 @@ def generate_systolic_array(sys_array_cfg: SysArrayConfig):
     pe_array = generate_pe_array(sys_array_cfg)
     sys_array.add_subgraph_node(pe_array)
 
-    sys_array.add_subgraph_edge(ibuf_node, pe_array, {'latency':1 'bw':32})
-    sys_array.add_subgraph_edge(wbuf_node, pe_array, {'latency':1 'bw':32})
-    sys_array.add_subgraph_edge(bbuf_node, pe_array, {'latency':1 'bw':32})
-    sys_array.add_subgraph_edge(obuf_node, pe_array, {'latency':1 'bw':32})
-    sys_array.add_subgraph_edge(pe_array, obuf_node, {'latency':1 'bw':32})
+    sys_array.add_subgraph_edge(ibuf_node, pe_array, {'latency':1, 'bw':32})
+    sys_array.add_subgraph_edge(wbuf_node, pe_array, {'latency':1, 'bw':32})
+    sys_array.add_subgraph_edge(bbuf_node, pe_array, {'latency':1, 'bw':32})
+    sys_array.add_subgraph_edge(obuf_node, pe_array, {'latency':1, 'bw':32})
+    sys_array.add_subgraph_edge(pe_array, obuf_node, {'latency':1, 'bw':32})
 
     # TODO make sure all capabilities of the enclosed nodes are detected through some API
 
@@ -131,7 +131,7 @@ def generate_simd_array(simd_cfg: SIMDConfig):
 
     simd_array.add_subgraph_node(alu_array)
     simd_array.add_subgraph_node(vec_rf)
-    simd_array.add_subgraph_edge(vec_rf, alu_array, {'latency':1 'bw':32})
-    simd_array.add_subgraph_edge(alu_array, vec_rf, {'latency':1 'bw':32})
+    simd_array.add_subgraph_edge(vec_rf, alu_array, {'latency':1, 'bw':32})
+    simd_array.add_subgraph_edge(alu_array, vec_rf, {'latency':1, 'bw':32})
 
     return simd_array
