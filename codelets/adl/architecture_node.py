@@ -25,9 +25,18 @@ class ArchitectureNode(Node):
         self._subgraph_nodes = {}
         self._subgraph_edges = []
 
+        # capabilities
+        self._capabilities = {}
+
         # occupied: [(op_node, capability, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
         self._occupied = [] # NOTE state in TABLA compiler...
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exec_type, exec_value, exec_traceback):
+        pass
     
     def __str__(self):
         return f'op {self.index} ({self.get_type()}): \
@@ -94,6 +103,29 @@ class ArchitectureNode(Node):
             raise RuntimeError(f"Overlapping keys when merging nodes")
         self.subgraph._nodes.update(node.subgraph._nodes)
 
+
+    def add_capability(self, capability):
+        self._capabilities[capability.get_name()] = capability
+
+    def get_capability(self, name):
+        return self._capabilities[name]
+
+    def get_capabilities(self):
+        return self._capabilities.keys()
+
+    def is_compatible(self, op_name):
+        return op_name in self._capabilities.keys()
+
+    
+    def set_occupied(self, op_code, capability, begin_cycle, end_cycle):
+        
+        # check for overlaps, "o" is occupied and "n" is new
+        n = (begin_cycle, end_cycle)
+        overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
+        assert len(overlaps) == 0, 'this op_node cannot be mapped here, check before using set_occupied'
+
+        # append to _occupied
+        self._occupied.append((op_node, capability, begin_cycle, end_cycle))
 
     def get_occupied(self):
         

@@ -1,3 +1,5 @@
+from .capability import Capability
+
 from .architecture_node import ArchitectureNode
 from .architecture_graph import ArchitectureGraph
 
