@@ -14,7 +14,13 @@ class ComputeNode(ArchitectureNode):
             for c in capabilities:
                 self.add_capability(c)
 
-
     @property
     def viz_color(self):
         return "#BFBFFF"
+
+    def get_viz_attr(self):
+        caps = list(self.get_capabilities())
+        if len(caps) > 5:
+            return f"Capabilities: {caps[:5]}"
+        else:
+            return f"Capabilities: {caps}"

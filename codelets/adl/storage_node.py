@@ -39,3 +39,8 @@ class StorageNode(ArchitectureNode):
 
     def get_size(self):
         return self._size
+
+    def get_viz_attr(self):
+        return f"R/W Bandwidth: {self.get_read_bw()}/{self.get_write_bw()}\\n" \
+               f"Access Type: {self.get_access_type()}\\n" \
+               f"Size: {self.get_size()}"

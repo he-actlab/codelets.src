@@ -9,10 +9,11 @@ class Graph(object):
     Base class for graph
     """
 
-    def __init__(self):
+    def __init__(self, parent_graph=None):
         self._nodes = {}
         # attributes
         self._attrs = {}
+        self._parent_graph = parent_graph
 
     def _add_node(self, node: Node):
         node.set_graph(self)
@@ -31,7 +32,7 @@ class Graph(object):
         return self._nodes.keys()
 
     def _add_edge(self, src_node, dst_node):
-        
+
         # check if src and dst are both in the graph
         assert src_node.index in self._nodes.keys(), 'src_node is not in graph'
         assert dst_node.index in self._nodes.keys(), 'dst_node is not in graph'
@@ -39,7 +40,7 @@ class Graph(object):
         # NOTE add_succ and add_pred deals with both src and dst nodes.
         # therefore, only one invocation is required
         src_node.add_succ(dst_node)
-        #dst_node.add_pred(src_node)
+        # dst_node.add_pred(src_node)
     
     def remove_edge(self, src_node, dst_node):
         

@@ -14,6 +14,7 @@ class ArchitectureGraph(Graph):
         self._edges = []
         # store the name of the graph from the .pb or .onnx
         self._old_name = old_name
+        self._is_top_level = True
 
     def _networkx_visualize(self, filename='output'):
         dgraph = nx.MultiDiGraph(compound=True, concentrate=True)
@@ -36,6 +37,8 @@ class ArchitectureGraph(Graph):
         gviz.layout(prog='fdp')
         gviz.draw(f"{filename}.pdf", format="pdf")
 
+    def unset_toplevel(self):
+        self._is_top_level = False
 
     def _add_nx_subgraph(self, gviz_graph, node, attrs=None, shape='record', style='rounded,filled', color='white'):
         label = f'{type(node).__name__}' if not node.is_attr_key("name") else node.get_attr("name")
@@ -54,6 +57,7 @@ class ArchitectureGraph(Graph):
             node_attrs['style'] = style
             node_attrs['shape'] = shape
             node_attrs['fillcolor'] = 'white' if not node.is_attr_key("node_color") else node.get_attr("node_color")
+            label = f"{label}\\n{node.get_viz_attr()}"
             if node.get_type() == "StorageNode":
                 node_attrs['width'] = str(0.5)
                 node_attrs['height'] = str(0.5)

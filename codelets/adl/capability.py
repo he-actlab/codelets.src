@@ -8,6 +8,7 @@ class Capability(object):
     """
     Base class for capability
     """
+    CONST_VAL = 'CONST'
 
     def __init__(self, name):
         self._name = name
@@ -29,6 +30,22 @@ class Capability(object):
 
     def get_sub_capabilities(self):
         return self._subcapabilities
+
+    def get_input_sources(self):
+        sources = []
+        for k, v in self._inputs.items():
+            for s in v['src']:
+                if s not in sources and s != Capability.CONST_VAL:
+                    sources.append(s)
+        return sources
+
+    def get_output_dests(self):
+        dests = []
+        for k, v in self._outputs.items():
+            for d in v['dst']:
+                if d not in dests:
+                    dests.append(d)
+        return dests
 
     def add_input(self, name, src, dims):
         self._inputs[name] = {'src': src, 'dims': dims}

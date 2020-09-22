@@ -2,6 +2,7 @@ import numpy as np
 
 from codelets.graph import Node
 from codelets.adl.architecture_graph import ArchitectureGraph
+from codelets.adl.capability import Capability
 from pygraphviz import AGraph
 from collections import namedtuple
 
@@ -59,15 +60,20 @@ class ArchitectureNode(Node):
 
         for n in self.subgraph.get_nodes():
             self.subgraph._add_nx_subgraph(dgraph, n)
+
         dgraph.add_edges_from(self.subgraph.get_viz_edge_list())
 
-        dgraph.layout("fdp")
+        dgraph.layout("dot")
         dgraph.draw(f"{filename}.pdf", format="pdf")
     #
     def set_parent(self, node_id):
         self._has_parent = node_id
 
+    def get_viz_attr(self):
+        raise NotImplementedError
+
     def add_subgraph_edge(self, src, dst, attributes=None):
+
         if self._has_parent:
             raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
         if attributes:
@@ -77,6 +83,7 @@ class ArchitectureNode(Node):
                 attr.append({k: v})
         else:
             attr = []
+
         edge = Edge(src=src.index, dst=dst.index, attributes=attr)
         self._subgraph_edges.append(edge)
         self.subgraph.add_edge(src, dst)
@@ -104,7 +111,11 @@ class ArchitectureNode(Node):
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
-    def add_capability(self, capability):
+    def add_capability(self, capability: Capability):
+        input_src = capability.get_input_sources()
+        output_dst = capability.get_output_dests()
+        print([p.name for p in self.get_preds()])
+
         self._capabilities[capability.get_name()] = capability
 
     def get_capability(self, name):
@@ -115,7 +126,6 @@ class ArchitectureNode(Node):
 
     def is_compatible(self, op_name):
         return op_name in self._capabilities.keys()
-
     
     def set_occupied(self, op_code, capability, begin_cycle, end_cycle):
         
@@ -125,10 +135,9 @@ class ArchitectureNode(Node):
         assert len(overlaps) == 0, 'this op_node cannot be mapped here, check before using set_occupied'
 
         # append to _occupied
-        self._occupied.append((op_node, capability, begin_cycle, end_cycle))
+        self._occupied.append((op_code, capability, begin_cycle, end_cycle))
 
     def get_occupied(self):
-        
         return self._occupied
 
     def is_available(self, begin_cycle, end_cycle):
