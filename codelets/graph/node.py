@@ -92,7 +92,6 @@ class Node(object):
         self.increment_out_degree()
 
     def _add_pred(self, src_node):
-
         self._preds[src_node.index] = src_node
         self.increment_in_degree()
 

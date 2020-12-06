@@ -1,4 +1,4 @@
-from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode, StorageNode, Capability
+from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode, StorageNode, Codelet
 from collections import namedtuple
 from codelets.codelet import Codelet
 import numpy as np
@@ -14,28 +14,31 @@ SIMDConfig = namedtuple('SIMDConfig', ['lanes', 'mem_cfg'])
 MemConfig = namedtuple('MemConfig', ['size', 'read_bw', 'write_bw', 'access_type'])
 ExtMem = namedtuple('ExtMem', ['size', 'read_bw', 'write_bw', 'access_type'])
 
+def generate_pe_array(array_cfg):
+    pass
+
 def generate_dnnweaver(sys_array_cfg, simd_cfg, extern_mem):
     
     # dnnweaver
     dnnw_graph = ComputeNode("DnnWeaver")
     sys_array = generate_systolic_array(sys_array_cfg)
-    dnnw_graph.add_subgraph_node(sys_array)
-    simd_array = generate_simd_array(sys_array, simd_cfg)
-    dnnw_graph.add_subgraph_node(simd_array)
-    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"), {'latency':1, 'bw':32})
-
     # TODO: Ask soroush the latency and bandwidth of the bus to external memory
     mem_bus = CommunicationNode("Bus", "bus", 1, 128)
     ext_mem = StorageNode("EXTMEM", extern_mem.read_bw, extern_mem.write_bw, extern_mem.access_type, extern_mem.size)
+    dnnw_graph.add_subgraph_node(sys_array)
     dnnw_graph.add_subgraph_node(mem_bus)
     dnnw_graph.add_subgraph_node(ext_mem)
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("OBUF"), {'latency':1,'bw':32})
-    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), mem_bus, {'latency':1, 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("WBUF"), {'latency':1, 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("IBUF"), {'latency':1, 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("BBUF"), {'latency':1, 'bw':32})
-    dnnw_graph.add_subgraph_edge(ext_mem, mem_bus, {'latency':1, 'bw':32})
-    dnnw_graph.add_subgraph_edge(mem_bus, ext_mem, {'latency':1, 'bw':32})
+    simd_array = generate_simd_array(dnnw_graph, sys_array, simd_cfg)
+    dnnw_graph.add_subgraph_node(simd_array)
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), simd_array.get_subgraph_node("ALUArray"), {'latency':1, 'bw':32})
+
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("OBUF"), {'latency': 1,'bw':32})
+    dnnw_graph.add_subgraph_edge(sys_array.get_subgraph_node("OBUF"), mem_bus, {'latency': 1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("WBUF"), {'latency': 1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("IBUF"), {'latency': 1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, sys_array.get_subgraph_node("BBUF"), {'latency': 1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(ext_mem, mem_bus, {'latency': 1, 'bw':32})
+    dnnw_graph.add_subgraph_edge(mem_bus, ext_mem, {'latency': 1, 'bw':32})
 
     dnnw_graph.add_subgraph_edge(mem_bus, simd_array.get_subgraph_node("VMEM"))
     dnnw_graph.add_subgraph_edge(simd_array.get_subgraph_node("VMEM"), mem_bus)
@@ -59,39 +62,39 @@ def generate_buffers(sys_array_cfg: SysArrayConfig):
     return ibuf_node, bbuf_node, wbuf_node, obuf_node
 
 
-def generate_pe_array(sys_array_cfg):
-    pe_array = ComputeNode(name="PEArray")
-    pe_array.set_attr("width", sys_array_cfg.width)
-    pe_array.set_attr("height", sys_array_cfg.height)
-
-    # add capabilities
-    matmul = Capability('MatrixMatrixMul')
-    matmul.add_input(name='ifmap', src=["IBUF"], dims=['b', 'x'])
-    matmul.add_input(name='weight', src=["WBUF"], dims=['x', 'y'])
-    # matmul.add_dataflow(name='os',
-    #                     delay=lambda b,x,y: max(pe_array.get_attr('array_height'),
-    #                                             pe_array.get_attr('array_width'))+x,
-    #                     constraint={'b': (0, pe_array.get_attr('array_height')),
-    #                                 'x': (0, 'inf'),
-    #                                 'y': (0, pe_array.get_attr('array_width'))}
-    #                    )
-    # matmul.add_dataflow(name='ws',
-    #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
-    #                     constraint={'b': (0, 'inf'),
-    #                                 'x': (0, pe_array.get_attr('array_height')),
-    #                                 'y': (0, pe_array.get_attr('array_width'))}
-    #                    )
-    # matmul.add_dataflow(name='is',
-    #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
-    #                     constraint={'b': (0, pe_array.get_attr('array_width')),
-    #                                 'x': (0, pe_array.get_attr('array_height')),
-    #                                 'y': (0, 'inf')}
-    #                    )
-    pe_array.add_capability(matmul)
-    
-    # TODO MatrixVectorMul & VectorVectorMul
-
-    return pe_array
+# def generate_pe_array(sys_array_cfg):
+#     pe_array = ComputeNode(name="PEArray")
+#     pe_array.set_attr("width", sys_array_cfg.width)
+#     pe_array.set_attr("height", sys_array_cfg.height)
+#
+#     # add capabilities
+#     matmul = Codelet('MatrixMatrixMul')
+#     matmul.add_input(name='ifmap', src=["IBUF"], dims=['b', 'x'])
+#     matmul.add_input(name='weight', src=["WBUF"], dims=['x', 'y'])
+#     # matmul.add_dataflow(name='os',
+#     #                     delay=lambda b,x,y: max(pe_array.get_attr('array_height'),
+#     #                                             pe_array.get_attr('array_width'))+x,
+#     #                     constraint={'b': (0, pe_array.get_attr('array_height')),
+#     #                                 'x': (0, 'inf'),
+#     #                                 'y': (0, pe_array.get_attr('array_width'))}
+#     #                    )
+#     # matmul.add_dataflow(name='ws',
+#     #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
+#     #                     constraint={'b': (0, 'inf'),
+#     #                                 'x': (0, pe_array.get_attr('array_height')),
+#     #                                 'y': (0, pe_array.get_attr('array_width'))}
+#     #                    )
+#     # matmul.add_dataflow(name='is',
+#     #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
+#     #                     constraint={'b': (0, pe_array.get_attr('array_width')),
+#     #                                 'x': (0, pe_array.get_attr('array_height')),
+#     #                                 'y': (0, 'inf')}
+#     #                    )
+#     pe_array.add_capability(matmul)
+#
+#     # TODO MatrixVectorMul & VectorVectorMul
+#
+#     return pe_array
 
 def generate_systolic_array(sys_array_cfg: SysArrayConfig):
 
@@ -116,7 +119,7 @@ def generate_systolic_array(sys_array_cfg: SysArrayConfig):
 
     return sys_array
 
-def generate_simd_array(systolic_array, simd_cfg: SIMDConfig):
+def generate_simd_array(dnnweaver, systolic_array, simd_cfg: SIMDConfig):
     # Create node and add systolic array dimensions
     simd_array = ComputeNode(name="SIMDArray")
     # TODO SIMD operations
@@ -138,11 +141,11 @@ def generate_simd_array(systolic_array, simd_cfg: SIMDConfig):
     simd_array.add_subgraph_edge(vec_rf, alu_array, {'latency':1, 'bw':32})
     simd_array.add_subgraph_edge(alu_array, systolic_array.get_subgraph_node("IBUF"), {'latency':1, 'bw':32})
     simd_array.add_subgraph_edge(alu_array, imm_ns, {'latency':1, 'bw':32})
-    simd_array.add_subgraph_edge(alu_array, systolic_array.get_subgraph_node("EXTMEM"), {'latency':1, 'bw':32})
-    simd_array.add_subgraph_edge(systolic_array.get_subgraph_node("EXTMEM"), alu_array, {'latency':1, 'bw':32})
-    simd_array.add_subgraph_edge(imm_ns, alu_array, {'latency':1, 'bw':32})
-    simd_array.add_subgraph_edge(systolic_array.get_subgraph_node("OBUF"), alu_array, {'latency':1, 'bw':32})
-    simd_array.add_subgraph_edge(alu_array, vec_rf, {'latency':1, 'bw':32})
+    simd_array.add_subgraph_edge(alu_array, dnnweaver.get_subgraph_node("EXTMEM"), {'latency': 1, 'bw':32})
+    simd_array.add_subgraph_edge(dnnweaver.get_subgraph_node("EXTMEM"), alu_array, {'latency': 1, 'bw':32})
+    simd_array.add_subgraph_edge(imm_ns, alu_array, {'latency': 1, 'bw':32})
+    simd_array.add_subgraph_edge(systolic_array.get_subgraph_node("OBUF"), alu_array, {'latency': 1, 'bw':32})
+    simd_array.add_subgraph_edge(alu_array, vec_rf, {'latency': 1, 'bw':32})
 
     add_simd_capabilities(alu_array)
 
@@ -162,63 +165,63 @@ def add_simd_capabilities(alu_array):
     add_op = Add("add")
 
     for op_name in ALU_OPS:
-        alu_op = Capability(op_name)
+        alu_op = Codelet(op_name)
         alu_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(alu_op)
 
     for op_name in CALC_OPS:
-        calc_op = Capability(op_name)
+        calc_op = Codelet(op_name)
         calc_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         calc_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(calc_op)
 
     for op_name in COMPARISON_OPS:
-        comp_op = Capability(op_name)
+        comp_op = Codelet(op_name)
         comp_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         comp_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         comp_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(comp_op)
 
     for op_name in CAST_OPS:
-        cast_op = Capability(op_name)
+        cast_op = Codelet(op_name)
         cast_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         cast_op.add_input(name='op2', src=["IMM"], dims=['w'])
         cast_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(cast_op)
 
     for op_name in DTYPE_CFG_OPS:
-        dtype_cfg_op = Capability(op_name)
+        dtype_cfg_op = Codelet(op_name)
         dtype_cfg_op.add_input(name='op1', src=["IMM"], dims=['w'])
         alu_array.add_capability(dtype_cfg_op)
 
     for op_name in LOCK_NS_OPS:
-        lock_op = Capability(op_name)
+        lock_op = Codelet(op_name)
         lock_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         lock_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         lock_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(lock_op)
 
     for op_name in ITER_OPS:
-        iter_op = Capability(op_name)
+        iter_op = Codelet(op_name)
         iter_op.add_input(name='op1', src=["CONST"], dims=['w'])
         iter_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(iter_op)
 
     for op_name in LOOP_OPS:
-        loop_op = Capability(op_name)
+        loop_op = Codelet(op_name)
         loop_op.add_input(name='op1', src=["CONST"], dims=['w'])
         loop_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_array.add_capability(loop_op)
 
-    max_pool = Capability("max_pool")
+    max_pool = Codelet("max_pool")
     max_pool.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
     max_pool.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
     max_pool.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
 
 
-class Add(Capability):
+class Add(Codelet):
     def __init__(self, name):
         super(Add, self).__init__(name)
 
@@ -230,7 +233,7 @@ class MaxPool(Codelet):
         self._kernel_shape = dfg_node.attrs['kernel_shape']
         self._pads = dfg_node.attrs['pads']
         self._strides = dfg_node.attrs['strides']
-        self._input = dfg_node.inputs[0]
+        self._input = dfg_node.input_components[0]
         self._input_shape = dfg_node.input_shapes[0]
         self._shape_fn = np.floor if self.ceil_mode == 0 else np.ceil
         self._out_shape = self.compute_output_shape()

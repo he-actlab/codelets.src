@@ -5,7 +5,7 @@ from collections import namedtuple
 import pytest
 from pathlib import Path
 CWD = Path(f"{__file__}").parent
-TestDfgNode = namedtuple('TestDfgNode', ['inputs', 'input_shapes', 'attrs'])
+TestDfgNode = namedtuple('TestDfgNode', ['input_components', 'input_shapes', 'attrs'])
 
 @pytest.mark.parametrize('sys_array_hw, simd_lanes, mem_cfg',[
     ((32, 32), 32, MemConfig(size=128, read_bw=32, write_bw=32, access_type="RAM")),
@@ -43,9 +43,12 @@ def test_dnnweaver_max_pool(sys_array_hw, simd_lanes, mem_cfg, inp_shape, ceil_m
     extern_mem = MemConfig(size=1024, read_bw=32, write_bw=32, access_type="RAM")
     adl_graph = generate_dnnweaver(sys_array_cfg, simd_cfg, extern_mem)
     # max_pool_attrs = {'ceil_mode': ceil_mode, 'kernel_shape': kernel_shape, 'pads': pads, 'strides': strides}
-    # max_pool_node = TestDfgNode(inputs=['x'], input_shapes=[inp_shape], attrs=max_pool_attrs)
+    # max_pool_node = TestDfgNode(input_components=['x'], input_shapes=[inp_shape], attrs=max_pool_attrs)
     # max_pool_codelet = MaxPool(max_pool_node)
     # groupings = max_pool_codelet.create_pool_indices()
+
+def test_genesys_simd():
+    pass
 
 
 

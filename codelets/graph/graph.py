@@ -14,10 +14,18 @@ class Graph(object):
         # attributes
         self._attrs = {}
         self._parent_graph = parent_graph
+        self._inputs = []
+        self._outputs = []
 
     def _add_node(self, node: Node):
         node.set_graph(self)
         self._nodes[node.index] = node
+
+    def add_input(self, src):
+        self._inputs.append(src.index)
+
+    def add_output(self, dst):
+        self._outputs.append(dst.index)
 
     def get_node_by_index(self, node_index):
         return self._nodes[node_index]
@@ -34,8 +42,8 @@ class Graph(object):
     def _add_edge(self, src_node, dst_node):
 
         # check if src and dst are both in the graph
-        assert src_node.index in self._nodes.keys(), 'src_node is not in graph'
-        assert dst_node.index in self._nodes.keys(), 'dst_node is not in graph'
+        assert src_node.index in self._nodes.keys() or src_node.index in self._inputs, 'src_node is not in graph'
+        assert dst_node.index in self._nodes.keys() or dst_node.index in self._outputs, 'dst_node is not in graph'
 
         # NOTE add_succ and add_pred deals with both src and dst nodes.
         # therefore, only one invocation is required

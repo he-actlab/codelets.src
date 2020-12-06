@@ -1,4 +1,4 @@
-from codelets.examples import generate_tabla
+from codelets.examples.tabla import generate_tabla
 import pytest
 from collections import defaultdict
 import networkx as nx

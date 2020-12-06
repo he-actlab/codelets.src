@@ -11,14 +11,6 @@
         }
       ]
     },
-    "dimension_names": {
-      "type": "array",
-      "items": [
-        {
-          "type": "string"
-        }
-      ]
-    },
     "operand": {
       "type": "object",
       "properties": {
@@ -31,53 +23,20 @@
       "type":  "object",
       "properties": {
         "op_name": {"type": "string"},
-        "latency": {"type": "integer"},
-        "is_atomic": {"type": "boolean"},
-        "input_dimension_names": {
+        "latency": {"type": "number"},
+        "input_nodes": {
           "type": "array",
           "items": [
             {
-              "$ref": "#/definitions/dimension_names"
+                "$ref": "#/definitions/operand"
             }
           ]
         },
-        "output_dimension_names": {
+        "output_nodes": {
           "type": "array",
           "items": [
             {
-              "$ref": "#/definitions/dimension_names"
-            }
-          ]
-        },
-        "input_components": {
-          "type": "array",
-          "items": [
-            {
-                "type": "string"
-            }
-          ]
-        },
-        "output_components": {
-          "type": "array",
-          "items": [
-            {
-              "type": "string"
-            }
-          ]
-        },
-        "input_dtypes": {
-          "type": "array",
-          "items": [
-            {
-              "type": "string"
-            }
-          ]
-        },
-        "output_dtypes": {
-          "type": "array",
-          "items": [
-            {
-              "type": "string"
+              "$ref": "#/definitions/operand"
             }
           ]
         },
@@ -123,22 +82,12 @@
         "capacity": {"type": "number"},
         "read_bw": {"type": "number"},
         "write_bw": {"type": "number"},
-        "buff_scheme": {"type": "string"},
-        "latency": {"type": "integer"},
-        "input_ports": {"type": "integer"},
-        "output_ports": {"type": "integer"},
         "access_type": {"type": "string", "enum": ["FIFO", "RAM"]}
       }
     },
     "compute_node": {
       "type": "object",
       "properties": {
-        "dimensions": {
-          "type": "array",
-          "items": [
-            { "type": "integer" }
-          ]
-        },
         "capabilities": {
           "type": "array",
           "items": [
@@ -153,7 +102,6 @@
       "type": "object",
       "properties": {
         "comm_type": {"type": "string"},
-        "latency": {"type": "integer"},
         "bandwidth": {"type": "number"}
       }
     },
