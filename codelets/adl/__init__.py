@@ -1,4 +1,4 @@
-from .capability import Capability
+from .codelet import Codelet, Capability, Operand
 
 from .architecture_node import ArchitectureNode
 from .architecture_graph import ArchitectureGraph

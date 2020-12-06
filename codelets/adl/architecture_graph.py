@@ -71,7 +71,6 @@ class ArchitectureGraph(Graph):
             return name
 
 
-
     def _add_nx_node(self, nx_graph, subgraphs, node, attrs=None, shape='record', style='rounded,filled', color='white'):
         name = f'node_{node.index}'
 
@@ -160,6 +159,5 @@ class ArchitectureGraph(Graph):
         self._add_node(node)
 
     def add_edge(self, src, dst, attributes=None):
-
         self._add_edge(src, dst)
 

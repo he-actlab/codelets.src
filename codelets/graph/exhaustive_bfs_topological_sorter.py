@@ -32,7 +32,7 @@ class ExhaustiveBFSTopologicalSorter(TopologicalSorter):
 
     def _run(self, graph:Graph, debug=False):
 
-        # create outputs list
+        # create output_components list
         outs = []
 
         # create initial dictionary for in_degree

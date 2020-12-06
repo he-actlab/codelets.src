@@ -5,13 +5,70 @@ from codelets.adl.architecture_node import ArchitectureNode
 from codelets.adl.communication_node import CommunicationNode
 from codelets.adl.compute_node import ComputeNode
 from codelets.adl.storage_node import StorageNode
-from codelets.adl.capability import Capability
+from codelets.adl.codelet import Codelet
 from jsonschema import validate
 from pathlib import Path
 
 BaseArchNode = Union[ComputeNode, CommunicationNode, StorageNode]
 CWD = Path(f"{__file__}").parent
 JSON_SCHEMA_PATH = f"{CWD}/adl_schema.json"
+
+def get_compute_blob(node):
+    blob = {"name": node.name, "dimensions": node.dimensions}
+    capabilities = []
+    for name, c in node.capabilities.items():
+        cap_blob = {}
+        cap_blob['name'] = c.name
+        cap_blob['input_dimension_names'] = c.input_dimension_names
+        cap_blob['output_dimension_names'] = c.output_dimension_names
+        cap_blob['input_dtypes'] = c.input_dtypes
+        cap_blob['input_components'] = c.input_components
+        cap_blob['output_dtypes'] = c.output_dtypes
+        cap_blob['output_components'] = c.output_components
+        cap_blob['op_params'] = c.op_params
+        cap_blob['latency'] = c.latency
+        cap_blob['subcapabilities'] = []
+        # TODO: Add subcapabilities
+        # for sc in c.subcapabilities:
+        #     cap_blob['subcapabilities'].append()
+        capabilities.append(cap_blob)
+    blob['capabilities'] = capabilities
+    return blob
+
+def get_communication_blob(node):
+    blob = {"name": node.name, "comm_type": node.get_comm_type(), "latency": node.get_latency()}
+    blob['bandwidth'] = node.get_bw()
+    return blob
+
+def get_storage_blob(node):
+    blob = {"name": node.name, "read_bw": node.read_bw, "write_bw": node.write_bw}
+    blob["access_type"] = node.access_type
+    blob["size"] = node.size
+    blob["input_ports"] = node.input_ports
+    blob["output_ports"] = node.output_ports
+    blob["buffering_scheme"] = node.buffering_scheme
+    blob["latency"] = node.latency
+    return blob
+
+def generate_hw_cfg(graph, save_path):
+    json_graph = {}
+    json_graph[graph.name] = {"compute": [], "storage": [], "communication": []}
+    compute_blobs = []
+    storage_blobs = []
+    comm_blobs = []
+    for name, node in graph._all_subgraph_nodes.items():
+        if isinstance(node, ComputeNode):
+            compute_blobs.append(get_compute_blob(node))
+        elif isinstance(node, StorageNode):
+            storage_blobs.append(get_storage_blob(node))
+        elif isinstance(node, CommunicationNode):
+            comm_blobs.append(get_communication_blob(node))
+    json_graph[graph.name]["compute"] = compute_blobs
+    json_graph[graph.name]["storage"] = storage_blobs
+    json_graph[graph.name]["communication"] = comm_blobs
+
+    with open(f"{save_path}", "w") as file:
+        json.dump(json_graph, file, indent=4)
 
 def serialize_graph(graph, save_path, validate_graph=False):
     json_graph = {}
@@ -27,40 +84,30 @@ def get_compute_node_attr(node: ComputeNode):
     cap_names = node.get_capabilities()
     cap_dict = {cname: node.get_capability(cname) for cname in cap_names}
     attr['capabilities'] = get_json_capabilities(cap_dict)
+    attr['dimensions'] = node.dimensions
     return key, attr
 
 def get_json_capabilities(capabilities):
     caps = []
     for cname, c in capabilities.items():
         cap = {'op_name': cname}
-        cap['latency'] = c.get_latency()
-        cap['input_nodes'], cap['output_nodes'] = get_capability_operands(c)
-        cap_dict = {k.get_name(): k for k in c.get_sub_capabilities()}
+        cap['latency'] = c.latency
+        cap['is_atomic'] = c.is_atomic
+        cap['input_dimension_names'] = c.input_dimension_names
+        cap['output_dimension_names'] = c.output_dimension_names
+        cap['input_components'] = c.input_components
+        cap['output_components'] = c.output_components
+        cap['input_dtypes'] = c.input_dtypes
+        cap['output_dtypes'] = c.output_dtypes
+        cap_dict = {k.get_name(): k for k in c.subcapabilities}
         cap['subcapabilities'] = get_json_capabilities(cap_dict)
         caps.append(cap)
     return caps
 
 def get_capability_operands(capability):
-    inputs = []
-    for inode in capability.get_inputs():
-        inp = capability.get_input(inode)
-        json_operand = {}
-        json_operand['name'] = inode
-        json_operand['src'] = inp['src']
-        #TODO: Change to create dims
-        json_operand['dimensions'] = list(inp['dims'])
-        inputs.append(json_operand)
+    inputs = capability.input_components
+    outputs = capability.output_components
 
-    outputs = []
-    for onode in capability.get_outputs():
-        out = capability.get_output(onode)
-        json_operand = {}
-        json_operand['name'] = onode
-        json_operand['dst'] = out['dst']
-
-        #TODO: Change to create dims
-        json_operand['dimensions'] = list(out['dims'])
-        outputs.append(json_operand)
 
     return inputs, outputs
 
@@ -113,13 +160,8 @@ def deserialize_graph(filepath, validate_load=False):
 
 def _deserialize_capability(json_cap):
     # TODO: Fix this once the proper data structures are in place
-    cap = Capability(json_cap['op_name'])
-    cap.set_latency(json_cap['latency'])
-    for i in json_cap['input_nodes']:
-        cap.add_input(name=i['name'], src=i['src'], dims=i['dimensions'])
-
-    for o in json_cap['output_nodes']:
-        cap.add_output(name=o['name'], dst=o['dst'], dims=o['dimensions'])
+    name = json_cap.pop("op_name")
+    cap = Codelet(name, **json_cap)
     return cap
 
 def _deserialize_compute_attr(json_attr_):
@@ -128,7 +170,7 @@ def _deserialize_compute_attr(json_attr_):
     capabilities = []
     for cap in json_attr['capabilities']:
         capabilities.append(_deserialize_capability(cap))
-    return (capabilities,)
+    return (json_attr['dimensions'], capabilities)
 
 def _deserialize_storage_attr(json_attr_):
     key = 'storage_node'
@@ -260,6 +302,8 @@ def compare_cap_inputs(inputs1, inputs2):
     for i, inp1 in enumerate(inputs1):
         inp2 = inputs2[i]
         if inp1['src'] != inp2['src']:
+            print(inp1['src'])
+            print(inp2['src'])
             return False
         elif inp1['dims'] != inp2['dims']:
             return False
@@ -279,22 +323,16 @@ def compare_capabilities(caps1, caps2):
         if cap_name not in caps2:
             return False
         c2 = caps2[cap_name]
-        if c1.get_latency() != c2.get_latency():
+        if c1.latency != c2.latency:
             return False
-        c1_inputs = [c1.get_input(in_name) for in_name in c1.get_inputs()]
-        c2_inputs = [c2.get_input(in_name) for in_name in c2.get_inputs()]
-
-        c1_outputs = [c1.get_output(out_name) for out_name in c1.get_outputs()]
-        c2_outputs = [c2.get_output(out_name) for out_name in c2.get_outputs()]
-        if not compare_cap_inputs(c1_inputs, c2_inputs):
+        if c1.input_components != c2.input_components:
             return False
-        elif not compare_cap_outputs(c1_outputs, c2_outputs):
+        elif c1.output_components != c2.output_components:
             return False
-        sub_caps1 = {sc1.get_name(): sc1 for sc1 in c1.get_sub_capabilities()}
-        sub_caps2 = {sc1.get_name(): sc1 for sc1 in c1.get_sub_capabilities()}
+        sub_caps1 = {sc1.get_name(): sc1 for sc1 in c1.subcapabilities}
+        sub_caps2 = {sc1.get_name(): sc1 for sc1 in c1.subcapabilities}
         if not compare_capabilities(sub_caps1, sub_caps2):
             return False
-
     return True
 
 def compare_compute_attr(node1: ComputeNode, node2: ComputeNode):
@@ -302,6 +340,9 @@ def compare_compute_attr(node1: ComputeNode, node2: ComputeNode):
     caps1 = {cname: node1.get_capability(cname) for cname in cap1_names}
     cap2_names = node2.get_capabilities()
     caps2 = {cname: node2.get_capability(cname) for cname in cap2_names}
+    if node1.name == "pe_array":
+        print(f"{caps1.keys()}")
+        print(f"{caps2.keys()}")
     if not compare_capabilities(caps1, caps2):
         return False
     return True
