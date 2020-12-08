@@ -24,29 +24,30 @@ def parse_cfg():
 
 def test_generate_genesys():
     genesys_cfg = parse_cfg()
-
     genesys = generate_genesys(genesys_cfg)
-    # adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
-    # if not compare_graphs(genesys, adl_graph2):
-    #     raise RuntimeError
-    #
-    # generate_hw_cfg(genesys, "genesys_hw_cfg.json")
 
-def test_genesys_compilation():
+def test_genesys_resnet18():
 
-    graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.mgdfg")
+    # graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.mgdfg")
+    graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.srdfg")
     genesys_cfg = parse_cfg()
+    genesys = generate_genesys(genesys_cfg)
+    compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
 
+def test_genesys_serialization():
+    genesys_cfg = parse_cfg()
     genesys = generate_genesys(genesys_cfg)
     json_genesys = serialize_graph(genesys, f"{CWD}/genesys.json")
     deser_genesys = deserialize_graph(f"{CWD}/genesys.json")
     json_genesys_deser = serialize_graph(deser_genesys, f"{CWD}/deser_genesys.json")
-    print(diff(json_genesys, json_genesys_deser))
-    # compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
+    assert json_genesys_deser == json_genesys
 
-def test_serialize_relu():
-    genesys_cfg = parse_cfg()
+def test_path():
+    print(Path.cwd())
 
-    genesys = generate_genesys(genesys_cfg)
-    adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
+# def test_serialize_relu():
+#     genesys_cfg = parse_cfg()
+#
+#     genesys = generate_genesys(genesys_cfg)
+#     adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
 

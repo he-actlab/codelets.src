@@ -45,10 +45,10 @@ class Field:
 
 class CapabilityTemplate(object):
     def __init__(self, target: str, fields: List[Field], field_values=None):
+        self._target = target
         self._fields = fields
         self._field_values = field_values or {}
         self._field_map = {f.field_name: f for f in fields}
-        self._target = target
 
     def __str__(self):
         start = f"{self.fields[0].value_str} "
@@ -57,7 +57,7 @@ class CapabilityTemplate(object):
             if f.isset:
                 val = f.value_str if isinstance(f.value_str, str) else str(f.value)
             else:
-                val = f"{f.field_name}_UNSET"
+                val = f"$({f.field_name})"
             rest.append(val)
         return start + ", ".join(rest)
 
@@ -147,6 +147,10 @@ class CapabilityTemplate(object):
             value = f.get_string_value()
             blob['op_fields'].append({'field_name': f.field_name, 'value': value})
         return blob
+
+    def copy(self):
+        fields = [Field(**asdict(f)) for f in self.fields]
+        return CapabilityTemplate(self.target, fields, field_values=self.field_values)
 
     def to_json(self):
         return {self.fields[0].value_str: [asdict(f) for f in self.fields[1:]]}

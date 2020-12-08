@@ -1,4 +1,4 @@
-from .codelet import Codelet, Operand
+from .codelet import Codelet, CodeletInstance
 from .operand import Operand, NullOperand
 from .capability import Capability, CapabilityTemplate
 
