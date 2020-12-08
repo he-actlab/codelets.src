@@ -42,9 +42,6 @@ def test_genesys_serialization():
     json_genesys_deser = serialize_graph(deser_genesys, f"{CWD}/deser_genesys.json")
     assert json_genesys_deser == json_genesys
 
-def test_path():
-    print(Path.cwd())
-
 # def test_serialize_relu():
 #     genesys_cfg = parse_cfg()
 #
