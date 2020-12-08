@@ -1,4 +1,5 @@
 from codelets.adl.architecture_node import ArchitectureNode
+from typing import Dict
 
 class StorageNode(ArchitectureNode):
     ACCESS_TYPES = ["FIFO", "RAM"]
@@ -10,7 +11,7 @@ class StorageNode(ArchitectureNode):
                  write_bw=-1,
                  access_type=None,
                  size=-1,
-                 buff_scheme=None,
+                 buffering_scheme=None,
                  latency=0,
                  input_ports=1,
                  output_ports=1,
@@ -23,7 +24,7 @@ class StorageNode(ArchitectureNode):
         self.size = size
         self.input_ports = input_ports
         self.output_ports = output_ports
-        self.buffering_scheme = buff_scheme or "single"
+        self.buffering_scheme = buffering_scheme or "single"
         self.latency = latency
 
     @property
@@ -136,4 +137,17 @@ class StorageNode(ArchitectureNode):
         return f"R/W Bandwidth: {self.get_read_bw()}/{self.get_write_bw()}\\n" \
                f"Access Type: {self.get_access_type()}\\n" \
                f"Size: {self.get_size()}"
+
+    def to_json(self) -> Dict:
+        blob = self.initialize_json()
+        blob['attributes']['read_bw'] = self.read_bw
+        blob['attributes']['write_bw'] = self.write_bw
+        blob['attributes']['access_type'] = self.access_type
+        blob['attributes']['size'] = self.size
+        blob['attributes']['input_ports'] = self.input_ports
+        blob['attributes']['output_ports'] = self.output_ports
+        blob['attributes']['buffering_scheme'] = self.buffering_scheme
+        blob['attributes']['latency'] = self.latency
+        blob = self.finalize_json(blob)
+        return blob
 

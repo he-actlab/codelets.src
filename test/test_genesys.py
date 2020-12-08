@@ -1,13 +1,19 @@
-from codelets.examples.genesys import SysArrayConfig, SIMDConfig, MemConfig, generate_simd, generate_genesys
-from codelets.adl.serialization import serialize_graph, deserialize_graph, compare_graphs, generate_hw_cfg
-from codelets import util
+from codelets.adl.serialization import serialize_graph, deserialize_graph, generate_hw_cfg
+from codelets.examples.genesys import generate_simd_capabilities, generate_systolic_array_capabilities, generate_genesys
+import polymath as pm
+from pathlib import Path
+from codelets import compile, deserialize_graph
 from collections import namedtuple
 import pytest
 import json
 from pathlib import Path
+from jsondiff import diff
+
 CWD = Path(f"{__file__}").parent
+BENCH_DIR = f"{CWD}/input_files"
+
 TestDfgNode = namedtuple('TestDfgNode', ['input_components', 'input_shapes', 'attrs'])
-GENESYS_CFG_PATH = f"{CWD}/genesys_cfg.json"
+GENESYS_CFG_PATH = f"{CWD}/scratch/genesys_cfg.json"
 
 
 def parse_cfg():
@@ -18,16 +24,29 @@ def parse_cfg():
 
 def test_generate_genesys():
     genesys_cfg = parse_cfg()
+
     genesys = generate_genesys(genesys_cfg)
-    serialize_graph(genesys, "genesys.json", validate_graph=True)
-    adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
-    if not compare_graphs(genesys, adl_graph2):
-        raise RuntimeError
+    # adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
+    # if not compare_graphs(genesys, adl_graph2):
+    #     raise RuntimeError
+    #
+    # generate_hw_cfg(genesys, "genesys_hw_cfg.json")
 
-    generate_hw_cfg(genesys, "genesys_hw_cfg.json")
+def test_genesys_compilation():
 
-def test_generate_simd():
+    graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.mgdfg")
     genesys_cfg = parse_cfg()
 
-    # simd_array = generate_simd(genesys_cfg['compute']['SIMD'])
-#
+    genesys = generate_genesys(genesys_cfg)
+    json_genesys = serialize_graph(genesys, f"{CWD}/genesys.json")
+    deser_genesys = deserialize_graph(f"{CWD}/genesys.json")
+    json_genesys_deser = serialize_graph(deser_genesys, f"{CWD}/deser_genesys.json")
+    print(diff(json_genesys, json_genesys_deser))
+    # compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
+
+def test_serialize_relu():
+    genesys_cfg = parse_cfg()
+
+    genesys = generate_genesys(genesys_cfg)
+    adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
+

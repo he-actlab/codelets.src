@@ -2,7 +2,8 @@ import numpy as np
 
 from codelets.graph import Node
 from codelets.adl.architecture_graph import ArchitectureGraph
-from codelets.adl.codelet import Codelet
+from typing import List, Dict, Union
+from codelets.adl import Codelet, Capability
 from pygraphviz import AGraph
 from collections import namedtuple
 
@@ -20,7 +21,7 @@ class ArchitectureNode(Node):
         self._subgraph = ArchitectureGraph()
         self._name = name
         if self.name:
-            self.set_attr("name", self.name)
+            self.set_attr("field_name", self.name)
         # type
         self._anode_type = type(self).__name__
         self._all_subgraph_nodes = {}
@@ -31,6 +32,9 @@ class ArchitectureNode(Node):
 
         # capabilities
         self._capabilities = {}
+
+        # capability_sequence
+        self._codelets = {}
 
         # occupied: [(op_node, capability, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
@@ -58,6 +62,21 @@ class ArchitectureNode(Node):
     def subgraph(self):
         return self._subgraph
 
+    @property
+    def capabilities(self) -> Dict[str, Capability]:
+        return self._capabilities
+
+    @property
+    def codelets(self) -> Dict[str, Codelet]:
+        return self._codelets
+
+    @property
+    def all_codelet_names(self) -> List[str]:
+        names = [] + list(self.codelets.keys())
+        for n in self.get_subgraph_nodes():
+            names += n.all_codelet_names
+        return names
+
     def networkx_visualize(self, filename):
         dgraph = AGraph(strict=False, directed=True)
 
@@ -75,6 +94,18 @@ class ArchitectureNode(Node):
     def get_viz_attr(self):
         raise NotImplementedError
 
+    def has_capability(self, name):
+        if name in self.capabilities:
+            return True
+        else:
+            for n in self.get_subgraph_nodes():
+                if n.has_capability(name):
+                    return True
+        return False
+
+    def has_codelet(self, name):
+        return name in self.all_codelet_names
+
     def add_subgraph_edge(self, src, dst, attributes=None):
 
         if self._has_parent:
@@ -87,10 +118,10 @@ class ArchitectureNode(Node):
         else:
             attr = []
 
-        if isinstance(src, str):
+        if isinstance(src, (int, str)):
             src = self.get_subgraph_node(src)
 
-        if isinstance(dst, str):
+        if isinstance(dst, (int, str)):
             dst = self.get_subgraph_node(dst)
 
         if src.index not in self.subgraph._nodes:
@@ -125,20 +156,26 @@ class ArchitectureNode(Node):
 
 
     def add_in_edge(self, src):
-        self._in_edges[src.name] = src
+        self._in_edges[src.field_name] = src
         self.subgraph.add_input(src)
 
     def add_out_edge(self, dst):
-        self._out_edges[dst.name] = dst
+        self._out_edges[dst.field_name] = dst
         self.subgraph.add_output(dst)
 
-    def get_subgraph_node(self, name):
-        if name in self._in_edges:
-            return self._in_edges[name]
-        elif name in self._out_edges:
-            return self._out_edges[name]
-        elif name in self._all_subgraph_nodes:
-            return self._all_subgraph_nodes[name]
+    def get_subgraph_node(self, name) -> 'ArchitectureNode':
+        if isinstance(name, str):
+            if name in self._in_edges:
+                return self._in_edges[name]
+            elif name in self._out_edges:
+                return self._out_edges[name]
+            elif name in self._all_subgraph_nodes:
+                return self._all_subgraph_nodes[name]
+        else:
+            assert isinstance(name, int)
+            for n, v in self._all_subgraph_nodes.items():
+                if v.index == name:
+                    return v
         raise KeyError(f"{name} not found in subgraph or input_components")
 
     def get_type(self):
@@ -147,20 +184,43 @@ class ArchitectureNode(Node):
     def merge_subgraph_nodes(self, node):
         intersection = node.subgraph._nodes.keys() & self.subgraph._nodes.keys()
         if len(intersection) > 0:
-            raise RuntimeError(f"Overlapping keys when merging nodes for {self.name} and {node.name}")
+            raise RuntimeError(f"Overlapping keys when merging nodes for {self.name} and {node.field_name}")
         for name, n in node._all_subgraph_nodes.items():
             self._all_subgraph_nodes[n.name] = n
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
-    def add_capability(self, capability: Codelet):
-        self._capabilities[capability.get_name()] = capability
+    def add_capability(self, capability: Capability):
+        if capability.target is None:
+            capability.target = self.name
+        self._capabilities[capability.name] = capability
 
-    def get_capability(self, name):
-        return self._capabilities[name]
+    def get_capability(self, name) -> Capability:
+        if name in self.capabilities:
+            return self.capabilities[name]
+        else:
+            for n in self.get_subgraph_nodes():
+                if n.has_capability(name):
+                    return n.get_capability(name)
+        raise KeyError(f"Capability {name} not found!")
 
-    def get_capabilities(self):
-        return self._capabilities.keys()
+    def get_capabilities(self) -> List[Capability]:
+        return list(self._capabilities.keys())
+
+    def add_codelet(self, codelet: Codelet):
+        self._codelets[codelet.name] = codelet
+
+    def get_codelet(self, name) -> Codelet:
+        if name in self.codelets:
+            return self.codelets[name]
+        else:
+            for n in self.get_subgraph_nodes():
+                if n.has_codelet(name):
+                    return n.get_codelet(name)
+        raise KeyError(f"Codelet {name} not found!")
+
+    def get_codelets(self):
+        return self._codelets.keys()
 
     def is_compatible(self, op_name):
         return op_name in self._capabilities.keys()
@@ -189,7 +249,7 @@ class ArchitectureNode(Node):
     def viz_color(self):
         raise NotImplementedError
 
-    def get_subgraph_nodes(self):
+    def get_subgraph_nodes(self) -> List['ArchitectureNode']:
         return list(self._subgraph_nodes.values())
 
     def get_subgraph_edges(self):
@@ -216,3 +276,25 @@ class ArchitectureNode(Node):
         tabs = tabs+"\t"
         for n in self.get_subgraph_nodes():
             n.print_subgraph_edges(tabs=tabs)
+
+    def to_json(self):
+        raise NotImplementedError
+
+    def initialize_json(self):
+        blob = {}
+        blob['node_id'] = self.index
+        blob['name'] = self.name
+        blob['node_type'] = self.get_type()
+        blob['node_color'] = self.viz_color
+        blob['attributes'] = {}
+        return blob
+
+    def finalize_json(self, blob):
+        blob['subgraph'] = {}
+        blob['subgraph']['nodes'] = [sg.to_json() for sg in self.get_subgraph_nodes()]
+        blob['subgraph']['edges'] = []
+        for e in self.get_subgraph_edges():
+            e_attr = {list(k.keys())[0]:  list(k.values())[0] for k in e.attributes}
+            sub_edge = {'src': e.src, 'dst': e.dst, 'attributes': e_attr}
+            blob['subgraph']['edges'].append(sub_edge)
+        return blob

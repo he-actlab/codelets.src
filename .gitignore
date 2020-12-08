@@ -121,6 +121,10 @@ Dockerfile
 
 # Data for examples
 mldata/
+
+# Scratch code
+test/scratch/
+
 # TODO info
 TODO
 # Numpy serialized files
