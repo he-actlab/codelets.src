@@ -9,7 +9,7 @@ import numpy as np
 # capabilities:       ???
 # composite capabilities: ???
 
-SysArrayConfig = namedtuple('SysArrayConfig', ['width', 'height', 'ibuf', 'obuf', 'bbuf', 'wbuf'])
+SysArrayConfig = namedtuple('SysArrayConfig', ['bitwidth', 'height', 'ibuf', 'obuf', 'bbuf', 'wbuf'])
 SIMDConfig = namedtuple('SIMDConfig', ['lanes', 'mem_cfg'])
 MemConfig = namedtuple('MemConfig', ['size', 'read_bw', 'write_bw', 'access_type'])
 ExtMem = namedtuple('ExtMem', ['size', 'read_bw', 'write_bw', 'access_type'])
@@ -63,28 +63,28 @@ def generate_buffers(sys_array_cfg: SysArrayConfig):
 
 
 # def generate_pe_array(sys_array_cfg):
-#     pe_array = ComputeNode(name="PEArray")
-#     pe_array.set_attr("width", sys_array_cfg.width)
+#     pe_array = ComputeNode(field_name="PEArray")
+#     pe_array.set_attr("bitwidth", sys_array_cfg.bitwidth)
 #     pe_array.set_attr("height", sys_array_cfg.height)
 #
 #     # add capabilities
 #     matmul = Codelet('MatrixMatrixMul')
-#     matmul.add_input(name='ifmap', src=["IBUF"], dims=['b', 'x'])
-#     matmul.add_input(name='weight', src=["WBUF"], dims=['x', 'y'])
-#     # matmul.add_dataflow(name='os',
+#     matmul.add_input(field_name='ifmap', src=["IBUF"], dims=['b', 'x'])
+#     matmul.add_input(field_name='weight', src=["WBUF"], dims=['x', 'y'])
+#     # matmul.add_dataflow(field_name='os',
 #     #                     delay=lambda b,x,y: max(pe_array.get_attr('array_height'),
 #     #                                             pe_array.get_attr('array_width'))+x,
 #     #                     constraint={'b': (0, pe_array.get_attr('array_height')),
 #     #                                 'x': (0, 'inf'),
 #     #                                 'y': (0, pe_array.get_attr('array_width'))}
 #     #                    )
-#     # matmul.add_dataflow(name='ws',
+#     # matmul.add_dataflow(field_name='ws',
 #     #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
 #     #                     constraint={'b': (0, 'inf'),
 #     #                                 'x': (0, pe_array.get_attr('array_height')),
 #     #                                 'y': (0, pe_array.get_attr('array_width'))}
 #     #                    )
-#     # matmul.add_dataflow(name='is',
+#     # matmul.add_dataflow(field_name='is',
 #     #                     delay=lambda b,x,y: pe_array.get_attr('array_height')+b,
 #     #                     constraint={'b': (0, pe_array.get_attr('array_width')),
 #     #                                 'x': (0, pe_array.get_attr('array_height')),
@@ -122,12 +122,12 @@ def generate_systolic_array(sys_array_cfg: SysArrayConfig):
 def generate_simd_array(dnnweaver, systolic_array, simd_cfg: SIMDConfig):
     # Create node and add systolic array dimensions
     simd_array = ComputeNode(name="SIMDArray")
-    # TODO SIMD operations
+    # TODO SIMD codelets
     
     alu_array = ComputeNode(name="ALUArray")
-    # TODO ALU operations
+    # TODO ALU codelets
     
-    alu_array.set_attr("width", simd_cfg.lanes)
+    alu_array.set_attr("bitwidth", simd_cfg.lanes)
     rf_cfg = simd_cfg.mem_cfg
     vec_rf = StorageNode("VMEM", rf_cfg.read_bw, rf_cfg.write_bw, rf_cfg.access_type, rf_cfg.size)
     vec_rf.set_attr("size", simd_cfg.lanes)

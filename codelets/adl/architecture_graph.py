@@ -12,7 +12,7 @@ class ArchitectureGraph(Graph):
     def __init__(self, old_name=None):
         super().__init__()
         self._edges = []
-        # store the name of the graph from the .pb or .onnx
+        # store the field_name of the graph from the .pb or .onnx
         self._old_name = old_name
         self._is_top_level = True
 
@@ -41,7 +41,7 @@ class ArchitectureGraph(Graph):
         self._is_top_level = False
 
     def _add_nx_subgraph(self, gviz_graph, node, attrs=None, shape='record', style='rounded,filled', color='white'):
-        label = f'{type(node).__name__}' if not node.is_attr_key("name") else node.get_attr("name")
+        label = f'{type(node).__name__}' if not node.is_attr_key("field_name") else node.get_attr("field_name")
 
         if len(node.subgraph.get_nodes()) > 0:
             nids = []
@@ -59,7 +59,7 @@ class ArchitectureGraph(Graph):
             node_attrs['fillcolor'] = 'white' if not node.is_attr_key("node_color") else node.get_attr("node_color")
             label = f"{label}\\n{node.get_viz_attr()}"
             if node.get_type() == "StorageNode":
-                node_attrs['width'] = str(0.5)
+                node_attrs['bitwidth'] = str(0.5)
                 node_attrs['height'] = str(0.5)
                 node_attrs['margin'] = str(0)
                 node_attrs['fontsize'] = str(10)
@@ -82,13 +82,13 @@ class ArchitectureGraph(Graph):
             subgraphs[parent_name].append(name)
 
         node_attrs = {}
-        node_attrs['label'] = f'{type(node).__name__}' if not node.is_attr_key("name") else node.get_attr("name")
+        node_attrs['label'] = f'{type(node).__name__}' if not node.is_attr_key("field_name") else node.get_attr("field_name")
         node_attrs['style'] = style
         node_attrs['shape'] = shape
         node_attrs['fillcolor'] = color
 
         if node.get_type() == "StorageNode":
-            node_attrs['width'] = 0.5
+            node_attrs['bitwidth'] = 0.5
             node_attrs['height'] = 0.5
             node_attrs['margin'] = 0
             node_attrs['fontsize'] = 10
@@ -126,7 +126,7 @@ class ArchitectureGraph(Graph):
     def _draw_node(self, digraph, node, attrs=None, shape='record', style='rounded,filled', color='white'):
         
         name = f'node_{node.index}'
-        label = f'{type(node).__name__}' if not node.is_attr_key("name") else node.get_attr("name")
+        label = f'{type(node).__name__}' if not node.is_attr_key("field_name") else node.get_attr("field_name")
         if attrs is not None:
             label += '|'
             for key, value in attrs.items():

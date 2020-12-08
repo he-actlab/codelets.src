@@ -1,44 +1,47 @@
 import numpy as np
-from collections import namedtuple
-from typing import Callable, Any, List, Dict, Optional, Tuple, Set
+from dataclasses import asdict
+import polymath as pm
+from collections import namedtuple, defaultdict
+from .capability import CapabilityTemplate, Capability
+from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union
+from .operand import Datatype
+from .operand import Operand
+CodeletOperand = namedtuple('CodeletOperand', ['field_name', 'dtypes'])
+Field = namedtuple('Field', ['field_name', 'value', 'bitwidth'])
 
-Operand = namedtuple('Operand', ['component_name', 'datatype', 'dimensions'])
+# Operand = namedtuple('Operand', ['component_name', 'datatype', 'dimensions'])
 # TODO does different on-chip dataflow need to be considered?
 #      if so, how should it be included?
 #      current implementation considers a single type of on-chip dataflow!
+
+
 
 class Codelet(object):
     """
     Base class for capability
     """
     CONST_VAL = 'CONST'
-
+    CODELET_COUNTER = defaultdict(int)
     def __init__(self, name,
-                 input_dimension_names=None,
-                 output_dimension_names=None,
-                 input_dtypes=None,
-                 output_dtypes=None,
-                 input_components=None,
-                 output_components=None,
-                 subcapabilities=None,
+                 input_dtypes,
+                 output_dtypes,
+                 capability_sequence=None,
                  op_params=None,
-                 latency=None,
-                 is_atomic=True):
+                 latency=None):
+
+
         self._name = name
-        self._is_atomic = is_atomic
 
         # list of input_components should be identical regardless of dataflows
-        # 'input name': 'dims'
+        # 'input field_name': 'dims'
         self.input_dtypes = input_dtypes
         self.output_dtypes = output_dtypes
-        self.input_components = input_components or {}
-        self.output_components = output_components or {}
-        self.subcapabilities = subcapabilities or []
-        self.input_dimension_names = input_dimension_names or []
-        self.output_dimension_names = output_dimension_names or []
+        self._capability_sequence = capability_sequence or []
         self.op_params = op_params or {}
         # latency can be either a fixed value or a lambda function
         self.latency = latency or 0
+        self._cdlt_id = Codelet.CODELET_COUNTER[self.name]
+        Codelet.CODELET_COUNTER[self.name] += 1
 
     @property
     def is_atomic(self) -> bool:
@@ -49,59 +52,29 @@ class Codelet(object):
         return self._name
 
     @property
-    def output_components(self) -> List[str]:
-        return self._output_components
+    def input_dtypes(self) -> List[Datatype]:
+        return self._input_dtypes
 
     @property
-    def input_dtypes(self) -> List[str]:
-        return self._input_dtypes
+    def codelet_id(self):
+        return self._cdlt_id
 
     @property
     def output_dtypes(self) -> List[str]:
         return self._output_dtypes
 
-    @property
-    def input_components(self) -> List[str]:
-        return self._input_components
-
-    @property
-    def input_dimension_names(self) -> List[str]:
-        return self._input_dimension_names
-
-    @property
-    def output_dimension_names(self) -> List[str]:
-        return self._output_dimension_names
 
     @property
     def latency(self) -> int:
         return self._latency
-
-
 
     @property
     def op_params(self) -> Dict[str, Any]:
         return self._op_params
 
     @property
-    def subcapabilities(self) -> List['Codelet']:
-        return self._subcapabilities
-
-    @property
-    def all_dim_names(self) -> List[str]:
-        dims = []
-        for a in self.input_dimension_names:
-            dims += a
-        dims += self.output_dimension_names
-        dims = list(set(dims))
-        return dims
-
-    @property
-    def loop_dim_names(self) -> List[str]:
-        dims = []
-        for a in self.input_dimension_names:
-            dims += a
-        dims = list(set(dims))
-        return dims
+    def capability_sequence(self) -> List[CapabilityTemplate]:
+        return self._capability_sequence
 
     @output_dtypes.setter
     def output_dtypes(self, output_dtypes):
@@ -119,23 +92,6 @@ class Codelet(object):
     def name(self, name):
         self._name = name
 
-
-    @output_components.setter
-    def output_components(self, output_components):
-        self._output_components = output_components
-
-    @input_components.setter
-    def input_components(self, input_components):
-        self._input_components = input_components
-
-    @input_dimension_names.setter
-    def input_dimension_names(self, input_dimension_names):
-        self._input_dimension_names = input_dimension_names
-
-    @output_dimension_names.setter
-    def output_dimension_names(self, output_dimension_names):
-        self._output_dimension_names = output_dimension_names
-
     @latency.setter
     def latency(self, latency):
         self._latency = latency
@@ -145,10 +101,11 @@ class Codelet(object):
         self._op_params = op_params
 
 
-    @subcapabilities.setter
-    def subcapabilities(self, subcapabilities):
-        self._subcapabilities = subcapabilities
-
+    @capability_sequence.setter
+    def capability_sequence(self, capability_sequence):
+        if len(self.capability_sequence) > 0:
+            raise RuntimeError(f"Cannot set capability sequence which has already been set.")
+        self._capability_sequence = capability_sequence
 
     def set_name(self, name):
         self._name = name
@@ -156,68 +113,14 @@ class Codelet(object):
     def get_name(self):
         return self._name
 
-    def get_input_sources(self):
-        sources = []
-        for k, v in self._input_components.items():
-            for s in v['src']:
-                if s not in sources and s != Codelet.CONST_VAL:
-                    sources.append(s)
-        return sources
-
-    def get_output_dests(self):
-        dests = []
-        for k, v in self._output_components.items():
-            for d in v['dst']:
-                if d not in dests:
-                    dests.append(d)
-        return dests
-
-    def add_input(self, name, src, dims):
-        self._input_components[name] = {'src': src, 'dims': dims}
-    
-    def get_required_input_dims(self):
-        # this one liner identifies unique dimensions that are required by the capability
-        return set(sum([list(self._input_components[name]['dims'].keys()) for name in self._input_components.keys()], []))
-
-    def get_required_input_ranges(self, dim):
-        dim_ranges = [self._input_components[name]['dims'][dim] for name in self._input_components.keys()]
-        equal = len(set(dim_ranges)) <= 1
-        assert equal, 'ranges should be identically defined for same dim'
-        return set(dim_ranges)[0]
-
-
-    def add_output(self, name, dst, dims):
-        self._output_components[name] = {'dst': dst, 'dims': dims}
-
-    def get_required_output_dims(self):
-        # this one liner identifies unique dimensions that are required by the capability
-        return set(sum([list(self._output_components[name]['dims'].keys()) for name in self._output_components.keys()], []))
-
-    def get_required_output_ranges(self, dim):
-        dim_ranges = [self._output_components[name]['dims'][dim] for name in self._output_components.keys()]
-        equal = len(set(dim_ranges)) <= 1
-        assert equal, 'ranges should be identically defined for same dim'
-        return set(dim_ranges)[0]
-    
-
     def set_latency(self, latency):
         self._latency = latency
 
     def get_latency(self):
         return self._latency
 
-    def get_output(self, name):
-        assert name in self._output_components
-        return self._output_components[name]
-
-    def get_input(self, name):
-        assert name in self._input_components
-        return self._input_components[name]
-
-    def add_sub_capability(self, capability):
-        if len(self.subcapabilities) == 0:
-            self._is_atomic = False
-        self.subcapabilities.append(capability)
+    def add_capability(self, capability):
+        self._capability_sequence.append(capability)
 
     def get_op_param(self, key):
         if key not in self._op_params:
@@ -229,171 +132,109 @@ class Codelet(object):
             raise KeyError(f"Key {key} already in op params: {self.op_params.keys()}")
         self.op_params[key] = value
 
+    def to_json(self) -> Dict:
+        blob = {}
+        blob['codelet_name'] = self.name
+        blob['op_params'] = self.op_params
+        blob['latency'] = self.latency
+        blob['input_dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self.input_dtypes]
+        blob['output_dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self.input_dtypes]
+        blob['capability_sequence'] = [c.template_json() for c in self.capability_sequence]
+        return blob
 
-class Capability(object):
-    op_num = 0
-    def __init__(self, capability,
-                 component_target,
-                 inputs,
-                 outputs,
-                 loop_order,
-                 executions,
-                 tiling=None,
-                 op_num=-1, **kwargs):
-        if op_num:
-            self.instance_name = f"{capability.name}{Capability.op_num}"
-            Capability.op_num = op_num + 1
-        else:
-            Capability.op_num += 1
-            self.instance_name = f"{capability.name}{Capability.op_num}"
-        self.executions = executions
-        self.tiling = tiling
-        self.loop_order = loop_order
-        self.outputs = outputs
-        self.inputs = inputs
-        self.dimension_values = {}
-        self.component_target = component_target or None
-        self.capability = capability
-        self.op_params = kwargs
+    def get_text_instructions(self) -> List[str]:
+        instr = [str(c) for c in self.capability_sequence]
+        return instr
 
-        for i in range(len(self.inputs)):
-            dim_names = self.capability.input_dimension_names[i]
-            for dim, dim_val in enumerate(self.inputs[i].dimensions):
-                name = dim_names[dim]
-                if name not in self.dimension_values:
-                    self.dimension_values[name] = dim_val
-                elif self.dimension_values[name] != dim_val:
-                    raise RuntimeError(f"Dimension {name} is not equal to capability input:\n"
-                                       f"Dim val: {dim_val}\tStored dim: {self.dimension_values[name]}")
+    def emit_template_string(self):
+        instrs = []
+        for c in self.capability_sequence:
+            instrs.append(str(c))
+        return "\n".join(instrs)
 
-        for o in range(len(self.outputs)):
-            dim_names = self.capability.output_dimension_names
-            for dim, dim_val in enumerate(self.outputs[o].dimensions):
-                name = dim_names[dim]
-                if name not in self.dimension_values:
-                    self.dimension_values[name] = dim_val
-                else:
-                    assert self.dimension_values[name] == dim_val
+    def emit_template_json(self):
+        instrs = []
+        for c in self.capability_sequence:
+            instrs.append(c.to_json())
+        return instrs
 
+    def set_input_types(self, node: pm.Node) -> None:
+        for i in node.inputs:
+            if "hag_dtype" not in i.kwargs:
+                i.add_attribute("hag_dtype", self.input_dtypes[0])
+            else:
+                assert i.kwargs["hag_dtype"] in self.input_dtypes
 
-        if not self.component_target:
-            raise RuntimeError(f"Operation {capability.name} could not be instantiated because 'component_target' is not set!")
-        elif len(self.capability.input_dimension_names) == 0:
-            raise RuntimeError(f"Operation {capability.name} could not be instantiated because 'input_dimension_names' is not set!")
-        elif len(self.capability.output_dimension_names) == 0:
-            raise RuntimeError(f"Operation {capability.name} could not be instantiated because 'output_dimension_names' is not set!")
-        elif set(self.loop_order) != set(self.capability.loop_dim_names):
-            raise RuntimeError(f"Operation {capability.name} could not be instantiated because all dimensions are not included in loop order!\n"
-                               f"All dimensions: {self.capability.loop_dim_names}\n"
-                               f"Loop order: {self.loop_order}")
-        elif self.tiling and set(list(self.tiling.keys())) != set(self.capability.loop_dim_names):
-            raise RuntimeError(f"Operation {capability.name} could not be instantiated because all dimensions are not included in tiling!\n"
-                               f"All dimensions: {self.capability.loop_dim_names}\n"
-                               f"Tiling keys: {list(self.tiling.keys())}")
+    def set_output_types(self, node: pm.Node) -> None:
+        for o in node.outputs:
+            if "hag_dtype" not in o.kwargs:
+                o.add_attribute("hag_dtype", self.output_dtypes[0])
+            else:
+                assert o.kwargs["hag_dtype"] in self.output_dtypes
 
-    @property
-    def executions(self):
-        return self._executions
+    def instantiate_codelet(self, node, hag, program):
+        instance_params = {}
+        self.set_input_types(node)
+        self.set_output_types(node)
 
-    @property
-    def component_target(self) -> str:
-        return self._component_target
+        for k, v in self.op_params.items():
+            if isinstance(v, Callable):
+                instance_params[k] = v(node)
 
-    @property
-    def dimension_values(self) -> Dict[str, int]:
-        return self._dimension_values
+            # TODO: Need to make sure all nodes have input/output defined
+        return CodeletInstance(node.inputs, node.outputs, self, op_params=instance_params)
+
+class CodeletInstance(object):
+    def __init__(self, inputs: List[pm.Node], outputs: List[pm.Node], codelet, op_params=None):
+        self._codelet_template = codelet
+        self._inputs = inputs
+        self._outputs = outputs
+        self._op_params = op_params
 
     @property
     def inputs(self):
         return self._inputs
 
     @property
-    def input_dims(self):
-        return (self.dimension_values[i] for i in self.capability.loop_dim_names)
-
-    @property
     def outputs(self):
         return self._outputs
 
     @property
-    def input_dtypes(self):
-        return [i.datatype for i in self.inputs]
+    def op_params(self) -> Dict:
+        return self._op_params
 
     @property
-    def output_dtypes(self):
-        return [o.datatype for o in self.outputs]
+    def codelet_template(self):
+        return self._codelet_template
 
-    @property
-    def input_locations(self):
-        return [i.component_name for i in self.inputs]
 
-    @property
-    def output_locations(self):
-        return [o.component_name for o in self.outputs]
+    def get_json_inputs(self) -> List[Dict]:
+        blobs = []
+        for i in self.inputs:
+            blob = {}
+            blob['name'] = i.name
+            blob['dimensions'] = i.shape
+            blob['dtype'] = i.kwargs['hag_dtype']
+            blobs.append(blob)
+        return blobs
 
-    @property
-    def loop_order(self) -> List[str]:
-        return self._loop_order
+    def get_json_outputs(self) -> List[Dict]:
+        blobs = []
+        for o in self.outputs:
+            blob = {}
+            blob['name'] = o.name
+            blob['dimensions'] = o.shape
+            blob['dtype'] = o.kwargs['hag_dtype']
+            blobs.append(blob)
+        return blobs
 
-    @property
-    def instance_name(self):
-        return self._instance_name
-
-    @property
-    def tiling(self) -> Dict[str, int]:
-        return self._tiling
-
-    @executions.setter
-    def executions(self, executions):
-        self._executions = executions
-
-    @dimension_values.setter
-    def dimension_values(self, dimension_values):
-        self._dimension_values = dimension_values
-
-    @component_target.setter
-    def component_target(self, component_target):
-        self._component_target = component_target
-
-    @outputs.setter
-    def outputs(self, outputs):
-        self._outputs = outputs
-
-    @inputs.setter
-    def inputs(self, inputs):
-        self._inputs = inputs
-
-    @loop_order.setter
-    def loop_order(self, loop_order):
-        self._loop_order = loop_order
-
-    @instance_name.setter
-    def instance_name(self, instance_name):
-        self._instance_name = instance_name
-
-    @tiling.setter
-    def tiling(self, tiling):
-        self._tiling = tiling
-
-    def __repr__(self):
-        return str(self.json_op())
-
-    def json_op(self):
-        blob = {'id': self.instance_name,
-                'capability': self.capability.name,
-                'executions': self.executions,
-                'input_dimensions': self.capability.input_dimension_names,
-                'output_dimensions': self.capability.output_dimension_names,
-                'loop_order': self.loop_order,
-                'dim_values': self.dimension_values,
-                'tiling': self.tiling,
-                'input_dtypes': self.input_dtypes,
-                'output_dtypes': self.output_dtypes,
-                'input_locations': self.input_locations,
-                'output_locations': self.output_locations,
-                'op_params': self.op_params
-                }
+    def compiled_json(self) -> Dict:
+        blob = {}
+        blob['id'] = self.codelet_template.codelet_id
+        blob['codelet_name'] = self.codelet_template.name
+        blob['inputs'] = self.get_json_inputs()
+        blob['outputs'] = self.get_json_outputs()
+        blob['parameters'] = self.op_params
+        blob['capability_sequence'] = [c.compiled_json() for c in self.codelet_template.capability_sequence]
         return blob
 
-    def __str__(self):
-        return str(self.json_op())
