@@ -21,7 +21,6 @@ class Codelet(object):
     Base class for capability
     """
     CONST_VAL = 'CONST'
-    CODELET_COUNTER = defaultdict(int)
     def __init__(self, name,
                  input_dtypes,
                  output_dtypes,
@@ -40,8 +39,6 @@ class Codelet(object):
         self.op_params = op_params or {}
         # latency can be either a fixed value or a lambda function
         self.latency = latency or 0
-        self._cdlt_id = Codelet.CODELET_COUNTER[self.name]
-        Codelet.CODELET_COUNTER[self.name] += 1
 
     @property
     def is_atomic(self) -> bool:
@@ -55,9 +52,6 @@ class Codelet(object):
     def input_dtypes(self) -> List[Datatype]:
         return self._input_dtypes
 
-    @property
-    def codelet_id(self):
-        return self._cdlt_id
 
     @property
     def output_dtypes(self) -> List[str]:
@@ -172,24 +166,23 @@ class Codelet(object):
             else:
                 assert o.kwargs["hag_dtype"] in self.output_dtypes
 
-    def instantiate_codelet(self, node, hag, program):
-        instance_params = {}
-        self.set_input_types(node)
-        self.set_output_types(node)
 
-        for k, v in self.op_params.items():
-            if isinstance(v, Callable):
-                instance_params[k] = v(node)
-
-            # TODO: Need to make sure all nodes have input/output defined
-        return CodeletInstance(node.inputs, node.outputs, self, op_params=instance_params)
 
 class CodeletInstance(object):
-    def __init__(self, inputs: List[pm.Node], outputs: List[pm.Node], codelet, op_params=None):
+    CODELET_COUNTER = defaultdict(int)
+
+    def __init__(self, capability_template: List[CapabilityTemplate], inputs: List[pm.Node], outputs: List[pm.Node], codelet: Codelet, op_params=None):
         self._codelet_template = codelet
+        self._capabilities = capability_template
         self._inputs = inputs
         self._outputs = outputs
         self._op_params = op_params
+        self._cdlt_id = f"{codelet.name}{CodeletInstance.CODELET_COUNTER[codelet.name]}"
+        CodeletInstance.CODELET_COUNTER[codelet.name] += 1
+
+    @property
+    def codelet_id(self):
+        return self._cdlt_id
 
     @property
     def inputs(self):
@@ -207,6 +200,13 @@ class CodeletInstance(object):
     def codelet_template(self):
         return self._codelet_template
 
+    @property
+    def capabilities(self):
+        return self._capabilities
+
+    def get_text_instructions(self) -> List[str]:
+        instr = [str(c) for c in self.capabilities]
+        return instr
 
     def get_json_inputs(self) -> List[Dict]:
         blobs = []
@@ -230,11 +230,11 @@ class CodeletInstance(object):
 
     def compiled_json(self) -> Dict:
         blob = {}
-        blob['id'] = self.codelet_template.codelet_id
+        blob['id'] = self.codelet_id
         blob['codelet_name'] = self.codelet_template.name
         blob['inputs'] = self.get_json_inputs()
         blob['outputs'] = self.get_json_outputs()
         blob['parameters'] = self.op_params
-        blob['capability_sequence'] = [c.compiled_json() for c in self.codelet_template.capability_sequence]
+        blob['capability_sequence'] = [c.compiled_json() for c in self.capabilities]
         return blob
 
