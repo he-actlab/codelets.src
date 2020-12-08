@@ -1,5 +1,0 @@
-- How to represent constants in capability inputs?
-- Should each part of pipeline compute nodes be represented, or just represented uniformly?
-- How should the compute node selection algorithm function?
-- Should capabilities include load/store instructions, or should capabilities only include DFG-like nodes (e.g., arithmetic operations)
-- How to fix index computation unraveling
