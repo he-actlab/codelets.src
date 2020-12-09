@@ -177,7 +177,6 @@ class Capability(object):
         rest = ",".join([f"{o.name}" for o in self.operands])
         return start + rest
 
-
     @property
     def name(self) -> str:
         return self._opname
