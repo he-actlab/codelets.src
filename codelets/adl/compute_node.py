@@ -1,7 +1,7 @@
 from codelets.adl.architecture_node import ArchitectureNode
 
 from codelets.adl.codelet import Codelet
-from codelets.adl.capability import Capability
+from codelets.adl.instruction import Instruction
 from typing import Dict
 
 # NOTE originally, there were implementations for occupancy. This has been 
@@ -42,7 +42,7 @@ class ComputeNode(ArchitectureNode):
         return self._dimensions
 
     @property
-    def capabilities(self) -> Dict[str, Capability]:
+    def capabilities(self) -> Dict[str, Instruction]:
         return self._capabilities
 
     @property

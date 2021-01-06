@@ -3,11 +3,11 @@ import numpy as np
 from codelets.graph import Node
 from codelets.adl.architecture_graph import ArchitectureGraph
 from typing import List, Dict, Union
-from codelets.adl import Codelet, Capability
+from codelets.adl import Codelet, Instruction
 from pygraphviz import AGraph
 from collections import namedtuple
 
-Edge = namedtuple('Edge', ['src', 'dst', 'attributes'])
+Edge = namedtuple('Edge', ['src', 'dests', 'attributes'])
 
 class ArchitectureNode(Node):
     """
@@ -63,7 +63,7 @@ class ArchitectureNode(Node):
         return self._subgraph
 
     @property
-    def capabilities(self) -> Dict[str, Capability]:
+    def capabilities(self) -> Dict[str, Instruction]:
         return self._capabilities
 
     @property
@@ -190,12 +190,12 @@ class ArchitectureNode(Node):
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
-    def add_capability(self, capability: Capability):
+    def add_capability(self, capability: Instruction):
         if capability.target is None:
             capability.target = self.name
         self._capabilities[capability.name] = capability
 
-    def get_capability(self, name) -> Capability:
+    def get_capability(self, name) -> Instruction:
         if name in self.capabilities:
             return self.capabilities[name]
         else:
@@ -204,10 +204,13 @@ class ArchitectureNode(Node):
                     return n.get_capability(name)
         raise KeyError(f"Capability {name} not found!")
 
-    def get_capabilities(self) -> List[Capability]:
+    def get_capabilities(self) -> List[Instruction]:
         return list(self._capabilities.keys())
 
+
+
     def add_codelet(self, codelet: Codelet):
+        # TODO: Validate memory paths
         self._codelets[codelet.name] = codelet
 
     def get_codelet(self, name) -> Codelet:
@@ -295,6 +298,6 @@ class ArchitectureNode(Node):
         blob['subgraph']['edges'] = []
         for e in self.get_subgraph_edges():
             e_attr = {list(k.keys())[0]:  list(k.values())[0] for k in e.attributes}
-            sub_edge = {'src': e.src, 'dst': e.dst, 'attributes': e_attr}
+            sub_edge = {'src': e.src, 'dests': e.dst, 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
         return blob

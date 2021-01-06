@@ -2,11 +2,12 @@ import numpy as np
 from dataclasses import asdict
 import polymath as pm
 from collections import namedtuple, defaultdict
-from .capability import CapabilityTemplate, Capability
+from .instruction import InstructionTemplate, Instruction
+from .util import get_lambda_source
 from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union
 from .operand import Datatype
-from .operand import Operand
-CodeletOperand = namedtuple('CodeletOperand', ['field_name', 'dtypes'])
+from dataclasses import dataclass
+# OperandTemplate = namedtuple('OperandTemplate', ['name', 'dtypes', 'mem_path', 'shape'])
 Field = namedtuple('Field', ['field_name', 'value', 'bitwidth'])
 
 # Operand = namedtuple('Operand', ['component_name', 'datatype', 'dimensions'])
@@ -14,6 +15,64 @@ Field = namedtuple('Field', ['field_name', 'value', 'bitwidth'])
 #      if so, how should it be included?
 #      current implementation considers a single type of on-chip dataflow!
 
+@dataclass(frozen=True)
+class OperandTemplate:
+    name: str
+    dtypes: Union[List[Datatype], Datatype]
+    memory_path: List[str]
+    shape_symbols: Union[List[str], Dict[str, Dict]]
+    iteration_domain: Union[List[str], Dict[str, Dict]]
+
+    def is_dtype_supported(self, dtype_name) -> bool:
+        return dtype_name in [str(dt) for dt in self.dtypes]
+
+    def to_json(self):
+        blob = {}
+        blob['name'] = self.name
+        if isinstance(self.dtypes, list):
+            blob['dtypes'] = [dt.to_json() for dt in self.dtypes]
+        else:
+            blob['dtypes'] = self.dtypes.to_json()
+        blob['memory_path'] = self.memory_path
+        blob['shape_symbols'] = self.shape_symbols
+        blob['iteration_domain'] = self.iteration_domain
+        return blob
+
+    def is_instantiated(self):
+        return isinstance(self.shape_symbols, dict)
+
+    @staticmethod
+    def from_json(ot_obj: Dict):
+        ot = ot_obj.copy()
+        name = ot['name']
+        dtypes = [Datatype.from_json(dt) for dt in ot['dtypes']]
+        memory_path = ot['memory_path']
+        shape_symbols = ot['shape_symbols']
+        iter_domain = ot['iteration_domain']
+        return OperandTemplate(name=name,
+                               dtypes=dtypes,
+                               memory_path=memory_path,
+                               shape_symbols=shape_symbols,
+                               iteration_domain=iter_domain)
+
+
+# @dataclass(frozen=True)
+# class CodeletOperand:
+#     name: str
+#     dtypes: List[Datatype]
+#     memory_path: List[str]
+#     shape_symbols: List[str]
+#
+#     def is_dtype_supported(self, dtype_name) -> bool:
+#         return dtype_name in [str(dt) for dt in self.dtypes]
+#
+#     def __dict__(self):
+#         blob = {}
+#         blob['name'] = self.name
+#         blob['dtypes'] = [dict(dt) for dt in self.dtypes]
+#         blob['memory_path'] = self.memory_path
+#         blob['shape_symbols'] = self.shape_symbols
+#         return blob
 
 
 class Codelet(object):
@@ -22,41 +81,43 @@ class Codelet(object):
     """
     CONST_VAL = 'CONST'
     def __init__(self, name,
-                 input_dtypes,
-                 output_dtypes,
+                 loop_order=None,
+                 inputs=None,
+                 outputs=None,
                  capability_sequence=None,
                  op_params=None,
                  latency=None):
 
 
         self._name = name
+        if inputs:
+            assert all([isinstance(i, OperandTemplate) for i in inputs])
+        else:
+            inputs = []
+        self._inputs = inputs
 
-        # list of input_components should be identical regardless of dataflows
-        # 'input field_name': 'dims'
-        self.input_dtypes = input_dtypes
-        self.output_dtypes = output_dtypes
+        if outputs:
+            assert all([isinstance(o, OperandTemplate) for o in outputs])
+        else:
+            outputs = []
+        self._outputs = outputs
+        self._loop_order = loop_order or []
         self._capability_sequence = capability_sequence or []
         self.op_params = op_params or {}
         # latency can be either a fixed value or a lambda function
         self.latency = latency or 0
 
     @property
-    def is_atomic(self) -> bool:
-        return self._is_atomic
-
-    @property
     def name(self) -> str:
         return self._name
 
     @property
-    def input_dtypes(self) -> List[Datatype]:
-        return self._input_dtypes
-
+    def inputs(self) -> List[OperandTemplate]:
+        return self._inputs
 
     @property
-    def output_dtypes(self) -> List[str]:
-        return self._output_dtypes
-
+    def outputs(self) -> List[OperandTemplate]:
+        return self._outputs
 
     @property
     def latency(self) -> int:
@@ -67,20 +128,31 @@ class Codelet(object):
         return self._op_params
 
     @property
-    def capability_sequence(self) -> List[CapabilityTemplate]:
+    def capability_sequence(self) -> List[InstructionTemplate]:
         return self._capability_sequence
 
-    @output_dtypes.setter
-    def output_dtypes(self, output_dtypes):
-        self._output_dtypes = output_dtypes
+    @property
+    def loop_order(self):
+        return self._loop_order
 
-    @input_dtypes.setter
-    def input_dtypes(self, input_dtypes):
-        self._input_dtypes = input_dtypes
+    @property
+    def all_dims(self) -> List[str]:
+        dims = []
+        for i in self.inputs:
+            dims += [ishp for ishp in i.shape_symbols if ishp not in dims]
 
-    @is_atomic.setter
-    def is_atomic(self, is_atomic):
-        self._is_atomic = is_atomic
+        for o in self.outputs:
+            dims += [oshp for oshp in o.shape_symbols if oshp not in dims]
+
+        return dims
+
+    @loop_order.setter
+    def loop_order(self, loop_order):
+        assert isinstance(loop_order, list)
+        assert len(loop_order) == len(self.all_dims)
+        for l in loop_order:
+            assert l in self.all_dims
+        self._loop_order = loop_order
 
     @name.setter
     def name(self, name):
@@ -100,6 +172,31 @@ class Codelet(object):
         if len(self.capability_sequence) > 0:
             raise RuntimeError(f"Cannot set capability sequence which has already been set.")
         self._capability_sequence = capability_sequence
+
+    def add_input(self, name, dtypes, mem_path, shape, iter_domain=None, index=None):
+
+        iteration_domain = iter_domain or shape
+        inpt = OperandTemplate(name=name,
+                               dtypes=dtypes,
+                               memory_path=mem_path,
+                               shape_symbols=shape,
+                               iteration_domain=iteration_domain)
+        if index:
+            self.inputs.insert(index, inpt)
+        else:
+            self.inputs.append(inpt)
+
+    def add_output(self, name: str, dtypes: List[Datatype],
+                   mem_path: List[str],
+                   shape: List[str],
+                   iter_domain: List[str]=None,
+                   index=None):
+        iteration_domain = iter_domain or shape
+        outpt = OperandTemplate(name=name, dtypes=dtypes, memory_path=mem_path, shape_symbols=shape, iteration_domain=iteration_domain)
+        if index:
+            self.outputs.insert(index, outpt)
+        else:
+            self.outputs.append(outpt)
 
     def set_name(self, name):
         self._name = name
@@ -129,10 +226,18 @@ class Codelet(object):
     def to_json(self) -> Dict:
         blob = {}
         blob['codelet_name'] = self.name
-        blob['op_params'] = self.op_params
+        params = {}
+        for k, v in self.op_params.items():
+            if isinstance(v, Callable):
+                v = get_lambda_source(v)
+                param_type = "function"
+            else:
+                param_type = v.__class__.__name__
+            params[k] = {'type': param_type, 'value': v}
+        blob['op_params'] = params
         blob['latency'] = self.latency
-        blob['input_dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self.input_dtypes]
-        blob['output_dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self.input_dtypes]
+        blob['inputs'] = [ipt.to_json() for ipt in self.inputs]
+        blob['outputs'] = [opt.to_json() for opt in self.outputs]
         blob['capability_sequence'] = [c.template_json() for c in self.capability_sequence]
         return blob
 
@@ -152,32 +257,25 @@ class Codelet(object):
             instrs.append(c.to_json())
         return instrs
 
-    def set_input_types(self, node: pm.Node) -> None:
-        for i in node.inputs:
-            if "hag_dtype" not in i.kwargs:
-                i.add_attribute("hag_dtype", self.input_dtypes[0])
-            else:
-                assert i.kwargs["hag_dtype"] in self.input_dtypes
-
-    def set_output_types(self, node: pm.Node) -> None:
-        for o in node.outputs:
-            if "hag_dtype" not in o.kwargs:
-                o.add_attribute("hag_dtype", self.output_dtypes[0])
-            else:
-                assert o.kwargs["hag_dtype"] in self.output_dtypes
-
-
 
 class CodeletInstance(object):
     CODELET_COUNTER = defaultdict(int)
 
-    def __init__(self, capability_template: List[CapabilityTemplate], inputs: List[pm.Node], outputs: List[pm.Node], codelet: Codelet, op_params=None):
+    def __init__(self, capability_templates: List[InstructionTemplate],
+                 inputs: List[OperandTemplate],
+                 outputs: List[OperandTemplate],
+                 codelet: Codelet,
+                 compiler_params=None,
+                 op_params=None,
+                 loop_order=None):
         self._codelet_template = codelet
-        self._capabilities = capability_template
+        self._capabilities = capability_templates
         self._inputs = inputs
         self._outputs = outputs
-        self._op_params = op_params
+        self._op_params = op_params or {}
+        self._compiler_params = compiler_params or {}
         self._cdlt_id = f"{codelet.name}{CodeletInstance.CODELET_COUNTER[codelet.name]}"
+        self._loop_order = loop_order or codelet.loop_order
         CodeletInstance.CODELET_COUNTER[codelet.name] += 1
 
     @property
@@ -185,16 +283,24 @@ class CodeletInstance(object):
         return self._cdlt_id
 
     @property
-    def inputs(self):
+    def loop_order(self):
+        return self._loop_order
+
+    @property
+    def inputs(self) -> List[OperandTemplate]:
         return self._inputs
 
     @property
-    def outputs(self):
+    def outputs(self) -> List[OperandTemplate]:
         return self._outputs
 
     @property
     def op_params(self) -> Dict:
         return self._op_params
+
+    @property
+    def compiler_params(self) -> Dict:
+        return self._compiler_params
 
     @property
     def codelet_template(self):
@@ -208,33 +314,12 @@ class CodeletInstance(object):
         instr = [str(c) for c in self.capabilities]
         return instr
 
-    def get_json_inputs(self) -> List[Dict]:
-        blobs = []
-        for i in self.inputs:
-            blob = {}
-            blob['name'] = i.name
-            blob['dimensions'] = i.shape
-            blob['dtype'] = i.kwargs['hag_dtype']
-            blobs.append(blob)
-        return blobs
-
-    def get_json_outputs(self) -> List[Dict]:
-        blobs = []
-        for o in self.outputs:
-            blob = {}
-            blob['name'] = o.name
-            blob['dimensions'] = o.shape
-            blob['dtype'] = o.kwargs['hag_dtype']
-            blobs.append(blob)
-        return blobs
-
     def compiled_json(self) -> Dict:
         blob = {}
         blob['id'] = self.codelet_id
         blob['codelet_name'] = self.codelet_template.name
-        blob['inputs'] = self.get_json_inputs()
-        blob['outputs'] = self.get_json_outputs()
+        blob['inputs'] = [ipt.to_json() for ipt in self.inputs]
+        blob['outputs'] = [opt.to_json() for opt in self.outputs]
         blob['parameters'] = self.op_params
         blob['capability_sequence'] = [c.compiled_json() for c in self.capabilities]
         return blob
-

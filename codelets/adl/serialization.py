@@ -1,17 +1,42 @@
 import json
 from codelets.adl.architecture_graph import ArchitectureGraph
-from typing import Union
+from typing import Union, Any
 from codelets.adl.architecture_node import ArchitectureNode
 from codelets.adl.communication_node import CommunicationNode
 from codelets.adl.compute_node import ComputeNode
 from codelets.adl.storage_node import StorageNode
-from codelets.adl.codelet import Codelet
-from codelets.adl.capability import Capability
+from codelets.adl.codelet import Codelet, OperandTemplate
+from codelets.adl.instruction import Instruction
 from codelets.adl.operand import Operand, Datatype, NullOperand
-
+import linecache
 from typing import List, Dict
 from jsonschema import validate
 from pathlib import Path
+import math
+
+# Need to store
+_next_id = 0
+def exec_with_source(src: str, globals: Dict[str, Any]):
+    global _next_id
+    key = f'<eval_with_key_{_next_id}>'
+    _next_id += 1
+    _eval_cache[key] = [line + '\n' for line in src.splitlines()]
+    # exec(compile(src, key, 'exec'), globals)
+    return eval(compile(src, key, 'eval'))
+
+_eval_cache : Dict[str, List[str]] = {}
+_orig_getlines = linecache.getlines
+def patched_getline(*args, **kwargs):
+    if args[0] in _eval_cache:
+        return _eval_cache[args[0]]
+    return _orig_getlines(*args, **kwargs)
+
+def _lambda_from_src(src: str):
+    gbls: Dict[str, Any] = {'inf': math.inf, 'nan': math.nan}
+    return exec_with_source(src, gbls)
+
+linecache.getlines = patched_getline
+
 
 BaseArchNode = Union[ComputeNode, CommunicationNode, StorageNode]
 CWD = Path(f"{__file__}").parent
@@ -119,7 +144,7 @@ def _deserialize_node(node_object):
         node.add_subgraph_node(sn)
 
     for e in node_object['subgraph']['edges']:
-        node.add_subgraph_edge(e['src'], e['dst'], **e['attributes'])
+        node.add_subgraph_edge(e['src'], e['dests'], **e['attributes'])
 
     return node
 
@@ -130,14 +155,14 @@ def _deserialize_capabilities(capability_list: List[Dict]):
         kwargs = {}
         kwargs['target'] = c['target']
         kwargs['latency'] = c['latency']
-        kwargs['operands'] = _deserialize_operands(c['operands'])
+        kwargs['inputs'] = _deserialize_operands(c['inputs'])
         for k, v in c['extra_params'].items():
             kwargs[k] = v
-        cap = Capability(c['op_name'], c['opcode'], c['opcode_width'], **kwargs)
+        cap = Instruction(c['op_name'], c['opcode'], c['opcode_width'], **kwargs)
         caps.append(cap)
     return caps
 
-# Add compoennts, index size to operands
+# Add compoennts, index size to inputs
 def _deserialize_operands(op_list):
     operands = []
     for o in op_list:
@@ -156,16 +181,26 @@ def _deserialize_operands(op_list):
 def _deserialize_dtypes(dtypes):
     return [DTYPE_MAP[dt] for dt in dtypes]
 
-def _deserialize_codelets(capabilities: List[Capability], codelet_list):
+def _deserialize_codelets(capabilities: List[Instruction], codelet_list):
     cap_map = {c.name: c for c in capabilities}
     codelets = []
+    import ast
     for cdlt_obj in codelet_list:
-        input_dtypes = _deserialize_dtypes(cdlt_obj['input_dtypes'])
-        output_dtypes = _deserialize_dtypes(cdlt_obj['output_dtypes'])
-        args = (cdlt_obj['codelet_name'], input_dtypes, output_dtypes)
+        inputs = [OperandTemplate.from_json(ipt_obj) for ipt_obj in cdlt_obj['inputs']]
+        outputs = [OperandTemplate.from_json(opt_obj) for opt_obj in cdlt_obj['outputs']]
+
+        args = (cdlt_obj['codelet_name'],)
         kwargs = {}
+        kwargs['inputs'] = inputs
+        kwargs['outputs'] = outputs
         kwargs['latency'] = cdlt_obj['latency']
-        kwargs['op_params'] = cdlt_obj['op_params']
+        op_params = {}
+        for k, v in cdlt_obj['op_params'].items():
+            if v['type'] == 'function':
+                op_params[k] = _lambda_from_src(v['value'])
+            else:
+                op_params[k] = v['value']
+        kwargs['op_params'] = op_params
         templates = []
         for cap_obj in cdlt_obj['capability_sequence']:
             assert cap_obj['op_name'] in cap_map

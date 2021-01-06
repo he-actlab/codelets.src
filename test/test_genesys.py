@@ -25,10 +25,11 @@ def parse_cfg():
 def test_generate_genesys():
     genesys_cfg = parse_cfg()
     genesys = generate_genesys(genesys_cfg)
+    simd = genesys.get_subgraph_node("SIMD")
+    simd_add = simd.get_capability("ADD")
 
 def test_genesys_resnet18():
 
-    # graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.mgdfg")
     graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.srdfg")
     genesys_cfg = parse_cfg()
     genesys = generate_genesys(genesys_cfg)
