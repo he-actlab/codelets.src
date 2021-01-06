@@ -15,6 +15,9 @@ class StorageNode(ArchitectureNode):
                  latency=0,
                  input_ports=1,
                  output_ports=1,
+                 width=-1,
+                 indirection=False,
+                 on_chip=True,
                  index=None):
         super(StorageNode, self).__init__(name=name, index=index)
         self.set_attr("node_color", self.viz_color)
@@ -22,10 +25,13 @@ class StorageNode(ArchitectureNode):
         self.write_bw = write_bw
         self.access_type = access_type
         self.size = size
+        self.width = width
         self.input_ports = input_ports
         self.output_ports = output_ports
         self.buffering_scheme = buffering_scheme or "single"
+        self.indirection = indirection
         self.latency = latency
+        self.on_chip = on_chip
 
     @property
     def viz_color(self):
@@ -44,8 +50,16 @@ class StorageNode(ArchitectureNode):
             self._buffering_scheme = StorageNode.BUFF_SCHEMES[scheme]
 
     @property
+    def width(self):
+        return self._width
+
+    @property
     def latency(self):
         return self._latency
+
+    @property
+    def on_chip(self):
+        return self._on_chip
 
     @property
     def input_ports(self):
@@ -71,9 +85,25 @@ class StorageNode(ArchitectureNode):
     def size(self):
         return self._size
 
+    @property
+    def size_bytes(self):
+        return self._size * 1000
+
+    @property
+    def indirection(self):
+        return self._indirection
+
+    @width.setter
+    def width(self, width):
+        self._width = width
+
     @latency.setter
     def latency(self, latency):
         self._latency = latency
+
+    @on_chip.setter
+    def on_chip(self, on_chip):
+        self._on_chip = on_chip
 
     @size.setter
     def size(self, size):
@@ -90,6 +120,11 @@ class StorageNode(ArchitectureNode):
     @access_type.setter
     def access_type(self, access_type):
         self.set_access_type(access_type)
+
+
+    @indirection.setter
+    def indirection(self, indirection):
+        self._indirection = indirection
 
     @input_ports.setter
     def input_ports(self, input_ports):
@@ -146,8 +181,10 @@ class StorageNode(ArchitectureNode):
         blob['attributes']['size'] = self.size
         blob['attributes']['input_ports'] = self.input_ports
         blob['attributes']['output_ports'] = self.output_ports
-        blob['attributes']['buffering_scheme'] = self.buffering_scheme
+        blob['attributes']['buffering_scheme'] = self.width
+        blob['attributes']['width'] = self.buffering_scheme
         blob['attributes']['latency'] = self.latency
+        blob['attributes']['on_chip'] = self.on_chip
         blob = self.finalize_json(blob)
         return blob
 

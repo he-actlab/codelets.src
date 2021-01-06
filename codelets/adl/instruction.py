@@ -4,7 +4,7 @@ from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union
 from .operand import Operand, NullOperand
 from dataclasses import dataclass, field, fields, asdict
 
-CodeletOperand = namedtuple('CodeletOperand', ['field_name', 'dtypes'])
+CodeletOperand = namedtuple('OperandTemplate', ['field_name', 'dtypes'])
 
 @dataclass
 class Field:
@@ -43,7 +43,7 @@ class Field:
         return self.value
 
 
-class CapabilityTemplate(object):
+class InstructionTemplate(object):
     def __init__(self, target: str, fields: List[Field], field_values=None):
         self._target = target
         self._fields = fields
@@ -60,7 +60,6 @@ class CapabilityTemplate(object):
                 val = f"$({f.field_name})"
             rest.append(val)
         return start + ", ".join(rest)
-
 
     @property
     def field_values(self) -> Dict[str, Field]:
@@ -150,12 +149,12 @@ class CapabilityTemplate(object):
 
     def copy(self):
         fields = [Field(**asdict(f)) for f in self.fields]
-        return CapabilityTemplate(self.target, fields, field_values=self.field_values)
+        return InstructionTemplate(self.target, fields, field_values=self.field_values)
 
     def to_json(self):
         return {self.fields[0].value_str: [asdict(f) for f in self.fields[1:]]}
 
-class Capability(object):
+class Instruction(object):
 
     # TODO: Add test for
     def __init__(self, opname, opcode, opcode_width, target=None, operands=None, latency=1, **kwargs):
@@ -216,13 +215,13 @@ class Capability(object):
         for o in self.operands:
             if o.name == opname:
                 return o
-        raise KeyError(f"{opname} not found in possible codelet operands!")
+        raise KeyError(f"{opname} not found in possible codelet inputs!")
 
     def get_operand_names(self) -> List[str]:
         return [o.name for o in self.operands]
 
     # TODO: handle preset field values
-    def create_template(self) -> CapabilityTemplate:
+    def create_template(self) -> InstructionTemplate:
         fields = [Field('opcode', self.opcode_width, value=self.opcode, value_str=self.name)]
         for o in self.operands:
             if isinstance(o, NullOperand):
@@ -232,7 +231,7 @@ class Capability(object):
             fields.append(f)
             if o.index_size > 0:
                 fields.append(Field(f"{o.name}_index", o.index_size))
-        return CapabilityTemplate(self.target, fields)
+        return InstructionTemplate(self.target, fields)
 
     def to_json(self):
         blob = {}
@@ -244,5 +243,5 @@ class Capability(object):
         # blob['opcode_width'] = self.opcode_width
         blob['latency'] = self.latency
         blob['extra_params'] = self.extra_params
-        blob['operands'] = [o.to_json() for o in self.operands]
+        blob['inputs'] = [o.to_json() for o in self.operands]
         return blob

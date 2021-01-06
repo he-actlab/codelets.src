@@ -1,7 +1,7 @@
 from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode,\
-    StorageNode, Codelet, Capability, Operand, NullOperand
+    StorageNode, Codelet, Instruction, Operand, NullOperand
 from collections import namedtuple
-from .codelets import GENESYS_SA_CAPS
+from .genesys_codelets import GENESYS_SA_CODELETS
 from codelets.codelet import Codelet
 import numpy as np
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
@@ -20,8 +20,13 @@ def generate_genesys(genesys_cfg):
         if "capabilities" in attr:
             attr.pop("capabilities")
         mem = StorageNode(name, **attr)
+
+        if name == "DRAM":
+            mem.on_chip = False
+
         if name in sys_array_nodes:
             systolic_array.add_subgraph_node(mem)
+
         else:
             genesys.add_subgraph_node(mem)
 
@@ -45,7 +50,7 @@ def generate_genesys(genesys_cfg):
     for c in sa_caps:
         systolic_array.add_capability(c)
 
-    for _, cdlt_getter in GENESYS_SA_CAPS.items():
+    for _, cdlt_getter in GENESYS_SA_CODELETS.items():
         cdlt = cdlt_getter(genesys)
         systolic_array.add_codelet(cdlt)
 
@@ -97,7 +102,7 @@ def create_simd_alu_ops():
                            index_size=NS_IDX_BITWIDTH)
             src2 = Operand("src2", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=ALU_INPUT_NS,
                            index_size=NS_IDX_BITWIDTH)
-        cap = Capability(a, alu_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[dest, src1, src2])
+        cap = Instruction(a, alu_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[dest, src1, src2])
         alu_caps.append(cap)
     return alu_caps
 
@@ -116,7 +121,7 @@ def create_simd_calc_ops():
         dest = Operand("dest", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=CLC_OUTPUT_NS, index_size=NS_IDX_BITWIDTH)
         src1 = Operand("src1", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=CLC_INPUT_NS, index_size=NS_IDX_BITWIDTH)
         fill_val = NullOperand(NS_IDX_BITWIDTH + NS_BITWIDTH, 0)
-        cap = Capability(a, calc_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[dest, src1, fill_val])
+        cap = Instruction(a, calc_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[dest, src1, fill_val])
         calc_caps.append(cap)
     return calc_caps
 
@@ -137,7 +142,7 @@ def create_simd_comparison_ops():
         dest = Operand("dest", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=CMP_OUTPUT_NS, index_size=NS_IDX_BITWIDTH)
         src1 = Operand("src1", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=CMP_INPUT_NS, index_size=NS_IDX_BITWIDTH)
         src2 = Operand("src2", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components=CMP_INPUT_NS, index_size=NS_IDX_BITWIDTH)
-        cap = Capability(a, cmp_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[dest, src1, src2])
+        cap = Instruction(a, cmp_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[dest, src1, src2])
         cmp_caps.append(cap)
     return cmp_caps
 
@@ -162,7 +167,7 @@ def create_simd_cast_ops():
         src1 = Operand("src1", "storage", [src_dtype], NS_BITWIDTH, value_names=SIMD_NS, components=CAST_INPUT_NS, index_size=NS_IDX_BITWIDTH)
         src2 = Operand("fraction_pt", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components={"IMM": OP_LOCATIONS["IMM"]},
                        index_size=NS_IDX_BITWIDTH)
-        cap = Capability(a, cast_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[dest, src1, src2])
+        cap = Instruction(a, cast_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[dest, src1, src2])
         cast_caps.append(cap)
 
     return cast_caps
@@ -182,7 +187,7 @@ def create_simd_dtype_cfg_ops():
         fill_val = NullOperand((NS_IDX_BITWIDTH + NS_BITWIDTH) * 2, 0)
         src_dtype = DTYPE_MAP[a]
         src1 = Operand("src1", "storage", [src_dtype], NS_BITWIDTH, value_names=SIMD_NS, components=CFG_INPUT_NS, index_size=NS_IDX_BITWIDTH)
-        cap = Capability(a, cfg_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[fill_val, src1])
+        cap = Instruction(a, cfg_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[fill_val, src1])
         cfg_caps.append(cap)
     return cfg_caps
 
@@ -204,7 +209,7 @@ def create_simd_lock_ops():
         src1_fill_idx = NullOperand(NS_IDX_BITWIDTH, 0)
         src2 = Operand("ns2", "storage", [], NS_BITWIDTH, value_names=SIMD_NS, components=LOCK_NS_LOCS, index_size=0)
         src2_fill_idx = NullOperand(NS_IDX_BITWIDTH, 0)
-        cap = Capability(a, lock_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[dest, dest_fill_idx, src1, src1_fill_idx, src2, src2_fill_idx])
+        cap = Instruction(a, lock_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[dest, dest_fill_idx, src1, src1_fill_idx, src2, src2_fill_idx])
         lock_caps.append(cap)
     return lock_caps
 
@@ -222,7 +227,7 @@ def create_simd_iter_ops():
     for i, a in enumerate(ITER_OPS):
         src = Operand("src", "storage", [], NS_BITWIDTH, value_names=SIMD_NS, components=ITER_NS_LOCS, index_size=NS_IDX_BITWIDTH)
         imm = Operand("iter_value", "constant", [], (NS_BITWIDTH + NS_IDX_BITWIDTH)*2)
-        cap = Capability(a, iter_op_code + i, SIMD_OPCODE_BITWIDTH*2, operands=[src, imm])
+        cap = Instruction(a, iter_op_code + i, SIMD_OPCODE_BITWIDTH * 2, operands=[src, imm])
         iter_caps.append(cap)
     return iter_caps
 
@@ -235,17 +240,17 @@ def create_simd_loop_ops():
     # Short loop
     num_instr1 = Operand("num_instr1", "constant", [], 12)
     num_instr2 = Operand("num_instr2", "constant", [], 12)
-    sloop = Capability(LOOP_OPS[0], loop_op_code, SIMD_OPCODE_BITWIDTH*2, operands=[num_instr1, num_instr2])
+    sloop = Instruction(LOOP_OPS[0], loop_op_code, SIMD_OPCODE_BITWIDTH * 2, operands=[num_instr1, num_instr2])
     loop_caps.append(sloop)
 
     # Long loop inst
     num_instr = Operand("num_instr", "constant", [], 24)
-    lloop_instr = Capability(LOOP_OPS[1], loop_op_code + 1, SIMD_OPCODE_BITWIDTH*2, operands=[num_instr])
+    lloop_instr = Instruction(LOOP_OPS[1], loop_op_code + 1, SIMD_OPCODE_BITWIDTH * 2, operands=[num_instr])
     loop_caps.append(lloop_instr)
 
     # Long loop iter
     num_iter = Operand("num_iters", "constant", [], 24)
-    lloop_iter = Capability(LOOP_OPS[2], loop_op_code + 2, SIMD_OPCODE_BITWIDTH*2, operands=[num_iter])
+    lloop_iter = Instruction(LOOP_OPS[2], loop_op_code + 2, SIMD_OPCODE_BITWIDTH * 2, operands=[num_iter])
     loop_caps.append(lloop_iter)
     return loop_caps
 
@@ -255,14 +260,14 @@ def create_simd_permutation_ops():
 
     # Start instr
     null_op = NullOperand((NS_IDX_BITWIDTH + NS_BITWIDTH)*3, 0)
-    start = Capability("START_PERMUTE", perm_op_code, SIMD_OPCODE_BITWIDTH*2, operands=[null_op])
+    start = Instruction("START_PERMUTE", perm_op_code, SIMD_OPCODE_BITWIDTH * 2, operands=[null_op])
     perm_caps.append(start)
 
     # Loop index instr
     loop_order = Operand("loop_order", "constant", [], NS_BITWIDTH)
     loop_index_id = Operand("loop_index", "constant", [], NS_IDX_BITWIDTH)
     num_iters = Operand("num_iters", "constant", [], (NS_BITWIDTH + NS_IDX_BITWIDTH)*2)
-    loop_index = Capability("LOOP_INDEX", perm_op_code + 1, SIMD_OPCODE_BITWIDTH*2, operands=[loop_order, loop_index_id, num_iters])
+    loop_index = Instruction("LOOP_INDEX", perm_op_code + 1, SIMD_OPCODE_BITWIDTH * 2, operands=[loop_order, loop_index_id, num_iters])
     perm_caps.append(loop_index)
     return perm_caps
 
@@ -273,7 +278,7 @@ def create_sa_loop_ops():
     loop_level = Operand("loop_level", "constant", [], 6)
     loop_id = Operand("loop_id", "constant", [], 6)
     num_iters = Operand("num_iters", "constant", [], 16)
-    loop_cap = Capability("SA_LOOP", sa_loop_op_code, SIMD_OPCODE_BITWIDTH, operands=[loop_level, loop_id, num_iters])
+    loop_cap = Instruction("SA_LOOP", sa_loop_op_code, SIMD_OPCODE_BITWIDTH, operands=[loop_level, loop_id, num_iters])
     sa_loop_caps.append(loop_cap)
 
     return sa_loop_caps
@@ -287,15 +292,15 @@ def create_sa_group_op():
     loop_id = Operand("loop_id", "constant", [], 6)
     num_instr = Operand("num_instr", "constant", [], 16)
 
-    group_cap = Capability("INSTR_ARRAY_GROUP", group_op_code, SIMD_OPCODE_BITWIDTH,
-                                    operands=[sys_array_simd, start_end, group_num, loop_id, num_instr])
+    group_cap = Instruction("INSTR_ARRAY_GROUP", group_op_code, SIMD_OPCODE_BITWIDTH,
+                            operands=[sys_array_simd, start_end, group_num, loop_id, num_instr])
     return [group_cap]
 
 def create_sa_block_end():
     block_end_code = 11
     fill_val = NullOperand(12, 0)
     last = Operand("last", "constant", [], 16)
-    block_cap = Capability("BLOCK_END", block_end_code, SIMD_OPCODE_BITWIDTH, operands=[fill_val, last])
+    block_cap = Instruction("BLOCK_END", block_end_code, SIMD_OPCODE_BITWIDTH, operands=[fill_val, last])
     return [block_cap]
 
 
@@ -309,8 +314,8 @@ def create_sa_gen_addr():
     loop_id = Operand("loop_id", "constant", [], 6)
     stride = Operand("stride", "constant", [], 16)
 
-    gen_addr_cap = Capability("GENADDR", gen_addr_op_code, SIMD_OPCODE_BITWIDTH,
-                           operands=[low_high, fill_val, ld_st, ns, loop_id, stride])
+    gen_addr_cap = Instruction("GENADDR", gen_addr_op_code, SIMD_OPCODE_BITWIDTH,
+                               operands=[low_high, fill_val, ld_st, ns, loop_id, stride])
     return [gen_addr_cap]
 
 def create_sa_base_addr():
@@ -323,8 +328,8 @@ def create_sa_base_addr():
     fill_val1 = NullOperand(6, 0)
     base_addr = Operand("base_addr", "constant", [], 16)
 
-    gen_addr_cap = Capability("BASEADDR", gen_addr_op_code, SIMD_OPCODE_BITWIDTH,
-                              operands=[low_high, ns_or_imm, fill_val0, ns, fill_val1, base_addr])
+    gen_addr_cap = Instruction("BASEADDR", gen_addr_op_code, SIMD_OPCODE_BITWIDTH,
+                               operands=[low_high, ns_or_imm, fill_val0, ns, fill_val1, base_addr])
     return [gen_addr_cap]
 
 def create_sa_ld_st():
@@ -337,11 +342,11 @@ def create_sa_ld_st():
     req_size = Operand("request_size", "constant", [], 16)
 
     # LOAD op
-    ld_cap = Capability("LD", ld_st_op_code + 0, SIMD_OPCODE_BITWIDTH + 1,
-                              operands=[ns_or_imm, fill_val, ns, loop_id, req_size])
+    ld_cap = Instruction("LD", ld_st_op_code + 0, SIMD_OPCODE_BITWIDTH + 1,
+                         operands=[ns_or_imm, fill_val, ns, loop_id, req_size])
 
-    st_cap = Capability("ST", ld_st_op_code + 1, SIMD_OPCODE_BITWIDTH + 1,
-                              operands=[ns_or_imm, fill_val, ns, loop_id, req_size])
+    st_cap = Instruction("ST", ld_st_op_code + 1, SIMD_OPCODE_BITWIDTH + 1,
+                         operands=[ns_or_imm, fill_val, ns, loop_id, req_size])
 
     return [ld_cap, st_cap]
 

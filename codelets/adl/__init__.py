@@ -1,6 +1,6 @@
-from .codelet import Codelet, CodeletInstance
+from .codelet import Codelet, CodeletInstance, OperandTemplate
 from .operand import Operand, NullOperand
-from .capability import Capability, CapabilityTemplate
+from .instruction import Instruction, InstructionTemplate
 
 from .architecture_node import ArchitectureNode
 from .architecture_graph import ArchitectureGraph

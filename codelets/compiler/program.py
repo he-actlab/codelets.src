@@ -1,10 +1,12 @@
 import json
 import polymath as pm
 from typing import List, Dict, Callable
-from codelets.adl import ArchitectureNode, CodeletInstance
+from codelets.adl import ArchitectureNode, CodeletInstance, OperandTemplate, Codelet
+from codelets.adl.operand import Datatype, Operand
 from pathlib import Path
 import numpy as np
 from collections import defaultdict
+from .compilation_parameters import get_compilation_parameters
 
 class CodeletProgram(object):
 
@@ -105,20 +107,114 @@ class CodeletProgram(object):
             offset_type = 'INTERMEDIATE'
             self.update_relocation_offset(offset_type, o.name, data_size)
 
+    def get_node_dtype(self, op_tmplt, node: pm.Node) -> Datatype:
+        if "hag_dtype" not in node.kwargs:
+            dtype = op_tmplt.dtypes[0]
+            node.add_attribute("hag_dtype", str(dtype))
+        else:
+            assert op_tmplt.is_dtype_supported(node.kwargs['hag_dtype'])
+            dtype = Datatype.from_str(node.kwargs['hag_dtype'])
+        return dtype
+
+    def get_node_shape_map(self, op_tmplt: OperandTemplate, node: pm.Node) -> Dict[str, Dict]:
+        shape_map = {}
+        for i, s in enumerate(node.shape):
+
+            key = op_tmplt.shape_symbols[i]
+            shape_map[key] = {'value': s,
+                              'dimension': i}
+        return shape_map
+
+    def instantiate_inputs(self, cdlt, node, loop_values) -> List[OperandTemplate]:
+        inputs = []
+        for i, ipt in enumerate(node.inputs):
+            dtype = self.get_node_dtype(cdlt.inputs[i], ipt)
+            shape_map = self.get_node_shape_map(cdlt.inputs[i], ipt)
+            name = ipt.name
+            memory_path = cdlt.inputs[i].memory_path
+            iter_domain = cdlt.inputs[i].iteration_domain
+            ipt_instance = OperandTemplate(name,
+                                           dtypes=dtype,
+                                           memory_path=memory_path,
+                                           shape_symbols=shape_map,
+                                           iteration_domain=iter_domain)
+            inputs.append(ipt_instance)
+
+        return inputs
+
+    def instantiate_outputs(self, cdlt, node, loop_values) -> List[OperandTemplate]:
+        outputs = []
+        for i, opt in enumerate(node.outputs):
+            dtype = self.get_node_dtype(cdlt.outputs[i], opt)
+            shape_map = self.get_node_shape_map(cdlt.outputs[i], opt)
+            name = opt.name
+            memory_path = cdlt.outputs[i].memory_path
+            iter_domain = cdlt.outputs[i].iteration_domain
+            opt_instance = OperandTemplate(name,
+                                           dtypes=dtype,
+                                           memory_path=memory_path,
+                                           shape_symbols=shape_map,
+                                           iteration_domain=iter_domain)
+            outputs.append(opt_instance)
+
+        return outputs
+
+    def get_tiling_dims(self, inputs: List[OperandTemplate], outputs: List[OperandTemplate]):
+        assert all([i.is_instantiated() for i in inputs])
+        assert all([o.is_instantiated() for o in outputs])
+
+    def get_dim_values(self, cdlt: Codelet, node: pm.Node):
+        all_cdlt_ops = cdlt.inputs + cdlt.outputs
+        all_node_ops = node.inputs + node.outputs
+        tiling_dims = {}
+        for i, opt in enumerate(all_node_ops):
+            tiling_dims.update(self.get_node_shape_map(all_cdlt_ops[i], opt))
+
+        for k in list(tiling_dims.keys()):
+            if k not in cdlt.loop_order:
+                tiling_dims.pop(k)
+            else:
+                tiling_dims[k] = tiling_dims[k]['value']
+        return tiling_dims
+
     def instantiate_codelet(self, node):
         cdlt = self.hag.get_codelet(node.op_name)
         instance_params = {}
-        cdlt.set_input_types(node)
-        cdlt.set_output_types(node)
+        tiling_dims = self.get_dim_values(cdlt, node)
+        inputs = self.instantiate_inputs(cdlt, node, tiling_dims)
+        outputs = self.instantiate_outputs(cdlt, node, tiling_dims)
         cap_copy = [c.copy() for c in cdlt.capability_sequence]
-
 
         for k, v in cdlt.op_params.items():
             if isinstance(v, Callable):
                 instance_params[k] = v(node)
-        cdlt_instance = CodeletInstance(cap_copy, node.inputs, node.outputs, cdlt, op_params=instance_params)
+            else:
+                instance_params[k] = v
+        cdlt_instance = CodeletInstance(cap_copy, inputs, outputs, cdlt, op_params=instance_params)
+        compilation_parameters = get_compilation_parameters(self.hag, cdlt_instance)
+        if cdlt_instance.codelet_id == "conv1":
+            print(compilation_parameters)
             # TODO: Need to make sure all nodes have input/output defined
         self.add_relocation(node, cdlt_instance)
+        self.add_codelet(cdlt_instance)
         return cdlt_instance
 
+    #
+    # def determine_compiler_params(self, cdlt):
+    #     tiling = self.get_tiling(cdlt)
 
+
+
+def generate_possible_tilings(shape_dict, memory_paths):
+    possible_tilings = {}
+
+    for k, v in shape_dict.items():
+        tile_permutations = []
+
+def tiling_constraint(shapes, node_capacities, tile_sizes):
+
+    for i, t in enumerate(tile_sizes):
+        data_size = np.prod([t[s] for s in shapes])
+        if data_size >= node_capacities[i]:
+            return False
+    return True

@@ -1,6 +1,6 @@
 from codelets.adl.codelet import CodeletInstance, Codelet
 from typing import List
-from codelets.adl import Capability, ArchitectureNode
+from codelets.adl import Instruction, ArchitectureNode
 import json
 from .program import CodeletProgram
 import polymath as pm
@@ -30,7 +30,7 @@ def compile(program_graph, hag: ArchitectureNode, output_path, store_output=True
     program = CodeletProgram(program_graph.name, hag)
     node_sequence = sequence_nodes(program_graph, hag)
     program = map_tile_nodes(node_sequence, program)
-    if store_output is not None:
+    if store_output:
         program.save(output_path, save_format=output_type)
     return program
 
@@ -45,9 +45,8 @@ def sequence_nodes(program_graph: pm.Node, hag: ArchitectureNode, sequence_algor
 
     return node_list
 
-
 def map_tile_nodes(node_sequence, program: CodeletProgram) -> CodeletProgram:
     for n in node_sequence:
-        program.instantiate_codelet(n)
+        cdlt = program.instantiate_codelet(n)
     return program
 
