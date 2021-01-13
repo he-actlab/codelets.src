@@ -1,325 +1,224 @@
-import numpy as np
-from dataclasses import asdict
+from typing import List, Union, Dict
+from .operand import OperandTemplate
+from .operation import Operation, Loop, Transfer, Compute, Configure
+from dataclasses import replace
 import polymath as pm
-from collections import namedtuple, defaultdict
-from .instruction import InstructionTemplate, Instruction
-from .util import get_lambda_source
-from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union
-from .operand import Datatype
-from dataclasses import dataclass
-# OperandTemplate = namedtuple('OperandTemplate', ['name', 'dtypes', 'mem_path', 'shape'])
-Field = namedtuple('Field', ['field_name', 'value', 'bitwidth'])
-
-# Operand = namedtuple('Operand', ['component_name', 'datatype', 'dimensions'])
-# TODO does different on-chip dataflow need to be considered?
-#      if so, how should it be included?
-#      current implementation considers a single type of on-chip dataflow!
-
-@dataclass(frozen=True)
-class OperandTemplate:
-    name: str
-    dtypes: Union[List[Datatype], Datatype]
-    memory_path: List[str]
-    shape_symbols: Union[List[str], Dict[str, Dict]]
-    iteration_domain: Union[List[str], Dict[str, Dict]]
-
-    def is_dtype_supported(self, dtype_name) -> bool:
-        return dtype_name in [str(dt) for dt in self.dtypes]
-
-    def to_json(self):
-        blob = {}
-        blob['name'] = self.name
-        if isinstance(self.dtypes, list):
-            blob['dtypes'] = [dt.to_json() for dt in self.dtypes]
-        else:
-            blob['dtypes'] = self.dtypes.to_json()
-        blob['memory_path'] = self.memory_path
-        blob['shape_symbols'] = self.shape_symbols
-        blob['iteration_domain'] = self.iteration_domain
-        return blob
-
-    def is_instantiated(self):
-        return isinstance(self.shape_symbols, dict)
-
-    @staticmethod
-    def from_json(ot_obj: Dict):
-        ot = ot_obj.copy()
-        name = ot['name']
-        dtypes = [Datatype.from_json(dt) for dt in ot['dtypes']]
-        memory_path = ot['memory_path']
-        shape_symbols = ot['shape_symbols']
-        iter_domain = ot['iteration_domain']
-        return OperandTemplate(name=name,
-                               dtypes=dtypes,
-                               memory_path=memory_path,
-                               shape_symbols=shape_symbols,
-                               iteration_domain=iter_domain)
-
-
-# @dataclass(frozen=True)
-# class CodeletOperand:
-#     name: str
-#     dtypes: List[Datatype]
-#     memory_path: List[str]
-#     shape_symbols: List[str]
-#
-#     def is_dtype_supported(self, dtype_name) -> bool:
-#         return dtype_name in [str(dt) for dt in self.dtypes]
-#
-#     def __dict__(self):
-#         blob = {}
-#         blob['name'] = self.name
-#         blob['dtypes'] = [dict(dt) for dt in self.dtypes]
-#         blob['memory_path'] = self.memory_path
-#         blob['shape_symbols'] = self.shape_symbols
-#         return blob
-
 
 class Codelet(object):
-    """
-    Base class for capability
-    """
-    CONST_VAL = 'CONST'
-    def __init__(self, name,
-                 loop_order=None,
-                 inputs=None,
-                 outputs=None,
-                 capability_sequence=None,
-                 op_params=None,
-                 latency=None):
+    codelet_id = 0
+    operations = []
 
+    def __init__(self, op_name, inputs: List[OperandTemplate], outputs: List[OperandTemplate],
+                 cdlt_id=None,
+                 required_params=None,
+                 **kwargs):
 
-        self._name = name
-        if inputs:
-            assert all([isinstance(i, OperandTemplate) for i in inputs])
-        else:
-            inputs = []
-        self._inputs = inputs
-
-        if outputs:
-            assert all([isinstance(o, OperandTemplate) for o in outputs])
-        else:
-            outputs = []
-        self._outputs = outputs
-        self._loop_order = loop_order or []
-        self._capability_sequence = capability_sequence or []
-        self.op_params = op_params or {}
-        # latency can be either a fixed value or a lambda function
-        self.latency = latency or 0
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def inputs(self) -> List[OperandTemplate]:
-        return self._inputs
-
-    @property
-    def outputs(self) -> List[OperandTemplate]:
-        return self._outputs
-
-    @property
-    def latency(self) -> int:
-        return self._latency
-
-    @property
-    def op_params(self) -> Dict[str, Any]:
-        return self._op_params
-
-    @property
-    def capability_sequence(self) -> List[InstructionTemplate]:
-        return self._capability_sequence
-
-    @property
-    def loop_order(self):
-        return self._loop_order
-
-    @property
-    def all_dims(self) -> List[str]:
-        dims = []
-        for i in self.inputs:
-            dims += [ishp for ishp in i.shape_symbols if ishp not in dims]
-
-        for o in self.outputs:
-            dims += [oshp for oshp in o.shape_symbols if oshp not in dims]
-
-        return dims
-
-    @loop_order.setter
-    def loop_order(self, loop_order):
-        assert isinstance(loop_order, list)
-        assert len(loop_order) == len(self.all_dims)
-        for l in loop_order:
-            assert l in self.all_dims
-        self._loop_order = loop_order
-
-    @name.setter
-    def name(self, name):
-        self._name = name
-
-    @latency.setter
-    def latency(self, latency):
-        self._latency = latency
-
-    @op_params.setter
-    def op_params(self, op_params):
-        self._op_params = op_params
-
-
-    @capability_sequence.setter
-    def capability_sequence(self, capability_sequence):
-        if len(self.capability_sequence) > 0:
-            raise RuntimeError(f"Cannot set capability sequence which has already been set.")
-        self._capability_sequence = capability_sequence
-
-    def add_input(self, name, dtypes, mem_path, shape, iter_domain=None, index=None):
-
-        iteration_domain = iter_domain or shape
-        inpt = OperandTemplate(name=name,
-                               dtypes=dtypes,
-                               memory_path=mem_path,
-                               shape_symbols=shape,
-                               iteration_domain=iteration_domain)
-        if index:
-            self.inputs.insert(index, inpt)
-        else:
-            self.inputs.append(inpt)
-
-    def add_output(self, name: str, dtypes: List[Datatype],
-                   mem_path: List[str],
-                   shape: List[str],
-                   iter_domain: List[str]=None,
-                   index=None):
-        iteration_domain = iter_domain or shape
-        outpt = OperandTemplate(name=name, dtypes=dtypes, memory_path=mem_path, shape_symbols=shape, iteration_domain=iteration_domain)
-        if index:
-            self.outputs.insert(index, outpt)
-        else:
-            self.outputs.append(outpt)
-
-    def set_name(self, name):
-        self._name = name
-
-    def get_name(self):
-        return self._name
-
-    def set_latency(self, latency):
-        self._latency = latency
-
-    def get_latency(self):
-        return self._latency
-
-    def add_capability(self, capability):
-        self._capability_sequence.append(capability)
-
-    def get_op_param(self, key):
-        if key not in self._op_params:
-            raise KeyError(f"Key {key} not in op params: {self.op_params.keys()}")
-        return self.op_params[key]
-
-    def add_op_param(self, key, value):
-        if key in self._op_params:
-            raise KeyError(f"Key {key} already in op params: {self.op_params.keys()}")
-        self.op_params[key] = value
-
-    def to_json(self) -> Dict:
-        blob = {}
-        blob['codelet_name'] = self.name
-        params = {}
-        for k, v in self.op_params.items():
-            if isinstance(v, Callable):
-                v = get_lambda_source(v)
-                param_type = "function"
-            else:
-                param_type = v.__class__.__name__
-            params[k] = {'type': param_type, 'value': v}
-        blob['op_params'] = params
-        blob['latency'] = self.latency
-        blob['inputs'] = [ipt.to_json() for ipt in self.inputs]
-        blob['outputs'] = [opt.to_json() for opt in self.outputs]
-        blob['capability_sequence'] = [c.template_json() for c in self.capability_sequence]
-        return blob
-
-    def get_text_instructions(self) -> List[str]:
-        instr = [str(c) for c in self.capability_sequence]
-        return instr
-
-    def emit_template_string(self):
-        instrs = []
-        for c in self.capability_sequence:
-            instrs.append(str(c))
-        return "\n".join(instrs)
-
-    def emit_template_json(self):
-        instrs = []
-        for c in self.capability_sequence:
-            instrs.append(c.to_json())
-        return instrs
-
-
-class CodeletInstance(object):
-    CODELET_COUNTER = defaultdict(int)
-
-    def __init__(self, capability_templates: List[InstructionTemplate],
-                 inputs: List[OperandTemplate],
-                 outputs: List[OperandTemplate],
-                 codelet: Codelet,
-                 compiler_params=None,
-                 op_params=None,
-                 loop_order=None):
-        self._codelet_template = codelet
-        self._capabilities = capability_templates
+        self._params = kwargs
+        self._op_name = op_name
         self._inputs = inputs
         self._outputs = outputs
-        self._op_params = op_params or {}
-        self._compiler_params = compiler_params or {}
-        self._cdlt_id = f"{codelet.name}{CodeletInstance.CODELET_COUNTER[codelet.name]}"
-        self._loop_order = loop_order or codelet.loop_order
-        CodeletInstance.CODELET_COUNTER[codelet.name] += 1
+        self._ops = []
+        self._op_map = {}
+        self._global_op_map = {}
+        self._required_params = required_params or {}
+        if cdlt_id:
+            self._cdlt_id = cdlt_id
+        else:
+            self._cdlt_id = Codelet.codelet_id
+            Codelet.codelet_id += 1
+
+    def __enter__(self):
+        Operation.current_codelet = self
+        Operation.loop_stack.append(-1)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        Operation.current_codelet = None
+        last_id = Operation.loop_stack.pop()
+        assert last_id == -1
 
     @property
-    def codelet_id(self):
+    def cdlt_id(self):
         return self._cdlt_id
 
     @property
-    def loop_order(self):
-        return self._loop_order
+    def op_name(self):
+        return self._op_name
 
     @property
-    def inputs(self) -> List[OperandTemplate]:
+    def params(self) -> Dict[str, Union[str, int, List]]:
+        return self._params
+
+    @property
+    def required_params(self) -> Dict[str, Union[str, int, List]]:
+        return self._required_params
+
+    @property
+    def inputs(self):
         return self._inputs
 
     @property
-    def outputs(self) -> List[OperandTemplate]:
+    def outputs(self):
         return self._outputs
 
     @property
-    def op_params(self) -> Dict:
-        return self._op_params
+    def ops(self) -> List[Operation]:
+        return self._ops
 
     @property
-    def compiler_params(self) -> Dict:
-        return self._compiler_params
+    def op_map(self) -> Dict[str, Union[Loop, Compute, Transfer, Configure]]:
+        return self._op_map
 
     @property
-    def codelet_template(self):
-        return self._codelet_template
+    def global_op_map(self) -> Dict[int, Union[Loop, Compute, Transfer, Configure]]:
+        return self._global_op_map
+
+    @ops.setter
+    def ops(self, ops):
+        self._ops = ops
 
     @property
-    def capabilities(self):
-        return self._capabilities
+    def num_instr(self):
+        num = 0
+        for o in self.ops:
+            num += len(o.instructions)
+        return num
 
-    def get_text_instructions(self) -> List[str]:
-        instr = [str(c) for c in self.capabilities]
-        return instr
+    def codelet_copy(self):
+        inputs = [replace(i) for i in self.inputs]
+        outputs = [replace(o) for o in self.outputs]
 
-    def compiled_json(self) -> Dict:
-        blob = {}
-        blob['id'] = self.codelet_id
-        blob['codelet_name'] = self.codelet_template.name
-        blob['inputs'] = [ipt.to_json() for ipt in self.inputs]
-        blob['outputs'] = [opt.to_json() for opt in self.outputs]
-        blob['parameters'] = self.op_params
-        blob['capability_sequence'] = [c.compiled_json() for c in self.capabilities]
-        return blob
+        cdlt = Codelet(self.op_name, inputs, outputs,
+                       cdlt_id=self.cdlt_id,
+                       required_params=self.required_params,
+                       **self.params)
+        for o in self.ops:
+            cdlt.add_op(o.copy_op(cdlt, o))
+
+        return cdlt
+
+    def get_transfer_op(self, op_id: int) -> Transfer:
+        return self.op_map[f'transfer{op_id}']
+
+    def get_configure_op(self, op_id: int) -> Configure:
+        return self.op_map[f'config{op_id}']
+
+    def get_compute_op(self, op_id: int) -> Compute:
+        return self.op_map[f'compute{op_id}']
+
+    def get_loop_op(self, op_id: int) -> Loop:
+        return self.op_map[f'loop{op_id}']
+
+    def get_operation_instructions(self, op, hag):
+        pass
+
+    def emit_operations(self):
+        op_str = f"CODELET:\t{self.op_name}\n"
+        for o in self.ops:
+            ostr = f"\t"*(o.loop_level + 1)
+            ostr += f"{str(o)}\n"
+            op_str += ostr
+
+        return op_str
+
+    def emit_str_instructions(self, hag):
+        op_str = f"CODELET:\t{self.op_name}\n"
+        for o in self.ops:
+            instr_list = self.get_operation_instructions(o, hag)
+            # ostr = f"\t" * (o.loop_level + 1)
+            # ostr += f"{str(o)}\n"
+            # op_str += ostr
+
+        return op_str
+
+    def emit_bin_instructions(self, arch):
+        pass
+
+    def add_op(self, op: Operation):
+        for rp_key in op.required_params:
+            if rp_key not in self.required_params:
+                self.add_required_param(rp_key)
+        self.ops.append(op)
+        self.op_map[op.op_str] = op
+        self.global_op_map[op.global_op_id] = op
+
+    def add_required_param(self, key, value=None):
+        if key in self.required_params:
+            raise KeyError(f"Key {key} already exists in params:\n"
+                           f"Previous value: {self.required_params[key]}\n"
+                           f"Updated value: {value}")
+
+        self.required_params[key] = value
+
+    def set_required_param(self, key, value):
+        if key not in self.required_params:
+            raise KeyError(f"Key {key} for updating param does not exist:\n"
+                           f"All Keys: {self.required_params.keys()}\n"
+                           f"Updated value: {value}")
+        if self.required_params[key] is not None:
+            raise RuntimeError(f"Param {key} has already been set:\n"
+                               f"Previous value: {self.required_params[key]}\n"
+                               f"New value: {value}")
+
+        self.required_params[key] = value
+
+    def add_param(self, key, value):
+        if key in self.params:
+            raise KeyError(f"Key {key} already exists in params:\n"
+                           f"Previous value: {self.params[key]}\n"
+                           f"Updated value: {value}")
+
+        self.params[key] = value
+
+    def update_param(self, key, value):
+        if key not in self.params:
+            raise KeyError(f"Key {key} for updating param does not exist:\n"
+                           f"All Keys: {self.params.keys()}\n"
+                           f"Updated value: {value}")
+
+        self.params[key] = value
+
+    def configure(self, start_end, target_name, **kwargs):
+        cfg = Configure(start_end, target_name,
+                        add_codelet=False, **kwargs)
+        self.add_op(cfg)
+
+
+    def compute(self, op_name, sources, dests, **kwargs):
+        comp = Compute(op_name, sources, dests,
+                        add_codelet=False, **kwargs)
+        self.add_op(comp)
+
+    def transfer(self, operand, path, offsets, sizes, **kwargs):
+        xfer = Transfer(operand, path, offsets, sizes,
+                        add_codelet=False, **kwargs)
+        self.add_op(xfer)
+
+    def get_previous_transfer_size(self, op: Transfer):
+        for o in range(op.op_id, -1, -1):
+            if self.get_transfer_op(o).dest == op.source:
+                pass
+
+    def get_dim_values(self, node: pm.Node):
+        all_cdlt_ops = self.inputs + self.outputs
+        all_node_ops = node.inputs + node.outputs
+        tiling_dims = {}
+        for i, opt in enumerate(all_node_ops):
+            tiling_dims.update(self.get_node_shape_map(all_cdlt_ops[i], opt))
+
+        return tiling_dims
+
+    def get_node_shape_map(self, op_tmplt: OperandTemplate, node: pm.Node) -> Dict[str, Dict]:
+        shape_map = {}
+        for i, s in enumerate(node.shape):
+
+            key = op_tmplt.shape_symbols[i]
+            shape_map[key] = {'value': s,
+                              'dimension': i}
+        return shape_map
+
+    def instantiate_operands(self, node, dimensions):
+        pass
+
+
+

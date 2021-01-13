@@ -1,13 +1,52 @@
 import numpy as np
-
+from types import FunctionType
 from codelets.graph import Node
 from codelets.adl.architecture_graph import ArchitectureGraph
-from typing import List, Dict, Union
+from typing import List, Dict, Union, TYPE_CHECKING
 from codelets.adl import Codelet, Instruction
 from pygraphviz import AGraph
 from collections import namedtuple
+from .operation import Operation, Loop, Compute, Configure, Transfer
 
-Edge = namedtuple('Edge', ['src', 'dests', 'attributes'])
+if TYPE_CHECKING:
+    from .compute_node import ComputeNode
+    from .storage_node import StorageNode
+    from .communication_node import CommunicationNode
+Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
+OpTemplate = namedtuple('OpTemplate', ['instructions', 'functions'])
+
+
+class UtilFuncs(object):
+
+    def __init__(self):
+        self._funcs = {}
+        self._func_def_names = {}
+
+    @property
+    def funcs(self):
+        return self._funcs
+
+    @property
+    def func_def_names(self):
+        return self._func_def_names
+
+    def __getattr__(self, item):
+        return self.funcs[item]
+
+    def add_fn(self, name, arg_vars: List[str], body):
+        arg_str = ", ".join(arg_vars)
+        self.func_def_names[name] = f"util_fn{len(list(self.funcs.keys()))}"
+        self.funcs[name] = f"def {self.func_def_names[name]}({arg_str}):\n\t" \
+                           f"return {body}"
+
+    def get_util_fnc(self, name):
+        util_fnc_code = compile(self.funcs[name], "<string>", "exec")
+        util_fnc = FunctionType(util_fnc_code.co_consts[0], globals(), self.func_def_names[name])
+        return util_fnc
+
+    def run_param_fnc(self, fn_name, *args, **kwargs):
+        util_fnc = self.get_util_fnc(fn_name)
+        return util_fnc(*args, **kwargs)
 
 class ArchitectureNode(Node):
     """
@@ -30,15 +69,20 @@ class ArchitectureNode(Node):
         self._in_edges = {}
         self._out_edges = {}
 
-        # capabilities
-        self._capabilities = {}
+        # primitives
+        self._primitives = {}
 
         # capability_sequence
         self._codelets = {}
 
-        # occupied: [(op_node, capability, begin_cycle, end_cycle)]
+        # occupied: [(op_node, primitive, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
         self._occupied = [] # NOTE state in TABLA compiler...
+        self._operation_mappings = {"config": {},
+                                    "transfer": {},
+                                    "loop": {},
+                                    "compute": {}}
+        self._util_fns = UtilFuncs()
 
     def __enter__(self):
         return self
@@ -63,12 +107,20 @@ class ArchitectureNode(Node):
         return self._subgraph
 
     @property
-    def capabilities(self) -> Dict[str, Instruction]:
-        return self._capabilities
+    def primitives(self) -> Dict[str, Instruction]:
+        return self._primitives
 
     @property
     def codelets(self) -> Dict[str, Codelet]:
         return self._codelets
+
+    @property
+    def util_fns(self):
+        return self._util_fns
+
+    @property
+    def operation_mappings(self):
+        return self._operation_mappings
 
     @property
     def all_codelet_names(self) -> List[str]:
@@ -76,6 +128,10 @@ class ArchitectureNode(Node):
         for n in self.get_subgraph_nodes():
             names += n.all_codelet_names
         return names
+
+    @property
+    def node_type(self):
+        raise NotImplementedError
 
     def networkx_visualize(self, filename):
         dgraph = AGraph(strict=False, directed=True)
@@ -88,25 +144,32 @@ class ArchitectureNode(Node):
         dgraph.layout("dot")
         dgraph.draw(f"{filename}.pdf", format="pdf")
     #
+
+    def add_util_fn(self, name, arg_vars: List[str], body):
+        self.util_fns.add_fn(name, arg_vars, body)
+
+    def run_util_fn(self, fn_name, *args):
+        return self.util_fns.run_param_fnc(fn_name, *args)
+
     def set_parent(self, node_id):
         self._has_parent = node_id
 
     def get_viz_attr(self):
         raise NotImplementedError
 
-    def has_capability(self, name):
-        if name in self.capabilities:
+    def has_primitive(self, name):
+        if name in self.primitives:
             return True
         else:
             for n in self.get_subgraph_nodes():
-                if n.has_capability(name):
+                if n.has_primitive(name):
                     return True
         return False
 
     def has_codelet(self, name):
         return name in self.all_codelet_names
 
-    def add_subgraph_edge(self, src, dst, attributes=None):
+    def add_subgraph_edge(self, src, dst, attributes=None, transfer_fn_map=None):
 
         if self._has_parent:
             raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
@@ -130,7 +193,7 @@ class ArchitectureNode(Node):
         if dst.index not in self.subgraph._nodes:
             self.add_out_edge(dst)
 
-        edge = Edge(src=src.index, dst=dst.index, attributes=attr)
+        edge = Edge(src=src.index, dst=dst.index, attributes=attr, transfer_fn_map=transfer_fn_map)
         self._subgraph_edges.append(edge)
         self.subgraph.add_edge(src, dst)
 
@@ -154,6 +217,42 @@ class ArchitectureNode(Node):
             s_node.set_parent(node)
         self.add_subgraph_node(node)
 
+    def get_operation_template(self, op):
+
+        if isinstance(op, Transfer):
+            template = self.operation_mappings['transfer'][(op.source, op.dest)]
+        elif isinstance(op, Configure):
+            template = self.operation_mappings['config'][op.target_name][op.start_or_finish]
+        elif isinstance(op, Compute):
+            template = self.operation_mappings['compute'][op.op_name]
+        elif isinstance(op, Loop):
+            template = self.operation_mappings['loop']
+        else:
+            raise TypeError(f"Invalid type for getting operation template: {type(op)}")
+        return template
+
+
+    # TODO: Need to validate that each parameter is correctly mapped
+    def add_start_template(self, target, template, template_fns=None):
+        if target not in self.operation_mappings['config']:
+            self.operation_mappings['config'][target] = {}
+        self.operation_mappings['config'][target]['start'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_end_template(self, target, template, template_fns=None):
+        if target not in self.operation_mappings['config']:
+            self.operation_mappings['config'][target] = {}
+        self.operation_mappings['config'][target]['end'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_transfer_template(self, src, dst, template, template_fns=None):
+        self.operation_mappings['transfer'][(src, dst)] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_compute_template(self, target, op_name, template, template_fns=None):
+        if target not in self.operation_mappings['compute']:
+            self.operation_mappings['compute'][target] = {}
+        self.operation_mappings['compute'][target][op_name] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_loop_template(self, target, template, template_fns=None):
+        self.operation_mappings['loop'][target] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_in_edge(self, src):
         self._in_edges[src.field_name] = src
@@ -163,7 +262,7 @@ class ArchitectureNode(Node):
         self._out_edges[dst.field_name] = dst
         self.subgraph.add_output(dst)
 
-    def get_subgraph_node(self, name) -> 'ArchitectureNode':
+    def get_subgraph_node(self, name) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
         if isinstance(name, str):
             if name in self._in_edges:
                 return self._in_edges[name]
@@ -190,45 +289,43 @@ class ArchitectureNode(Node):
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
-    def add_capability(self, capability: Instruction):
-        if capability.target is None:
-            capability.target = self.name
-        self._capabilities[capability.name] = capability
+    def add_primitive(self, primitive: Instruction):
+        if primitive.target is None:
+            primitive.target = self.name
+        self._primitives[primitive.name] = primitive
 
-    def get_capability(self, name) -> Instruction:
-        if name in self.capabilities:
-            return self.capabilities[name]
+    def get_primitive_template(self, name) -> Instruction:
+        if name in self.primitives:
+            return self.primitives[name].instruction_copy()
         else:
             for n in self.get_subgraph_nodes():
-                if n.has_capability(name):
-                    return n.get_capability(name)
-        raise KeyError(f"Capability {name} not found!")
+                if n.has_primitive(name):
+                    return n.get_primitive_template(name)
+        raise KeyError(f"Primitive {name} not found!")
 
-    def get_capabilities(self) -> List[Instruction]:
-        return list(self._capabilities.keys())
-
-
+    def get_primitives(self) -> List[Instruction]:
+        return list(self._primitives.keys())
 
     def add_codelet(self, codelet: Codelet):
         # TODO: Validate memory paths
-        self._codelets[codelet.name] = codelet
+        self._codelets[codelet.op_name] = codelet.codelet_copy()
 
-    def get_codelet(self, name) -> Codelet:
+    def get_codelet_template(self, name) -> Codelet:
         if name in self.codelets:
-            return self.codelets[name]
+            return self.codelets[name].codelet_copy()
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_codelet(name):
-                    return n.get_codelet(name)
+                    return n.get_codelet_template(name)
         raise KeyError(f"Codelet {name} not found!")
 
     def get_codelets(self):
         return self._codelets.keys()
 
     def is_compatible(self, op_name):
-        return op_name in self._capabilities.keys()
+        return op_name in self._primitives.keys()
     
-    def set_occupied(self, op_code, capability, begin_cycle, end_cycle):
+    def set_occupied(self, op_code, primitive, begin_cycle, end_cycle):
         
         # check for overlaps, "o" is occupied and "n" is new
         n = (begin_cycle, end_cycle)
@@ -236,7 +333,7 @@ class ArchitectureNode(Node):
         assert len(overlaps) == 0, 'this op_node cannot be mapped here, check before using set_occupied'
 
         # append to _occupied
-        self._occupied.append((op_code, capability, begin_cycle, end_cycle))
+        self._occupied.append((op_code, primitive, begin_cycle, end_cycle))
 
     def get_occupied(self):
         return self._occupied
@@ -252,7 +349,7 @@ class ArchitectureNode(Node):
     def viz_color(self):
         raise NotImplementedError
 
-    def get_subgraph_nodes(self) -> List['ArchitectureNode']:
+    def get_subgraph_nodes(self) -> List['ComputeNode']:
         return list(self._subgraph_nodes.values())
 
     def get_subgraph_edges(self):
@@ -298,6 +395,6 @@ class ArchitectureNode(Node):
         blob['subgraph']['edges'] = []
         for e in self.get_subgraph_edges():
             e_attr = {list(k.keys())[0]:  list(k.values())[0] for k in e.attributes}
-            sub_edge = {'src': e.src, 'dests': e.dst, 'attributes': e_attr}
+            sub_edge = {'src': e.src, 'dest': e.dst, 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
         return blob

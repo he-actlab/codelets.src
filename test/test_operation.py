@@ -1,6 +1,6 @@
 import pytest
 
-from codelets.adl.operation.base import Operation
+from codelets.adl.operation.base_op import Operation
 from codelets.adl.operation.loop_op import Loop
 
 

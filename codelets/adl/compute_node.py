@@ -1,6 +1,6 @@
 from codelets.adl.architecture_node import ArchitectureNode
 
-from codelets.adl.codelet import Codelet
+from codelets.adl.backups.codelet import Codelet
 from codelets.adl.instruction import Instruction
 from typing import Dict
 
@@ -10,28 +10,32 @@ from typing import Dict
 
 class ComputeNode(ArchitectureNode):
 
-    def __init__(self, name, dimensions=None, codelets=None, capabilities=None, index=None):
+    def __init__(self, name, dimensions=None, codelets=None, primitives=None, index=None):
         super(ComputeNode, self).__init__(name, index=index)
         self.set_attr("node_color", self.viz_color)
-        self._capabilities = {}
+        self._primitives = {}
         self._codelets = {}
         self.dimensions = dimensions or [1]
-        if capabilities:
-            for c in capabilities:
-                if isinstance(c, dict):
-                    cap = self.parse_capability_json(c)
+        if primitives:
+            for p in primitives:
+                if isinstance(p, dict):
+                    prim = self.parse_capability_json(p)
                 else:
-                    cap = c
-                self.add_capability(cap)
+                    prim = p
+                self.add_primitive(prim)
 
-        # TODO: Check codelet capabilities for support
+        # TODO: Check codelet primitives for support
         if codelets:
-            for c in codelets:
-                if isinstance(c, dict):
-                    cdlt = self.parse_codelet_json(c)
+            for p in codelets:
+                if isinstance(p, dict):
+                    cdlt = self.parse_codelet_json(p)
                 else:
-                    cdlt = c
+                    cdlt = p
                 self.add_codelet(cdlt)
+
+    @property
+    def node_type(self):
+        return 'compute'
 
     @property
     def viz_color(self):
@@ -42,8 +46,8 @@ class ComputeNode(ArchitectureNode):
         return self._dimensions
 
     @property
-    def capabilities(self) -> Dict[str, Instruction]:
-        return self._capabilities
+    def primitives(self) -> Dict[str, Instruction]:
+        return self._primitives
 
     @property
     def codelets(self) -> Dict[str, Codelet]:
@@ -65,7 +69,7 @@ class ComputeNode(ArchitectureNode):
         return cap
 
     def get_viz_attr(self):
-        caps = list(self.get_capabilities())
+        caps = list(self.get_primitives())
         if len(caps) > 5:
             return f"Capabilities: {caps[:5]}"
         else:
@@ -74,7 +78,7 @@ class ComputeNode(ArchitectureNode):
     def to_json(self) -> Dict:
         blob = self.initialize_json()
         blob['attributes']['dimensions'] = self.dimensions
-        blob['attributes']['capabilities'] = [c.to_json() for k, c in self.capabilities.items()]
+        blob['attributes']['primitives'] = [c.to_json() for k, c in self.primitives.items()]
         blob['attributes']['codelets'] = [c.to_json() for k, c in self.codelets.items()]
         blob = self.finalize_json(blob)
         return blob

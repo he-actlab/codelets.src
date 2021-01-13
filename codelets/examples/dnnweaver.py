@@ -2,12 +2,12 @@ from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode, Stor
 from collections import namedtuple
 from codelets.codelet import Codelet
 import numpy as np
-# compute node:       list of capabilities
+# compute node:       list of primitives
 # edge:               latency and bw are written into the "subgraph_edge"
 # storage node:       capacity, r/w bw, access type in "MemConfig" TODO I/O ports
 # communication node: fan i/o through graph API, communication type input, bw input...
-# capabilities:       ???
-# composite capabilities: ???
+# primitives:       ???
+# composite primitives: ???
 
 SysArrayConfig = namedtuple('SysArrayConfig', ['bitwidth', 'height', 'ibuf', 'obuf', 'bbuf', 'wbuf'])
 SIMDConfig = namedtuple('SIMDConfig', ['lanes', 'mem_cfg'])
@@ -67,7 +67,7 @@ def generate_buffers(sys_array_cfg: SysArrayConfig):
 #     pe_array.set_attr("bitwidth", sys_array_cfg.bitwidth)
 #     pe_array.set_attr("height", sys_array_cfg.height)
 #
-#     # add capabilities
+#     # add primitives
 #     matmul = Codelet('MatrixMatrixMul')
 #     matmul.add_input(field_name='ifmap', src=["IBUF"], dims=['b', 'x'])
 #     matmul.add_input(field_name='weight', src=["WBUF"], dims=['x', 'y'])
@@ -90,7 +90,7 @@ def generate_buffers(sys_array_cfg: SysArrayConfig):
 #     #                                 'x': (0, pe_array.get_attr('array_height')),
 #     #                                 'y': (0, 'inf')}
 #     #                    )
-#     pe_array.add_capability(matmul)
+#     pe_array.add_primitive(matmul)
 #
 #     # TODO MatrixVectorMul & VectorVectorMul
 #
@@ -115,7 +115,7 @@ def generate_systolic_array(sys_array_cfg: SysArrayConfig):
     sys_array.add_subgraph_edge(obuf_node, pe_array, {'latency':1, 'bw':32})
     sys_array.add_subgraph_edge(pe_array, obuf_node, {'latency':1, 'bw':32})
 
-    # TODO make sure all capabilities of the enclosed nodes are detected through some API
+    # TODO make sure all primitives of the enclosed nodes are detected through some API
 
     return sys_array
 
@@ -169,51 +169,51 @@ def add_simd_capabilities(alu_array):
         alu_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         alu_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(alu_op)
+        alu_array.add_primitive(alu_op)
 
     for op_name in CALC_OPS:
         calc_op = Codelet(op_name)
         calc_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         calc_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(calc_op)
+        alu_array.add_primitive(calc_op)
 
     for op_name in COMPARISON_OPS:
         comp_op = Codelet(op_name)
         comp_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         comp_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         comp_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(comp_op)
+        alu_array.add_primitive(comp_op)
 
     for op_name in CAST_OPS:
         cast_op = Codelet(op_name)
         cast_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         cast_op.add_input(name='op2', src=["IMM"], dims=['w'])
         cast_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(cast_op)
+        alu_array.add_primitive(cast_op)
 
     for op_name in DTYPE_CFG_OPS:
         dtype_cfg_op = Codelet(op_name)
         dtype_cfg_op.add_input(name='op1', src=["IMM"], dims=['w'])
-        alu_array.add_capability(dtype_cfg_op)
+        alu_array.add_primitive(dtype_cfg_op)
 
     for op_name in LOCK_NS_OPS:
         lock_op = Codelet(op_name)
         lock_op.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         lock_op.add_input(name='op2', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
         lock_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(lock_op)
+        alu_array.add_primitive(lock_op)
 
     for op_name in ITER_OPS:
         iter_op = Codelet(op_name)
         iter_op.add_input(name='op1', src=["CONST"], dims=['w'])
         iter_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(iter_op)
+        alu_array.add_primitive(iter_op)
 
     for op_name in LOOP_OPS:
         loop_op = Codelet(op_name)
         loop_op.add_input(name='op1', src=["CONST"], dims=['w'])
         loop_op.add_output(name='op_dst', dst=["IBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])
-        alu_array.add_capability(loop_op)
+        alu_array.add_primitive(loop_op)
 
     max_pool = Codelet("max_pool")
     max_pool.add_input(name='op1', src=["OBUF", "VMEM", "IMM", "EXTMEM"], dims=['w'])

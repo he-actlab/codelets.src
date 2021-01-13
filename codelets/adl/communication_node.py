@@ -11,6 +11,10 @@ class CommunicationNode(ArchitectureNode):
         self._bandwidth = bw
 
     @property
+    def node_type(self):
+        return 'communication'
+
+    @property
     def viz_color(self):
         return "#BFFFBF"
 
