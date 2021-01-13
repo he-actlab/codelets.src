@@ -134,6 +134,10 @@ class StorageNode(ArchitectureNode):
     def output_ports(self, output_ports):
         self._output_ports = output_ports
 
+    @property
+    def node_type(self):
+        return 'storage'
+
     def set_read_bw(self, bw):
         self._read_bw = bw
 

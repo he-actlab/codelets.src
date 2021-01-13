@@ -1,12 +1,13 @@
 import json
 import polymath as pm
 from typing import List, Dict, Callable
-from codelets.adl import ArchitectureNode, CodeletInstance, OperandTemplate, Codelet
-from codelets.adl.operand import Datatype, Operand
+from codelets.adl import ArchitectureNode, OperandTemplate, Codelet
+from codelets.adl.operand import Datatype
 from pathlib import Path
 import numpy as np
 from collections import defaultdict
 from .compilation_parameters import get_compilation_parameters
+from .relocation_table import RelocationTable
 
 class CodeletProgram(object):
 
@@ -14,22 +15,10 @@ class CodeletProgram(object):
         self._name = name
         self._hag = hag
         self._codelets = []
-        self._relocatables = {}
-        # TODO: Set datatype here
-        self._relocatables['INSTR_MEM'] = {'total_length': 0,
-                                            'bases': defaultdict(dict)
-                                            }
-        self._relocatables['INPUT'] = {'total_length': 0,
-                                         'bases': defaultdict(dict)}
-        self._relocatables['STATE'] = {'total_length': 0,
-                                         'bases': defaultdict(dict)}
-        self._relocatables['INTERMEDIATE'] = {'total_length': 0,
-                                         'bases': defaultdict(dict)}
-        self._relocatables['SCRATCH'] = {'total_length': 0,
-                                         'bases': defaultdict(dict)}
+        self._relocatables = RelocationTable()
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
@@ -37,14 +26,14 @@ class CodeletProgram(object):
         return self._hag
 
     @property
-    def codelets(self) -> List[CodeletInstance]:
+    def codelets(self) -> List[Codelet]:
         return self._codelets
 
     @property
-    def relocatables(self):
+    def relocatables(self) -> RelocationTable:
         return self._relocatables
 
-    def add_codelet(self, cdlt: CodeletInstance):
+    def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)
 
     def save(self, output_path=None, save_format="json"):
@@ -63,6 +52,7 @@ class CodeletProgram(object):
         else:
             raise ValueError(f"Invalid file output: {save_format}")
 
+    # TODO: Fix these
     def save_json(self, full_path):
         json_blob = [o.compiled_json() for o in self.codelets]
         with open(full_path, 'w') as outfile:
@@ -78,34 +68,6 @@ class CodeletProgram(object):
 
     def save_binary(self, full_path):
         raise NotImplementedError
-
-    def update_relocation_offset(self, offset_type, offset_id, size):
-        current_offset = self.relocatables[offset_type]['total_length']
-        if offset_id not in self.relocatables[offset_type]['bases']:
-            self.relocatables[offset_type]['bases'][offset_id]['start'] = current_offset
-            self.relocatables[offset_type]['bases'][offset_id]['end'] = current_offset + size
-            self.relocatables[offset_type]['total_length'] += size
-        else:
-            stored_size = self.relocatables[offset_type]['bases'][offset_id]['end'] - self.relocatables[offset_type]['bases'][offset_id]['start']
-            assert stored_size == size
-
-    def add_relocation(self, node: pm.Node, cdlt: CodeletInstance):
-        instr_len = len(cdlt.capabilities)
-        self.update_relocation_offset('INSTR_MEM', cdlt.codelet_id, instr_len)
-        for i in node.inputs:
-            data_size = np.prod(i.shape)
-            if isinstance(i, pm.input):
-                offset_type = 'INPUT'
-            elif isinstance(i, pm.state):
-                offset_type = 'STATE'
-            else:
-                offset_type = 'INTERMEDIATE'
-            self.update_relocation_offset(offset_type, i.name, data_size)
-
-        for o in node.outputs:
-            data_size = np.prod(o.shape)
-            offset_type = 'INTERMEDIATE'
-            self.update_relocation_offset(offset_type, o.name, data_size)
 
     def get_node_dtype(self, op_tmplt, node: pm.Node) -> Datatype:
         if "hag_dtype" not in node.kwargs:
@@ -127,12 +89,12 @@ class CodeletProgram(object):
 
     def instantiate_inputs(self, cdlt, node, loop_values) -> List[OperandTemplate]:
         inputs = []
-        for i, ipt in enumerate(node.inputs):
-            dtype = self.get_node_dtype(cdlt.inputs[i], ipt)
-            shape_map = self.get_node_shape_map(cdlt.inputs[i], ipt)
+        for i, ipt in enumerate(node.source):
+            dtype = self.get_node_dtype(cdlt.source[i], ipt)
+            shape_map = self.get_node_shape_map(cdlt.source[i], ipt)
             name = ipt.name
-            memory_path = cdlt.inputs[i].memory_path
-            iter_domain = cdlt.inputs[i].iteration_domain
+            memory_path = cdlt.source[i].memory_path
+            iter_domain = cdlt.source[i].iteration_domain
             ipt_instance = OperandTemplate(name,
                                            dtypes=dtype,
                                            memory_path=memory_path,
@@ -144,12 +106,12 @@ class CodeletProgram(object):
 
     def instantiate_outputs(self, cdlt, node, loop_values) -> List[OperandTemplate]:
         outputs = []
-        for i, opt in enumerate(node.outputs):
-            dtype = self.get_node_dtype(cdlt.outputs[i], opt)
-            shape_map = self.get_node_shape_map(cdlt.outputs[i], opt)
+        for i, opt in enumerate(node.dest):
+            dtype = self.get_node_dtype(cdlt.dest[i], opt)
+            shape_map = self.get_node_shape_map(cdlt.dest[i], opt)
             name = opt.name
-            memory_path = cdlt.outputs[i].memory_path
-            iter_domain = cdlt.outputs[i].iteration_domain
+            memory_path = cdlt.dest[i].memory_path
+            iter_domain = cdlt.dest[i].iteration_domain
             opt_instance = OperandTemplate(name,
                                            dtypes=dtype,
                                            memory_path=memory_path,
@@ -170,15 +132,10 @@ class CodeletProgram(object):
         for i, opt in enumerate(all_node_ops):
             tiling_dims.update(self.get_node_shape_map(all_cdlt_ops[i], opt))
 
-        for k in list(tiling_dims.keys()):
-            if k not in cdlt.loop_order:
-                tiling_dims.pop(k)
-            else:
-                tiling_dims[k] = tiling_dims[k]['value']
         return tiling_dims
 
     def instantiate_codelet(self, node):
-        cdlt = self.hag.get_codelet(node.op_name)
+        cdlt = self.hag.get_codelet_template(node.op_name)
         instance_params = {}
         tiling_dims = self.get_dim_values(cdlt, node)
         inputs = self.instantiate_inputs(cdlt, node, tiling_dims)
@@ -190,12 +147,12 @@ class CodeletProgram(object):
                 instance_params[k] = v(node)
             else:
                 instance_params[k] = v
-        cdlt_instance = CodeletInstance(cap_copy, inputs, outputs, cdlt, op_params=instance_params)
+        cdlt_instance = Codelet(cap_copy, inputs, outputs, cdlt, op_params=instance_params)
         compilation_parameters = get_compilation_parameters(self.hag, cdlt_instance)
         if cdlt_instance.codelet_id == "conv1":
             print(compilation_parameters)
             # TODO: Need to make sure all nodes have input/output defined
-        self.add_relocation(node, cdlt_instance)
+        self.relocatables.add_relocation(node, cdlt_instance)
         self.add_codelet(cdlt_instance)
         return cdlt_instance
 

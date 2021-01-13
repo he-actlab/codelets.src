@@ -92,7 +92,6 @@ class UploadCommand(Command):
 
         sys.exit()
 
-
 # Where the magic happens:
 setup(
     name=NAME,

@@ -1,12 +1,12 @@
 from typing import List
-from codelets.adl import ArchitectureNode, CodeletInstance, OperandTemplate, Codelet, ComputeNode, StorageNode
-from codelets.adl.operand import Datatype
+from codelets.adl import ArchitectureNode, ComputeNode, StorageNode, Codelet
+from codelets.adl.backups.operand import Datatype
+
 import numpy as np
 from itertools import product
-from pytools import memoize
 from .util import factors
 
-def get_compilation_parameters(hag: ArchitectureNode, cdlt: CodeletInstance):
+def get_compilation_parameters(hag: ArchitectureNode, cdlt: Codelet):
     tiling_options = get_tiling_options(hag, cdlt)
     return tiling_options
 
@@ -26,7 +26,7 @@ def get_tiled_dimensions(untiled_sizes, loop_order, perm):
         tiled_sizes[i] = untiled_sizes[i]/perm[n]
     return tiled_sizes
 
-def filter_tiling(hag: ArchitectureNode, cdlt: CodeletInstance, looped_dimensions, dim_factors):
+def filter_tiling(hag: ArchitectureNode, cdlt: Codelet, looped_dimensions, dim_factors):
     untiled_args = looped_dimensions.copy()
     untiled_args.update(cdlt.op_params)
     all_ops = cdlt.inputs + cdlt.outputs
@@ -58,7 +58,7 @@ def filter_tiling(hag: ArchitectureNode, cdlt: CodeletInstance, looped_dimension
     #             valid_perms.append(op_shapes[a.name] = op_shape_list
     return op_shapes
 
-def get_tiling_options(hag: ArchitectureNode, cdlt: CodeletInstance):
+def get_tiling_options(hag: ArchitectureNode, cdlt: Codelet):
     all_ops = cdlt.inputs + cdlt.outputs
     tiling_dims = {}
 

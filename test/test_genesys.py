@@ -1,5 +1,6 @@
 from codelets.adl.serialization import serialize_graph, deserialize_graph, generate_hw_cfg
-from codelets.examples.genesys import generate_simd_capabilities, generate_systolic_array_capabilities, generate_genesys
+from codelets.examples.genesys import generate_genesys, genesys_instructions, genesys_codelets
+from codelets.adl.util import get_lambda_source
 import polymath as pm
 from pathlib import Path
 from codelets import compile, deserialize_graph
@@ -17,16 +18,9 @@ GENESYS_CFG_PATH = f"{CWD}/scratch/genesys_cfg.json"
 
 
 def parse_cfg():
-
     with open(GENESYS_CFG_PATH) as f:
         genesys = json.load(f)
     return genesys
-
-def test_generate_genesys():
-    genesys_cfg = parse_cfg()
-    genesys = generate_genesys(genesys_cfg)
-    simd = genesys.get_subgraph_node("SIMD")
-    simd_add = simd.get_capability("ADD")
 
 def test_genesys_resnet18():
 
@@ -43,9 +37,21 @@ def test_genesys_serialization():
     json_genesys_deser = serialize_graph(deser_genesys, f"{CWD}/deser_genesys.json")
     assert json_genesys_deser == json_genesys
 
-# def test_serialize_relu():
-#     genesys_cfg = parse_cfg()
-#
-#     genesys = generate_genesys(genesys_cfg)
-#     adl_graph2 = deserialize_graph(f"{CWD}/genesys.json", validate_load=True)
+def test_genesys_instr():
+    t = genesys_instructions.loop_instr()
+    t = genesys_instructions.loop_stride_instr()
+    t = genesys_instructions.group_instr()
+    t = genesys_instructions.block_instr()
+
+# def test_genesys_conv2d():
+#     conv = genesys_codelets.conv2d()
+#     print(conv.emit_operations())
+
+def test_generate_genesys():
+    genesys_cfg = parse_cfg()
+    genesys = generate_genesys(genesys_cfg)
+
+
+
+
 

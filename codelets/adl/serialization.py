@@ -1,13 +1,12 @@
 import json
-from codelets.adl.architecture_graph import ArchitectureGraph
 from typing import Union, Any
 from codelets.adl.architecture_node import ArchitectureNode
 from codelets.adl.communication_node import CommunicationNode
 from codelets.adl.compute_node import ComputeNode
 from codelets.adl.storage_node import StorageNode
-from codelets.adl.codelet import Codelet, OperandTemplate
+from codelets.adl.backups.codelet import Codelet, OperandTemplate
 from codelets.adl.instruction import Instruction
-from codelets.adl.operand import Operand, Datatype, NullOperand
+from codelets.adl.backups.operand import Operand, Datatype, NullOperand
 import linecache
 from typing import List, Dict
 from jsonschema import validate
@@ -45,7 +44,7 @@ JSON_SCHEMA_PATH = f"{CWD}/adl_schema.json"
 def get_compute_blob(node):
     blob = {"field_name": node.field_name, "dimensions": node.dimensions}
     capabilities = []
-    for name, c in node.capabilities.items():
+    for name, c in node.primitives.items():
         cap_blob = {}
         cap_blob['field_name'] = c.field_name
         cap_blob['input_dimension_names'] = c.input_dimension_names
@@ -61,7 +60,7 @@ def get_compute_blob(node):
         # for sc in c.capability_sequence:
         #     cap_blob['capability_sequence'].append()
         capabilities.append(cap_blob)
-    blob['capabilities'] = capabilities
+    blob['primitives'] = capabilities
     return blob
 
 def get_communication_blob(node):
@@ -130,11 +129,11 @@ def _deserialize_node(node_object):
     kwargs['index'] = node_object['node_id']
 
     for k, v in node_object['attributes'].items():
-        if k == "capabilities":
+        if k == "primitives":
             kwargs[k] = _deserialize_capabilities(v)
         elif k == "codelets":
-            assert "capabilities" in kwargs
-            kwargs[k] = _deserialize_codelets(kwargs['capabilities'], v)
+            assert "primitives" in kwargs
+            kwargs[k] = _deserialize_codelets(kwargs['primitives'], v)
         else:
             kwargs[k] = v
 
@@ -144,7 +143,7 @@ def _deserialize_node(node_object):
         node.add_subgraph_node(sn)
 
     for e in node_object['subgraph']['edges']:
-        node.add_subgraph_edge(e['src'], e['dests'], **e['attributes'])
+        node.add_subgraph_edge(e['src'], e['dest'], **e['attributes'])
 
     return node
 
@@ -155,14 +154,14 @@ def _deserialize_capabilities(capability_list: List[Dict]):
         kwargs = {}
         kwargs['target'] = c['target']
         kwargs['latency'] = c['latency']
-        kwargs['inputs'] = _deserialize_operands(c['inputs'])
+        kwargs['source'] = _deserialize_operands(c['source'])
         for k, v in c['extra_params'].items():
             kwargs[k] = v
-        cap = Instruction(c['op_name'], c['opcode'], c['opcode_width'], **kwargs)
+        cap = Instruction(c['target_name'], c['opcode'], c['opcode_width'], **kwargs)
         caps.append(cap)
     return caps
 
-# Add compoennts, index size to inputs
+# Add compoennts, index size to source
 def _deserialize_operands(op_list):
     operands = []
     for o in op_list:
@@ -184,15 +183,14 @@ def _deserialize_dtypes(dtypes):
 def _deserialize_codelets(capabilities: List[Instruction], codelet_list):
     cap_map = {c.name: c for c in capabilities}
     codelets = []
-    import ast
     for cdlt_obj in codelet_list:
-        inputs = [OperandTemplate.from_json(ipt_obj) for ipt_obj in cdlt_obj['inputs']]
-        outputs = [OperandTemplate.from_json(opt_obj) for opt_obj in cdlt_obj['outputs']]
+        inputs = [OperandTemplate.from_json(ipt_obj) for ipt_obj in cdlt_obj['source']]
+        outputs = [OperandTemplate.from_json(opt_obj) for opt_obj in cdlt_obj['dest']]
 
         args = (cdlt_obj['codelet_name'],)
         kwargs = {}
-        kwargs['inputs'] = inputs
-        kwargs['outputs'] = outputs
+        kwargs['source'] = inputs
+        kwargs['dest'] = outputs
         kwargs['latency'] = cdlt_obj['latency']
         op_params = {}
         for k, v in cdlt_obj['op_params'].items():
@@ -203,8 +201,8 @@ def _deserialize_codelets(capabilities: List[Instruction], codelet_list):
         kwargs['op_params'] = op_params
         templates = []
         for cap_obj in cdlt_obj['capability_sequence']:
-            assert cap_obj['op_name'] in cap_map
-            cap_tmp = cap_map[cap_obj['op_name']].create_template()
+            assert cap_obj['target_name'] in cap_map
+            cap_tmp = cap_map[cap_obj['target_name']].create_template()
             for of in cap_obj['op_fields']:
                 if of['field_name'] == "null":
                     continue
