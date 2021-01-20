@@ -1,5 +1,6 @@
 from .base_op import Operation
-from typing import List
+from typing import List, Dict, Union
+from codelets.adl.flex_param import FlexParam
 from dataclasses import field, dataclass
 from collections import deque, defaultdict
 
@@ -14,19 +15,19 @@ class Compute(Operation):
         self._dests = dests
         req_params = []
 
-        for i in sources:
-            if isinstance(i, str):
-                req_params.append(i)
-
-        for o in dests:
-            if isinstance(o, str):
-                req_params.append(o)
+        # TODO: Need to figure out if these need to be added
+        # for i in sources:
+        #     if isinstance(i, str):
+        #         req_params.append(i)
+        #
+        # for o in dests:
+        #     if isinstance(o, str):
+        #         req_params.append(o)
 
         super(Compute, self).__init__('compute', req_params,
                                       target=target,
                                       add_codelet=add_codelet,
                                       **kwargs)
-
     @property
     def sources(self):
         return self._sources
@@ -46,3 +47,5 @@ class Compute(Operation):
     def op_type_args_copy(self, _):
         return (self.op_name, self.sources.copy(), self.dests.copy())
 
+    def evaluate_parameters(self, node, hag, cdlt):
+        pass

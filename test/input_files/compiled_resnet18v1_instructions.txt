@@ -1,13 +1,18 @@
-INSTR_ARRAY_GROUP SYSTOLIC_ARRAY, START, group_num_UNSET, loop_id_UNSET, num_instr_UNSET
-BASEADDR LOW, INST_MEM, X, 0, X, base_addr_UNSET
-BASEADDR HIGH, INST_MEM, X, 0, X, base_addr_UNSET
-LD INST_MEM, X, 0, loop_id_UNSET, request_size_UNSET
+# Configure("init", "systolic_array")
+
+# Configure("init", "WBUF")
 BASEADDR LOW, NS, X, WBUF, X, base_addr_UNSET
 BASEADDR HIGH, NS, X, WBUF, X, base_addr_UNSET
+
+# Configure("init", "IBUF")
 BASEADDR LOW, NS, X, IBUF, X, base_addr_UNSET
 BASEADDR HIGH, NS, X, IBUF, X, base_addr_UNSET
+
+# Configure("init", "BBUF")
 BASEADDR LOW, NS, X, BBUF, X, base_addr_UNSET
 BASEADDR HIGH, NS, X, BBUF, X, base_addr_UNSET
+
+# Configure("init", "OBUF")
 BASEADDR LOW, NS, X, OBUF, X, base_addr_UNSET
 BASEADDR HIGH, NS, X, OBUF, X, base_addr_UNSET
 
@@ -102,5 +107,12 @@ SA_LOOP 4, 22, num_iters_UNSET
 GENADDR LOW, X, WR, OBUF, 22, stride_UNSET
 SA_LOOP 1, 11, num_iters_UNSET
 GENADDR LOW, X, RD, BBUF, 11, stride_UNSET
+
+
+# systolic_array deinit
+INSTR_ARRAY_GROUP SYSTOLIC_ARRAY, START, group_num_UNSET, loop_id_UNSET, num_instr_UNSET
 INSTR_ARRAY_GROUP SYSTOLIC_ARRAY, END, group_num_UNSET, loop_id_UNSET, num_instr_UNSET
+BASEADDR LOW, INST_MEM, X, 0, X, base_addr_UNSET
+BASEADDR HIGH, INST_MEM, X, 0, X, base_addr_UNSET
+LD INST_MEM, X, 0, loop_id_UNSET, request_size_UNSET
 BLOCK_END X, 0

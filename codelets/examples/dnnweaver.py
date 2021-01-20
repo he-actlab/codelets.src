@@ -1,6 +1,6 @@
-from codelets.adl import ArchitectureGraph, ComputeNode, CommunicationNode, StorageNode, Codelet
+from codelets.adl.graph import ArchitectureGraph, ComputeNode, CommunicationNode, StorageNode
+from codelets.adl import Codelet
 from collections import namedtuple
-from codelets.codelet import Codelet
 import numpy as np
 # compute node:       list of primitives
 # edge:               latency and bw are written into the "subgraph_edge"

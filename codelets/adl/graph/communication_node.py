@@ -1,4 +1,4 @@
-from codelets.adl.architecture_node import ArchitectureNode
+from codelets.adl.graph.architecture_node import ArchitectureNode
 from typing import Dict
 
 class CommunicationNode(ArchitectureNode):

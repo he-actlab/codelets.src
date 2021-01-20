@@ -1,4 +1,4 @@
-from codelets.adl.instruction import Field, InstructionTemplate, Instruction
+from codelets.adl.flex_template.instruction import Field, Instruction
 
 OPCODE_WIDTH = 4
 
@@ -47,7 +47,7 @@ def base_addr_instr():
     low_high = Field("LOW_HIGH_ADDR", 1, value_names={"LOW": 0, "HIGH": 1})
     mem_type = Field("MEM_TYPE", 1, value_names={"BUFFER": 0, "IMEM": 1})
     buffer = Field("BUFFER", 4, value_names={"WBUF": 0, "IBUF": 1, "OBUF": 2, "BBUF": 3})
-    null_field = Field("NULL", 6, param_fn="0")
+    null_field = Field("NULL", 6, value=0)
     base_addr = Field("BASE_ADDR", 16)
     instr_temp = Instruction("SET_BASE_ADDR", 13, OPCODE_WIDTH,
                              (low_high, mem_type, buffer, null_field, base_addr))
@@ -160,9 +160,9 @@ def create_simd_cast_ops():
     # cast_caps = []
     #
     # for i, a in enumerate(CAST_OPS):
-    #     dtypes = a.split("_")
-    #     dest_dtype = DTYPE_MAP[dtypes[1]]
-    #     src_dtype = DTYPE_MAP[dtypes[0]]
+    #     supported_dtypes = a.split("_")
+    #     dest_dtype = DTYPE_MAP[supported_dtypes[1]]
+    #     src_dtype = DTYPE_MAP[supported_dtypes[0]]
     #     dest = Operand("dest", "storage", [dest_dtype], NS_BITWIDTH, value_names=SIMD_NS, components=CAST_OUTPUT_NS, index_size=NS_IDX_BITWIDTH)
     #     src1 = Operand("src1", "storage", [src_dtype], NS_BITWIDTH, value_names=SIMD_NS, components=CAST_INPUT_NS, index_size=NS_IDX_BITWIDTH)
     #     src2 = Operand("fraction_pt", "storage", OP_DTYPES, NS_BITWIDTH, value_names=SIMD_NS, components={"IMM": OP_LOCATIONS["IMM"]},

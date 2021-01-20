@@ -1,11 +1,12 @@
 import json
 from typing import Union, Any
-from codelets.adl.architecture_node import ArchitectureNode
-from codelets.adl.communication_node import CommunicationNode
-from codelets.adl.compute_node import ComputeNode
-from codelets.adl.storage_node import StorageNode
-from codelets.adl.backups.codelet import Codelet, OperandTemplate
-from codelets.adl.instruction import Instruction
+from codelets.adl.graph.architecture_node import ArchitectureNode
+from codelets.adl.graph.communication_node import CommunicationNode
+from codelets.adl.graph.compute_node import ComputeNode
+from codelets.adl.graph.storage_node import StorageNode
+from codelets.adl.codelet import Codelet
+from codelets.adl.operation import OperandTemplate
+from codelets.adl.flex_template.instruction import Instruction
 from codelets.adl.backups.operand import Operand, Datatype, NullOperand
 import linecache
 from typing import List, Dict
@@ -122,7 +123,7 @@ def deserialize_graph(filepath, validate_load=False):
     return graph
 
 def _deserialize_node(node_object):
-    args = [node_object['name']]
+    args = [node_object['field_name']]
     subgraph_nodes = [_deserialize_node(n) for n in node_object['subgraph']['nodes']]
 
     kwargs = {}
@@ -168,7 +169,7 @@ def _deserialize_operands(op_list):
         if o['field_name'] == "null":
             op = NullOperand(o['bitwidth'], 0)
         else:
-            args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['dtypes']), o['bitwidth'])
+            args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['supported_dtypes']), o['bitwidth'])
             kwargs = {}
             kwargs['value_names'] = o['possible_values']
             kwargs['index_size'] = o['index_size']

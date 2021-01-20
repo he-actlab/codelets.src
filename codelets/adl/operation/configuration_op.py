@@ -1,4 +1,6 @@
 from .base_op import Operation
+from typing import Dict, Union
+from codelets.adl.flex_param import FlexParam
 from dataclasses import field, dataclass
 from collections import deque, defaultdict
 
@@ -29,3 +31,6 @@ class Configure(Operation):
     def op_type_params(self):
         op_params = [f"{self.start_or_finish}"]
         return op_params
+
+    def evaluate_parameters(self, node, hag, cdlt):
+        pass

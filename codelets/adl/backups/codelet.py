@@ -1,10 +1,9 @@
 from collections import namedtuple, defaultdict
-from codelets.adl.instruction import InstructionTemplate
 from codelets.adl.util import get_lambda_source
 from typing import Callable, Any, List, Dict, Union
 from codelets.adl.backups.operand import Datatype
 from dataclasses import dataclass
-# OperandTemplate = namedtuple('OperandTemplate', ['name', 'dtypes', 'mem_path', 'shape'])
+# OperandTemplate = namedtuple('OperandTemplate', ['field_name', 'supported_dtypes', 'mem_path', 'shape'])
 Field = namedtuple('Field', ['field_name', 'value', 'bitwidth'])
 
 # Operand = namedtuple('Operand', ['component_name', 'datatype', 'dimensions'])
@@ -25,11 +24,11 @@ class OperandTemplate:
 
     def to_json(self):
         blob = {}
-        blob['name'] = self.name
+        blob['field_name'] = self.name
         if isinstance(self.dtypes, list):
-            blob['dtypes'] = [dt.to_json() for dt in self.dtypes]
+            blob['supported_dtypes'] = [dt.to_json() for dt in self.dtypes]
         else:
-            blob['dtypes'] = self.dtypes.to_json()
+            blob['supported_dtypes'] = self.dtypes.to_json()
         blob['memory_path'] = self.memory_path
         blob['shape_symbols'] = self.shape_symbols
         blob['iteration_domain'] = self.iteration_domain
@@ -41,8 +40,8 @@ class OperandTemplate:
     @staticmethod
     def from_json(ot_obj: Dict):
         ot = ot_obj.copy()
-        name = ot['name']
-        dtypes = [Datatype.from_json(dt) for dt in ot['dtypes']]
+        name = ot['field_name']
+        dtypes = [Datatype.from_json(dt) for dt in ot['supported_dtypes']]
         memory_path = ot['memory_path']
         shape_symbols = ot['shape_symbols']
         iter_domain = ot['iteration_domain']
@@ -55,18 +54,18 @@ class OperandTemplate:
 
 # @dataclass(frozen=True)
 # class CodeletOperand:
-#     name: str
-#     dtypes: List[Datatype]
+#     field_name: str
+#     supported_dtypes: List[Datatype]
 #     memory_path: List[str]
 #     shape_symbols: List[str]
 #
 #     def is_dtype_supported(self, dtype_name) -> bool:
-#         return dtype_name in [str(dt) for dt in self.dtypes]
+#         return dtype_name in [str(dt) for dt in self.supported_dtypes]
 #
 #     def __dict__(self):
 #         blob = {}
-#         blob['name'] = self.name
-#         blob['dtypes'] = [dict(dt) for dt in self.dtypes]
+#         blob['field_name'] = self.field_name
+#         blob['supported_dtypes'] = [dict(dt) for dt in self.supported_dtypes]
 #         blob['memory_path'] = self.memory_path
 #         blob['shape_symbols'] = self.shape_symbols
 #         return blob
@@ -125,7 +124,7 @@ class Codelet(object):
         return self._op_params
 
     @property
-    def capability_sequence(self) -> List[InstructionTemplate]:
+    def capability_sequence(self) -> List[Instruction]:
         return self._capability_sequence
 
     @property

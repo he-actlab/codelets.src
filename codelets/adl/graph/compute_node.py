@@ -1,7 +1,7 @@
-from codelets.adl.architecture_node import ArchitectureNode
+from codelets.adl.graph.architecture_node import ArchitectureNode
 
-from codelets.adl.backups.codelet import Codelet
-from codelets.adl.instruction import Instruction
+from codelets.adl.codelet import Codelet
+from codelets.adl.flex_template.instruction import Instruction
 from typing import Dict
 
 # NOTE originally, there were implementations for occupancy. This has been 
