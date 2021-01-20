@@ -1,21 +1,21 @@
-from codelets.adl import ComputeNode, StorageNode, Instruction
+from codelets.adl.graph import ComputeNode, StorageNode
+from codelets.adl.flex_template import Instruction
 from codelets.adl.backups.genesys_codelets import GENESYS_SA_CODELETS
-from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
-    OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
+
 
 from functools import partial
 
-def sa_end_template(hag):
+def sa_end_template(hag: ComputeNode):
     instructions = []
     return instructions
 
-def sa_start_template(hag):
+def sa_start_template(hag: ComputeNode):
 
     instructions = []
     instr = hag.get_primitive_template("INST_GROUP")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "START")
-    instr.set_field_param_fn("GROUP_NUM", "cdlt.cdlt_id")
+    instr.set_field_flex_param("GROUP_NUM", "cdlt.cdlt_id")
     # Figure out what this is
     instr.set_field_value("LOOP_ID", 0)
     instr.set_field_value("NUM_INSTR", 0)
@@ -24,9 +24,9 @@ def sa_start_template(hag):
     instr = hag.get_primitive_template("INST_GROUP")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "END")
-    instr.set_field_param_fn("GROUP_NUM", "cdlt.cdlt_id")
+    instr.set_field_flex_param("GROUP_NUM", "cdlt.cdlt_id")
     # Figure out what this is
-    instr.set_field_param_fn("LOOP_ID", "max([o.loop_id for o in cdlt.ops])")
+    instr.set_field_flex_param("LOOP_ID", "max([o.loop_id for o in cdlt.ops])")
     instr.set_field_value("NUM_INSTR", 0)
     instructions.append(instr)
 
@@ -34,16 +34,16 @@ def sa_start_template(hag):
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.offset_id].start, 16, 0)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.cdlt_id].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.offset_id].start, 16, 16)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.cdlt_id].start, 16, 16)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("LD_ST")
@@ -51,257 +51,170 @@ def sa_start_template(hag):
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
     instr.set_field_value("LOOP_ID", 0)
-    instr.set_field_param_fn("REQUEST_SIZE", "cdlt.num_instr")
+    instr.set_field_flex_param("REQUEST_SIZE", "cdlt.num_instr")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("BLOCK_END")
     # TODO: Make sure this is evaluated after having gone through all codelets
-    instr.set_field_param_fn("IS_END", "int(program.codelets[-1].cdlt_id == cdlt.cdlt_id)")
+    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].cdlt_id == cdlt.cdlt_id)")
     instructions.append(instr)
 
     return instructions
 
 
-def wbuf_start_template(hag):
+def wbuf_start_template(hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].name].start, 16, 0)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].name].start, 16, 16)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 16)")
     instructions.append(instr)
     return instructions
 
-def ibuf_start_template(hag):
+def ibuf_start_template(hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[0].name].start, 16, 0)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[0].node_name].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[0].name].start, 16, 16)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[0].node_name].start, 16, 16)")
     instructions.append(instr)
     return instructions
 
-def bbuf_start_template(hag):
+def bbuf_start_template(hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "BBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].name].start, 16, 0)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].node_name].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "BBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].name].start, 16, 16)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].node_name].start, 16, 16)")
     instructions.append(instr)
     return instructions
 
-def obuf_start_template(hag):
+def obuf_start_template(hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "OBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.outputs[0].name].start, 16, 0)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
     instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "OBUF")
-    instr.set_field_param_fn("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.outputs[0].name].start, 16, 16)")
+    instr.set_field_flex_param("BASE_ADDR",
+                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 16)")
     instructions.append(instr)
     return instructions
 
-def dram_buffer_template(buffer_name, hag):
+def dram_buffer_template(buffer_name, hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.transfers[("DRAM", "{buffer_name}")].src_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "LD")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[0].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[0].stride")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[1].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[1].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[2].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[2].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[3].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[3].stride")
-    instructions.append(instr)
 
     instr = hag.get_primitive_template("LD_ST")
     instr.set_field_by_name("ACCESS_TYPE", "LD")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.loop_id")
-    instr.set_field_param_fn("REQUEST_SIZE", "op.size")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("REQUEST_SIZE", "op.sizes[0]")
     instructions.append(instr)
     return instructions
 
 def buffer_dram_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[0].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[0].stride")
-    instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[1].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[1].stride")
-    instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "DRAM")].src_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "ST")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[2].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[2].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[3].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[3].stride")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("LD_ST")
     instr.set_field_by_name("ACCESS_TYPE", "ST")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.loop_id")
-    instr.set_field_param_fn("REQUEST_SIZE", "op.size")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("REQUEST_SIZE", "op.sizes[0]")
     instructions.append(instr)
     return instructions
 
 def buffer_sa_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "systolic_array")].src_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "RD")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[0].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[0].stride")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "RD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[1].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[1].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "RD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[2].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[2].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "RD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[3].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[3].stride")
-    instructions.append(instr)
 
     return instructions
 
 def sa_buffer_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.transfers[("systolic_array", "{buffer_name}")].dst_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "WR")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[0].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[0].stride")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "WR")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[1].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[1].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "WR")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[2].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[2].stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "WR")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_param_fn("LOOP_ID", "op.src_offset[3].loop_id")
-    instr.set_field_param_fn("STRIDE", "op.src_offset[3].stride")
-    instructions.append(instr)
 
     return instructions
 
 def loop_template(hag):
     instructions = []
     instr = hag.get_primitive_template("SA_LOOP")
-    instr.set_field_param_fn("LOOP_LEVEL", "op.loop_level")
-    instr.set_field_param_fn("LOOP_ID", "op.loop_id")
-    instr.set_field_param_fn("NUM_ITERATIONS", "op.iter_count")
+    instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("NUM_ITERATIONS", "op.iter_count")
     instructions.append(instr)
     return instr
 

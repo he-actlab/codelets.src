@@ -5,7 +5,40 @@ from operator import mul
 import itertools
 import polymath as pm
 from functools import reduce
+from dataclasses import dataclass, field
+from typing import Dict, List, Any
+import sympy
 
+@dataclass
+class ParamFunc:
+    func_header: str
+    func_body: str
+    arg_names: List[str]
+    value: Any = field(default=None)
+
+    @property
+    def function_str(self):
+        arg_str = ", ".join(self.arg_names)
+        return f"{self.func_header}({arg_str}):\n\t{self.func_body}"
+
+    def get_param_fnc(self):
+        param_fnc_code = compile(self.function_str, "<string>", "exec")
+        param_fnc = FunctionType(param_fnc_code.co_consts[1], globals(), self.func_header)
+        return param_fnc, self.function_str
+
+    def run_param_fnc(self, *args, **kwargs):
+        param_fnc, param_func_str = self.get_param_fnc()
+
+        try:
+            result = param_fnc(*args, **kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Error while trying to execute param func:\n"
+                               f"Func: {param_func_str}\n"
+                               f"Error: {e}")
+        return result
+
+    def set_value_from_param_fn(self, *args):
+        self.value = self.run_param_fnc(*args)
 
 def lambda_to_str(fn):
     fn_str = str(inspect.getsourcelines(fn)[0])
@@ -170,3 +203,41 @@ def get_lambda_source(lambda_func):
         lambda_body_text = lambda_body_text[:-1]
 
     return None
+
+def split(expr, variables):
+    """Split affine, linear, and nonlinear part of expr w.r.t. variables."""
+    if isinstance(expr, float):
+        return expr, 0, 0
+
+    input_is_list = True
+    if not isinstance(variables, list):
+        input_is_list = False
+        variables = [variables]
+
+    # See <https://github.com/sympy/sympy/issues/11475> on why we need expand() here.
+    expr = expr.expand()
+
+    # Get the affine part by removing all terms with any of the variables.
+    affine = expr
+    for var in variables:
+        affine = affine.coeff(var, n=0)
+
+    # Extract the linear coefficients by extracting the affine parts of the derivatives.
+    linear = []
+    for var in variables:
+        d = sympy.diff(expr, var)
+        for var2 in variables:
+            d = d.coeff(var2, n=0)
+        linear.append(d)
+
+    # The rest is nonlinear
+    nonlinear = expr - affine
+    for var, coeff in zip(variables, linear):
+        nonlinear -= var * coeff
+    nonlinear = sympy.simplify(nonlinear)
+
+    if not input_is_list:
+        assert len(linear) == 1
+        linear = linear[0]
+
+    return affine, linear, nonlinear

@@ -1,4 +1,6 @@
-from codelets.adl import Codelet, Instruction, ArchitectureNode, ComputeNode
+from codelets.adl.flex_template import instruction
+from codelets.adl import Codelet
+from codelets.adl.graph import ArchitectureNode, ComputeNode
 from codelets.examples.genesys import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES
 SIMD_INPUT_COMPONENTS = ["OBUF", "VMEM", "IMM", "EXTMEM"]
 SIMD_OUTPUT_COMPONENTS = ["IBUF", "VMEM", "EXTMEM", "IMM"]

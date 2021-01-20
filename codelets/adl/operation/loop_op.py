@@ -1,7 +1,18 @@
-from .base_op import Operation
+from . import Operation, DataIndex
 from functools import partial
+from codelets.adl.flex_param import FlexParam
+from typing import List, Dict, Union
 from dataclasses import field, dataclass
 from collections import deque, defaultdict
+from sympy import symbols, IndexedBase, Idx, Expr
+
+ARITHMETIC_LOOP_EVAL = """
+"""
+
+class LoopTypes(object):
+    LINEAR = 0
+    OFFSET = 1
+    SCALED = 2
 
 class Loop(Operation):
 
@@ -11,6 +22,8 @@ class Loop(Operation):
                  end=None,
                  stride=1,
                  offset=0,
+                 loop_type=LoopTypes.LINEAR,
+                 loop_operator=None,
                  loop_op_params=None,
                  add_codelet=True,
                  **kwargs
@@ -23,6 +36,8 @@ class Loop(Operation):
             self._end = start
         self._stride = stride
         self._offset = offset
+        self._loop_type = loop_type
+        self._loop_operator = loop_operator
 
         req_params = []
         if loop_op_params:
@@ -36,12 +51,39 @@ class Loop(Operation):
         if isinstance(stride, str):
             req_params.append(stride)
 
+        if isinstance(offset, str):
+            req_params.append(stride)
+
         super(Loop, self).__init__("loop", req_params,
                                    add_codelet=add_codelet,
                                    **kwargs)
+        if isinstance(self.stride, str):
+            stride = symbols(self.stride, integer=True)
+            self.param_symbols[self.stride] = stride
+        else:
+            assert isinstance(self.stride, int)
+            stride = self.stride
 
-    def op_type_args_copy(self, _):
-        return (self.start, self.end, self.stride, self.offset)
+        if isinstance(self.start, str):
+            start = symbols(self.start, integer=True)
+            self.param_symbols[self.start] = start
+        else:
+            start = self.start
+
+        if isinstance(self.end, str):
+            end = symbols(self.end, integer=True)
+            self.param_symbols[self.end] = end
+        else:
+            end = self.end
+
+
+        if isinstance(self.offset, str):
+            offset = symbols(self.offset, integer=True)
+            self.param_symbols[self.offset] = offset
+        else:
+            offset = self.offset
+        self.param_symbols[self.op_str] = Idx(self.op_str, (start, end))*stride + self.offset
+
 
     def __enter__(self):
         Operation.loop_ctxt_level += 1
@@ -59,17 +101,33 @@ class Loop(Operation):
     def start(self):
         return self._start
 
+    @start.setter
+    def start(self, start):
+        self._start = start
+
     @property
     def end(self):
         return self._end
+
+    @end.setter
+    def end(self, end):
+        self._end = end
 
     @property
     def stride(self):
         return self._stride
 
+    @stride.setter
+    def stride(self, stride):
+        self._stride = stride
+
     @property
     def iter_count(self) -> int:
-        return (self.end - self.start)//self.stride
+        args = [self.end, self.start, self.stride, self.offset]
+        if not all(isinstance(o, int) for o in args):
+            raise TypeError(f"Cannot compute iter count because some parameters are not numbers:\n"
+                            f"{args}")
+        return (self.end - self.start)//self.stride + self.offset
 
     @property
     def loop_domains(self):
@@ -79,151 +137,137 @@ class Loop(Operation):
     def offset(self):
         return self._offset
 
+    @offset.setter
+    def offset(self, offset):
+        self._offset = offset
+
+    @property
+    def loop_type(self):
+        return self._loop_type
+
+    @property
+    def loop_operator(self):
+        return self._loop_operator
+
+    def op_type_args_copy(self, _):
+        return (self.start, self.end, self.stride, self.offset, self.loop_type, self.loop_operator)
+
     def __add__(self, other):
-        return LoopArithmetic(self, other, '+')
+        if isinstance(other, str) and other not in self.param_symbols:
+            sym = symbols(other, integer=True)
+            self.param_symbols[other] = sym
+            return self.param_symbols[self.op_str] + sym
+        elif isinstance(other, Expr):
+            return self.param_symbols[self.op_str] + other
+        elif isinstance(other, Operation) and other.op_type == "loop":
+            return self.param_symbols[self.op_str] + other.param_symbols[other.op_str]
+        else:
+            assert isinstance(other, int)
+            return self.param_symbols[self.op_str] + other
 
     def __radd__(self, other):
-        return LoopArithmetic(other, self, '+')
-
-    def __sub__(self, other):
-        return LoopArithmetic(self, other, '-')
-
-    def __rsub__(self, other):
-        return LoopArithmetic(other, self, '-')
+        return self.__add__(other)
 
     def __mul__(self, other):
-        return LoopArithmetic(self, other, '*')
+        if isinstance(other, str) and other not in self.param_symbols:
+            sym = symbols(other, integer=True)
+            self.param_symbols[other] = sym
+            return self.param_symbols[self.op_str]*sym
+        elif isinstance(other, Expr):
+            return self.param_symbols[self.op_str] * other
+        elif isinstance(other, Operation) and other.op_type == "loop":
+            return self.param_symbols[self.op_str] * other.param_symbols[other.op_str]
+        else:
+            assert isinstance(other, int)
+            return self.param_symbols[self.op_str] * other
 
     def __rmul__(self, other):
-        return LoopArithmetic(other, self, '*')
+        return self.__mul__(other)
 
-    def __div__(self, other):
-        return LoopArithmetic(self, other, '/')
+    def eval_start(self):
+        if isinstance(self.start, int):
+            return self.start
+        elif isinstance(self.start, Loop):
+            raise RuntimeError(f"Unable to handle loop eval currently:\n"
+                               f"Loop: {self.op_str}\n"
+                               f"Param: {self.start}")
+        elif isinstance(self.start, str):
+            return self.eval_string_param(self.start)
 
-    def __rdiv__(self, other):
-        return LoopArithmetic(other, self, '/')
+    def eval_end(self):
+        if isinstance(self.end, int):
+            return self.end
+        elif isinstance(self.end, Loop):
+            raise RuntimeError(f"Unable to handle loop eval currently:\n"
+                               f"Loop: {self.op_str}\n"
+                               f"Param: {self.end}")
+        elif isinstance(self.end, str):
+            return self.eval_string_param(self.end)
 
-    def __truediv__(self, other):
-        return LoopArithmetic(self, other, '/')
+    def eval_stride(self):
+        if isinstance(self.stride, int):
+            return self.stride
+        elif isinstance(self.stride, Loop):
+            raise RuntimeError(f"Unable to handle loop eval currently:\n"
+                               f"Loop: {self.op_str}\n"
+                               f"Param: {self.stride}")
+        elif isinstance(self.stride, str):
+            return self.eval_string_param(self.stride)
+        else:
+            raise RuntimeError(f"Cannot evaluate stride because of invalid type: {self.stride}")
 
-    def __rtruediv__(self, other):
-        return LoopArithmetic(other, self, '/')
+    def eval_offset(self):
+        if isinstance(self.offset, int):
+            return self.offset
+        elif isinstance(self.offset, Loop):
+            raise RuntimeError(f"Unable to handle loop eval currently:\n"
+                               f"Loop: {self.op_str}\n"
+                               f"Param: {self.offset}")
+        elif isinstance(self.offset, str):
+            return self.eval_string_param(self.offset)
 
-    def __floordiv__(self, other):
-        return LoopArithmetic(self, other, '//')
+    def eval_string_param(self, param_name):
+        if param_name not in self.resolved_params:
+            raise RuntimeError(f"Error! Start value for {self} was unevaluated: {self.start}")
+        else:
+            return self.resolved_params[param_name].value
 
-    def __rfloordiv__(self, other):
-        return LoopArithmetic(other, self, '//')
+    def evaluate_parameters(self, node, hag, cdlt):
+        self.start = self.eval_start()
+        self.end = self.eval_end()
+        self.stride = self.eval_stride()
+        self.offset = self.eval_offset()
+        if not isinstance(self.start, int):
+            raise TypeError(f"Unable to evaluate parameter value as integer:"
+                            f"Param name: start\n"
+                            f"Loop: {self.op_str}\n"
+                            f"Value: {self.start}\n"
+                            f"Type: {type(self.start)}")
+        if not isinstance(self.end, int):
+            raise TypeError(f"Unable to evaluate parameter value as integer:"
+                            f"Param name: end\n"
+                            f"Loop: {self.op_str}\n"
+                            f"Value: {self.end}\n"
+                            f"Type: {type(self.end)}")
 
-    def __mod__(self, other):
-        return LoopArithmetic(self, other, '%')
+        if not isinstance(self.stride, int):
+            raise TypeError(f"Unable to evaluate parameter value as integer:"
+                            f"Param name: stride\n"
+                            f"Loop: {self.op_str}\n"
+                            f"Value: {self.stride}\n"
+                            f"Type: {type(self.stride)}")
 
-    def __rmod__(self, other):
-        return LoopArithmetic(other, self, '%')
+        if not isinstance(self.offset, int):
+            raise TypeError(f"Unable to evaluate parameter value as integer:"
+                            f"Param name: offset\n"
+                            f"Loop: {self.op_str}\n"
+                            f"Value: {self.offset}\n"
+                            f"Type: {type(self.offset)}")
 
-    def __lshift__(self, other):
-        return LoopArithmetic(self, other, '<<')
-
-    def __rlshift__(self, other):
-        return LoopArithmetic(other, self, '<<')
-
-    def __rshift__(self, other):
-        return LoopArithmetic(self, other, '>>')
-
-    def __rrshift__(self, other):
-        return LoopArithmetic(other, self, '>>')
-
-    def __and__(self, other):
-        return LoopArithmetic(self, other, '&')
-
-    def __rand__(self, other):
-        return LoopArithmetic(other, self, '&')
-
-    def __or__(self, other):
-        return LoopArithmetic(self, other, '|')
-
-    def __ror__(self, other):
-        return LoopArithmetic(other, self, '|')
-
-    def __xor__(self, other):
-        return LoopArithmetic(self, other, '^')
-
-    def __rxor__(self, other):
-        return LoopArithmetic(other, self, '^')
 
     def op_type_params(self):
         op_params = [f"LO: {self.start}", f"HI: {self.end}", f"stride: {self.stride}"]
         return op_params
 
 
-class LoopArithmetic(Loop):
 
-    # def __init__(self, start,
-    #              end=None,
-    #              stride=1,
-    #              offset=0,
-    #              loop_op_params=None,
-    #              add_codelet=True,
-    #              **kwargs
-    #              ):
-
-    def __init__(self, l1, l2, bin_op, **kwargs):
-
-        self._l1 = l1
-        self._l2 = l2
-        self._bin_op = bin_op
-        loop_op_params = []
-
-        if isinstance(l1, str):
-            loop_op_params.append(l1)
-
-        if isinstance(l2, str):
-            loop_op_params.append(l2)
-
-        super(LoopArithmetic, self).__init__(None, loop_op_params=loop_op_params, **kwargs)
-
-    def op_type_args_copy(self, cdlt):
-        l1 = cdlt.global_op_map[self.l1.global_op_id] if isinstance(self.l1, Operation) else self.l1
-        l2 = cdlt.global_op_map[self.l2.global_op_id] if isinstance(self.l2, Operation) else self.l2
-        return (l2, l1, self.bin_op)
-
-    @property
-    def l1(self):
-        return self._l1
-
-    @property
-    def l2(self):
-        return self._l2
-
-    @property
-    def bin_op(self):
-        return self._bin_op
-
-    @property
-    def loop_domains(self):
-        l1_d = []
-        l2_d = []
-
-        if isinstance(self.l1, (LoopArithmetic, Loop)):
-            l1_d += self.l1.loop_domains
-
-        if isinstance(self.l2, (LoopArithmetic, Loop)):
-            l2_d += self.l2.loop_domains
-
-        return l1_d + l2_d
-
-    def op_type_params(self):
-        op_params = []
-
-        if isinstance(self.l1, (LoopArithmetic, Loop)):
-            op_params.append(f"L1: {self.l1.op_str}")
-        else:
-            op_params.append(f"L1: {self.l1}")
-
-        if isinstance(self.l2, (LoopArithmetic, Loop)):
-            op_params.append(f"L2: {self.l2.op_str}")
-        else:
-            op_params.append(f"L2: {self.l1}")
-        op_params.append(f"BIN_OP: {self.bin_op}")
-
-        return op_params

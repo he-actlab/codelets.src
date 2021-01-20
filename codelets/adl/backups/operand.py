@@ -116,7 +116,7 @@ class Operand(object):
         blob['field_name'] = self.name
         blob['field_type'] = self.operand_type
         blob['bitwidth'] = self.bits
-        blob['dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self._dtypes]
+        blob['supported_dtypes'] = [f"{d.type.upper()}{d.bitwidth}" for d in self._dtypes]
         blob['possible_values'] = list(self.str_value_map.keys())
         blob['index_size'] = self.index_size
         blob['components'] = self.components

@@ -4,7 +4,6 @@ import polymath as pm
 import numpy as np
 from codelets.adl.codelet import Codelet
 
-
 @dataclass
 class Fragment:
     offset_id: Union[int, str]
@@ -15,8 +14,18 @@ class Fragment:
 @dataclass
 class Relocation:
     offset_type: str
-    bases: Dict[str, Fragment] = field(default_factory=dict)
+    bases: Dict[Union[int,str], Fragment] = field(default_factory=dict)
     total_length: int = field(default=0)
+
+    def __getitem__(self, item):
+        return self.bases[item]
+
+    def get_fragment_str(self, item):
+        return f"$({self.offset_type}[{self.bases[item]}])"
+
+    def get_absolute_address(self, item):
+        return self.bases[item]
+
 
 
 class RelocationTable(object):
@@ -68,15 +77,16 @@ class RelocationTable(object):
             stored_size = relocatable.bases[offset_id].end - relocatable.bases[offset_id].start
             assert stored_size == size
 
-
     def add_relocation(self, node: pm.Node, cdlt: Codelet):
         instr_len = cdlt.num_instr
         self.update_relocation_offset('INSTR_MEM', cdlt.cdlt_id, instr_len)
         for i in node.inputs:
             data_size = np.prod(i.shape)
-            if isinstance(i, pm.input):
-                offset_type = 'INPUT'
-            elif isinstance(i, pm.state):
+            # TODO: Figure out if input storage type is needed
+            # TODO: Add datatype to datasize
+            # if isinstance(i, pm.input):
+            #     offset_type = 'INPUT'
+            if isinstance(i, pm.state):
                 offset_type = 'STATE'
             else:
                 offset_type = 'INTERMEDIATE'

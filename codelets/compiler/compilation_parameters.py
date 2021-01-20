@@ -1,5 +1,6 @@
 from typing import List
-from codelets.adl import ArchitectureNode, ComputeNode, StorageNode, Codelet
+from codelets.adl.graph import ArchitectureNode, ComputeNode, StorageNode
+from codelets.adl import Codelet
 from codelets.adl.backups.operand import Datatype
 
 import numpy as np
@@ -39,8 +40,8 @@ def filter_tiling(hag: ArchitectureNode, cdlt: Codelet, looped_dimensions, dim_f
     op_constraints = {}
     for a in all_ops:
         mem_nodes = [hag.get_subgraph_node(m_node) for m_node in a.memory_path]
-        assert isinstance(a.dtypes, Datatype)
-        dtype_size = a.dtypes.bitwidth // 8
+        assert isinstance(a.supported_dtypes, Datatype)
+        dtype_size = a.supported_dtypes.bitwidth // 8
         mem_capacities = get_capacities(mem_nodes, dtype_size)
         op_constraints[a.name] = mem_capacities
 
@@ -53,9 +54,9 @@ def filter_tiling(hag: ArchitectureNode, cdlt: Codelet, looped_dimensions, dim_f
     #             # TODO: Add try-catch statement here
     #             op_shape = eval(i, eval_args)
     #             op_shape_list.append(op_shape)
-    #         dtype_size = a.dtypes.bitwidth // 8
+    #         dtype_size = a.supported_dtypes.bitwidth // 8
     #         if all([np.prod(op_shape_list)*dtype_size <= ]):
-    #             valid_perms.append(op_shapes[a.name] = op_shape_list
+    #             valid_perms.append(op_shapes[a.field_name] = op_shape_list
     return op_shapes
 
 def get_tiling_options(hag: ArchitectureNode, cdlt: Codelet):

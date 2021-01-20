@@ -1,12 +1,14 @@
-import numpy as np
 from types import FunctionType
 from codelets.graph import Node
-from codelets.adl.architecture_graph import ArchitectureGraph
+from codelets.adl.graph.architecture_graph import ArchitectureGraph
 from typing import List, Dict, Union, TYPE_CHECKING
-from codelets.adl import Codelet, Instruction
+from codelets.adl.flex_template import FlexTemplate, Instruction
+from codelets.adl import Codelet
 from pygraphviz import AGraph
-from collections import namedtuple
-from .operation import Operation, Loop, Compute, Configure, Transfer
+from collections import namedtuple, deque
+import itertools
+
+from codelets.adl.operation import Loop, Compute, Configure, Transfer
 
 if TYPE_CHECKING:
     from .compute_node import ComputeNode
@@ -31,7 +33,7 @@ class UtilFuncs(object):
         return self._func_def_names
 
     def __getattr__(self, item):
-        return self.funcs[item]
+        return self.get_util_fnc(item)
 
     def add_fn(self, name, arg_vars: List[str], body):
         arg_str = ", ".join(arg_vars)
@@ -53,6 +55,9 @@ class ArchitectureNode(Node):
     Base class for Architecture Node
     Inherited from Node
     """
+    graph_stack = deque([None])
+    sub_graph_ctx_nodes = deque([[]])
+    sub_graph_ctx_edges = deque([{}])
 
     def __init__(self, name, index=None):
         super(ArchitectureNode, self).__init__(index=index)
@@ -80,16 +85,29 @@ class ArchitectureNode(Node):
         self._occupied = [] # NOTE state in TABLA compiler...
         self._operation_mappings = {"config": {},
                                     "transfer": {},
-                                    "loop": {},
+                                    "loop": None,
                                     "compute": {}}
         self._util_fns = UtilFuncs()
+        self._util_fns_ = {}
+        if self.parent_graph is not None:
+            ArchitectureNode.sub_graph_ctx_nodes[-1].append(self)
 
     def __enter__(self):
+        ArchitectureNode.graph_stack.append(self)
+        ArchitectureNode.sub_graph_ctx_nodes.append([])
+        ArchitectureNode.sub_graph_ctx_edges.append({})
         return self
 
     def __exit__(self, exec_type, exec_value, exec_traceback):
-        pass
-    
+        top_graph = ArchitectureNode.graph_stack.pop()
+        ctx_nodes = ArchitectureNode.sub_graph_ctx_nodes.pop()
+        ctx_edges = ArchitectureNode.sub_graph_ctx_edges.pop()
+        assert top_graph == self
+        for n in ctx_nodes:
+            self.add_subgraph_node(n)
+        for key, attr in ctx_edges.items():
+            self.add_subgraph_edge(*key, attr)
+
     def __str__(self):
         return f'op {self.index} ({self.get_type()}): \
                  preds={self.get_preds_indices()} ({self._attrs["in_degree"]}), \
@@ -97,6 +115,18 @@ class ArchitectureNode(Node):
     
     # two categories of operation
     # modifying anode type arbitrarily should not be permitted
+
+    @property
+    def parent_graph(self) -> Union[None, 'ArchitectureNode']:
+        return ArchitectureNode.graph_stack[-1]
+
+    @property
+    def parent_ctx_nodes(self) -> List:
+        return ArchitectureNode.sub_graph_ctx_nodes[-1]
+
+    @property
+    def parent_ctx_edges(self) -> Dict:
+        return ArchitectureNode.sub_graph_ctx_edges[-1]
 
     @property
     def name(self):
@@ -170,37 +200,40 @@ class ArchitectureNode(Node):
         return name in self.all_codelet_names
 
     def add_subgraph_edge(self, src, dst, attributes=None, transfer_fn_map=None):
-
-        if self._has_parent:
-            raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
-        if attributes:
-            assert isinstance(attributes, dict)
-            attr = []
-            for k,v in attributes.items():
-                attr.append({k: v})
+        if self.parent_graph is not None:
+            ArchitectureNode.sub_graph_ctx_edges[-1][(src, dst)] = attributes
         else:
-            attr = []
+            if self._has_parent:
+                raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
+            if attributes:
+                assert isinstance(attributes, dict)
+                attr = []
+                for k,v in attributes.items():
+                    attr.append({k: v})
+            else:
+                attr = []
 
-        if isinstance(src, (int, str)):
-            src = self.get_subgraph_node(src)
 
-        if isinstance(dst, (int, str)):
-            dst = self.get_subgraph_node(dst)
 
-        if src.index not in self.subgraph._nodes:
-            self.add_in_edge(src)
+            if isinstance(src, (int, str)):
+                src = self.get_subgraph_node(src)
 
-        if dst.index not in self.subgraph._nodes:
-            self.add_out_edge(dst)
+            if isinstance(dst, (int, str)):
+                dst = self.get_subgraph_node(dst)
 
-        edge = Edge(src=src.index, dst=dst.index, attributes=attr, transfer_fn_map=transfer_fn_map)
-        self._subgraph_edges.append(edge)
-        self.subgraph.add_edge(src, dst)
+            if src.index not in self.subgraph._nodes:
+                self.add_in_edge(src)
+
+            if dst.index not in self.subgraph._nodes:
+                self.add_out_edge(dst)
+
+            edge = Edge(src=src.index, dst=dst.index, attributes=attr, transfer_fn_map=transfer_fn_map)
+            self._subgraph_edges.append(edge)
+            self.subgraph.add_edge(src, dst)
 
     def add_subgraph_node(self, node: 'ArchitectureNode'):
         if self._has_parent:
             raise RuntimeError("Already added node to graph, cannot continue to add subgraph nodes")
-
 
         self.merge_subgraph_nodes(node)
         node.set_parent(self.index)
@@ -220,16 +253,39 @@ class ArchitectureNode(Node):
     def get_operation_template(self, op):
 
         if isinstance(op, Transfer):
-            template = self.operation_mappings['transfer'][(op.source, op.dest)]
+            template = []
+            a, b = itertools.tee(op.path)
+            next(b, None)
+            for key in zip(a,b):
+                template += self.operation_mappings['transfer'][key].instructions
         elif isinstance(op, Configure):
-            template = self.operation_mappings['config'][op.target_name][op.start_or_finish]
+            template = self.operation_mappings['config'][op.target_name][op.start_or_finish].instructions
         elif isinstance(op, Compute):
-            template = self.operation_mappings['compute'][op.op_name]
+            template = self.operation_mappings['compute'][op.target][op.op_name].instructions
         elif isinstance(op, Loop):
-            template = self.operation_mappings['loop']
+            template = [self.operation_mappings['loop'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
         return template
+
+    def add_template(self, template, template_type, template_subtype=None, target=None, template_fns=None):
+        if target is None:
+            target = self.name
+
+        if template_type == "config":
+            if template_subtype == "start":
+                self.add_start_template(target, template, template_fns)
+            else:
+                assert template_subtype == "end"
+                self.add_end_template(target, template, template_fns)
+        elif template_type == "transfer":
+            self.add_transfer_template(*template_subtype, template, template_fns)
+        elif template_type == "compute":
+            self.add_compute_template(target, template_subtype, template, template_fns)
+        elif template_type == "loop":
+            self.add_loop_template(target, template, template_fns)
+        else:
+            raise RuntimeError(f"Invalid template type: {template_type}")
 
 
     # TODO: Need to validate that each parameter is correctly mapped
@@ -252,7 +308,7 @@ class ArchitectureNode(Node):
         self.operation_mappings['compute'][target][op_name] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_loop_template(self, target, template, template_fns=None):
-        self.operation_mappings['loop'][target] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_in_edge(self, src):
         self._in_edges[src.field_name] = src
@@ -263,18 +319,29 @@ class ArchitectureNode(Node):
         self.subgraph.add_output(dst)
 
     def get_subgraph_node(self, name) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
-        if isinstance(name, str):
-            if name in self._in_edges:
-                return self._in_edges[name]
-            elif name in self._out_edges:
-                return self._out_edges[name]
-            elif name in self._all_subgraph_nodes:
-                return self._all_subgraph_nodes[name]
+        if self.parent_graph == self:
+            if isinstance(name, str):
+                for n in self.parent_ctx_nodes:
+                    if n.name == name:
+                        return n
+            else:
+                assert isinstance(name, int)
+                for n in self.parent_ctx_nodes:
+                    if n.index == name:
+                        return n
         else:
-            assert isinstance(name, int)
-            for n, v in self._all_subgraph_nodes.items():
-                if v.index == name:
-                    return v
+            if isinstance(name, str):
+                if name in self._in_edges:
+                    return self._in_edges[name]
+                elif name in self._out_edges:
+                    return self._out_edges[name]
+                elif name in self._all_subgraph_nodes:
+                    return self._all_subgraph_nodes[name]
+            else:
+                assert isinstance(name, int)
+                for n, v in self._all_subgraph_nodes.items():
+                    if v.index == name:
+                        return v
         raise KeyError(f"{name} not found in subgraph or input_components")
 
     def get_type(self):
@@ -294,9 +361,14 @@ class ArchitectureNode(Node):
             primitive.target = self.name
         self._primitives[primitive.name] = primitive
 
-    def get_primitive_template(self, name) -> Instruction:
+    def get_primitive_template(self, name) -> FlexTemplate:
+
         if name in self.primitives:
-            return self.primitives[name].instruction_copy()
+            return FlexTemplate(self.primitives[name].instruction_copy())
+        elif self.parent_graph == self:
+            for n in self.parent_ctx_nodes:
+                if n.has_primitive(name):
+                    return n.get_primitive_template(name)
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_primitive(name):
@@ -310,9 +382,9 @@ class ArchitectureNode(Node):
         # TODO: Validate memory paths
         self._codelets[codelet.op_name] = codelet.codelet_copy()
 
-    def get_codelet_template(self, name) -> Codelet:
+    def get_codelet_template(self, name, is_instance=False) -> Codelet:
         if name in self.codelets:
-            return self.codelets[name].codelet_copy()
+            return self.codelets[name].codelet_copy(is_instance=is_instance)
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_codelet(name):
@@ -383,7 +455,7 @@ class ArchitectureNode(Node):
     def initialize_json(self):
         blob = {}
         blob['node_id'] = self.index
-        blob['name'] = self.name
+        blob['field_name'] = self.name
         blob['node_type'] = self.get_type()
         blob['node_color'] = self.viz_color
         blob['attributes'] = {}
