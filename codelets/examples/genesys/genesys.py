@@ -2,7 +2,8 @@ from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
-from .genesys_codelets import GENESYS_CODELETS, conv2d_nhwc_test
+from .genesys_codelets import GENESYS_CODELETS, conv2d_nhwc_test, conv2d_nchw_transformation
+import numpy as np
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
     OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
 
@@ -46,7 +47,7 @@ def generate_genesys(genesys_cfg):
     genesys.add_subgraph_node(systolic_array)
 
     for p in GENESYS_INSTRUCTIONS['systolic_array']:
-        systolic_array.add_primitive(p())
+        systolic_array.add_primitive(p)
 
 
     simd = genesys.get_subgraph_node("SIMD")
@@ -68,7 +69,8 @@ def generate_genesys(genesys_cfg):
     genesys.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
     return genesys
 
-def define_genesys(testing=False):
+def define_genesys(conv_selection="nchw"):
+    # TODO: Add capabilties to PE array not systolic_array
     with ComputeNode("Genesys") as hag:
         vmem = StorageNode("VMEM", read_bw=128, write_bw=128,
                            access_type='RAM', size=64,
@@ -87,26 +89,32 @@ def define_genesys(testing=False):
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
         with ComputeNode("systolic_array") as systolic_array:
-            ibuf = StorageNode("IBUF", read_bw=128, write_bw=128,
+            pe_array = ComputeNode("pe_array", dimensions=[32, 32])
+            # TODO: Need to formalize the storage node sizes by # elements, width, and datatype
+            ibuf = StorageNode("IBUF", read_bw=pe_array.dimensions[0], write_bw=pe_array.dimensions[0],
                                access_type='RAM', size=32,
                                latency=1, input_ports=2, output_ports=2)
-            wbuf = StorageNode("WBUF", read_bw=128, write_bw=128,
+            wbuf = StorageNode("WBUF", read_bw=np.prod(pe_array.dimensions), write_bw=np.prod(pe_array.dimensions),
                                access_type='RAM', size=64,
                                latency=1, input_ports=2, output_ports=2)
             bbuf = StorageNode("BBUF", read_bw=128, write_bw=128,
                                access_type='RAM', size=8,
                                latency=1, input_ports=2, output_ports=2)
-            obuf = StorageNode("OBUF", read_bw=128, write_bw=128,
+            obuf = StorageNode("OBUF", read_bw=pe_array.dimensions[0], write_bw=128,
                                access_type='RAM', size=128,
                                latency=1, input_ports=2, output_ports=2)
-            pe_array = ComputeNode("pe_array", dimensions=[32, 32])
+            systolic_array.add_subgraph_edge('DRAM', 'IBUF')
+            systolic_array.add_subgraph_edge('DRAM', 'WBUF')
+            systolic_array.add_subgraph_edge('DRAM', 'BBUF')
+            systolic_array.add_subgraph_edge('DRAM', 'OBUF')
+
             systolic_array.add_subgraph_edge('IBUF', 'pe_array')
             systolic_array.add_subgraph_edge('WBUF', 'pe_array')
             systolic_array.add_subgraph_edge('BBUF', 'pe_array')
             systolic_array.add_subgraph_edge('OBUF', 'pe_array')
             systolic_array.add_subgraph_edge('pe_array', 'OBUF')
             for p in GENESYS_INSTRUCTIONS['systolic_array']:
-                systolic_array.add_primitive(p())
+                systolic_array.add_primitive(p)
         simd = ComputeNode("SIMD", dimensions=[32])
         hag.add_subgraph_edge('VMEM', 'SIMD')
         hag.add_subgraph_edge('SIMD', 'VMEM')
@@ -115,6 +123,8 @@ def define_genesys(testing=False):
         hag.add_subgraph_edge('SIMD', 'DRAM')
         hag.add_subgraph_edge('DRAM', 'SIMD')
         hag.add_subgraph_edge('OBUF', 'SIMD')
+        for p in GENESYS_INSTRUCTIONS['SIMD']:
+            systolic_array.add_primitive(p)
 
         ## Set templates
         # Config
@@ -132,8 +142,10 @@ def define_genesys(testing=False):
 
         # Loop
         hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
-        if testing:
+        if conv_selection == "nhwc":
             hag.add_codelet(conv2d_nhwc_test(hag))
+        elif conv_selection == "transformation":
+            hag.add_codelet(conv2d_nchw_transformation(hag))
         else:
             for op_name, cdlt in GENESYS_CODELETS.items():
                 cdlt_instance = cdlt(hag)

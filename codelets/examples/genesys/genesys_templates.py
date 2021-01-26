@@ -6,6 +6,7 @@ from codelets.adl.backups.genesys_codelets import GENESYS_SA_CODELETS
 from functools import partial
 
 def sa_end_template(hag: ComputeNode):
+    #TODO: Add conditional block end instruction
     instructions = []
     return instructions
 
@@ -15,7 +16,7 @@ def sa_start_template(hag: ComputeNode):
     instr = hag.get_primitive_template("INST_GROUP")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "START")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.cdlt_id")
+    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
     # Figure out what this is
     instr.set_field_value("LOOP_ID", 0)
     instr.set_field_value("NUM_INSTR", 0)
@@ -24,7 +25,7 @@ def sa_start_template(hag: ComputeNode):
     instr = hag.get_primitive_template("INST_GROUP")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "END")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.cdlt_id")
+    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
     # Figure out what this is
     instr.set_field_flex_param("LOOP_ID", "max([o.loop_id for o in cdlt.ops])")
     instr.set_field_value("NUM_INSTR", 0)
@@ -34,8 +35,9 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
+    # TODO: Fix relocation table imem value
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.cdlt_id].start, 16, 0)")
+                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.instance_id].start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -43,7 +45,7 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.cdlt_id].start, 16, 16)")
+                             "hag.util_fns.extract_bits(relocation_table.instr_mem[cdlt.instance_id].start, 16, 16)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("LD_ST")
@@ -56,7 +58,7 @@ def sa_start_template(hag: ComputeNode):
 
     instr = hag.get_primitive_template("BLOCK_END")
     # TODO: Make sure this is evaluated after having gone through all codelets
-    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].cdlt_id == cdlt.cdlt_id)")
+    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
     instructions.append(instr)
 
     return instructions
@@ -149,7 +151,6 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
     instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
-
     instr = hag.get_primitive_template("LD_ST")
     instr.set_field_by_name("ACCESS_TYPE", "LD")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
@@ -172,6 +173,7 @@ def buffer_dram_template(buffer_name, hag):
     instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
+    # TODO: Fix loop id for this to be the minimum
     instr = hag.get_primitive_template("LD_ST")
     instr.set_field_by_name("ACCESS_TYPE", "ST")
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
@@ -184,7 +186,7 @@ def buffer_dram_template(buffer_name, hag):
 def buffer_sa_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "systolic_array")].src_offset')
+    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "pe_array")].src_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "RD")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -198,7 +200,7 @@ def buffer_sa_template(buffer_name, hag):
 def sa_buffer_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("systolic_array", "{buffer_name}")].dst_offset')
+    instr.add_iterable('offset', f'op.transfers[("pe_array", "{buffer_name}")].dst_offset')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "WR")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -253,17 +255,17 @@ GENESYS_TEMPLATES = {
         ("IBUF", "DRAM"): partial(buffer_dram_template, "IBUF"),
         ("WBUF", "DRAM"): partial(buffer_dram_template, "WBUF"),
         ("BBUF", "DRAM"): partial(buffer_dram_template, "BBUF"),
-        ("WBUF", "systolic_array"): partial(buffer_sa_template, "WBUF"),
-        ("IBUF", "systolic_array"): partial(buffer_sa_template, "IBUF"),
-        ("BBUF", "systolic_array"): partial(buffer_sa_template, "BBUF"),
-        ("OBUF", "systolic_array"): partial(buffer_sa_template, "OBUF"),
-        ("systolic_array", "OBUF"): partial(sa_buffer_template, "OBUF"),
-        ("systolic_array", "IBUF"): partial(sa_buffer_template, "IBUF"),
-        ("systolic_array", "WBUF"): partial(sa_buffer_template, "WBUF"),
-        ("systolic_array", "BBUF"): partial(sa_buffer_template, "BBUF"),
+        ("WBUF", "pe_array"): partial(buffer_sa_template, "WBUF"),
+        ("IBUF", "pe_array"): partial(buffer_sa_template, "IBUF"),
+        ("BBUF", "pe_array"): partial(buffer_sa_template, "BBUF"),
+        ("OBUF", "pe_array"): partial(buffer_sa_template, "OBUF"),
+        ("pe_array", "OBUF"): partial(sa_buffer_template, "OBUF"),
+        ("pe_array", "IBUF"): partial(sa_buffer_template, "IBUF"),
+        ("pe_array", "WBUF"): partial(sa_buffer_template, "WBUF"),
+        ("pe_array", "BBUF"): partial(sa_buffer_template, "BBUF"),
     },
     "loop": loop_template,
     "compute": {
-        ("systolic_array", "MVMUL"): sa_mvmul_template
+        ("pe_array", "MVMUL"): sa_mvmul_template
     }
 }

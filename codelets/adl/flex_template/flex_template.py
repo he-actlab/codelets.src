@@ -12,6 +12,7 @@ class FlexTemplate:
     conditional: FlexParam = field(default=None)
     iter_args: List[str] = field(default_factory=list)
     iterables: List[FlexParam] = field(default_factory=list)
+    num_instructions: int = field(init=False, default=1)
 
     def add_instruction(self, instruction: Instruction):
         self.instructions.append(instruction)
@@ -26,7 +27,8 @@ class FlexTemplate:
 
     def set_instructions(self, instruction_list: List[Instruction]):
         if len(self.instructions) > 0:
-            raise RuntimeError(f"Instructions have already been evaluated!")
+            raise RuntimeError(f"Instructions have already been evaluated!:\n"
+                               f"Base instruction: {self.base_instruction}")
         self.instructions = instruction_list
 
     def evaluate(self, program, hag, op_idx, cdlt_id):
@@ -42,6 +44,16 @@ class FlexTemplate:
 
     def set_field_value(self, field_name, value, value_str=None):
         self.base_instruction.set_field_value(field_name, value, value_str=value_str)
+
+    def set_instruction_length(self, program, hag, op_idx, cdlt_id):
+        instr_size = 1
+        fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
+
+        for idx in range(len(self.iterables)):
+            iterable = self.iterables[idx].evaluate_fn(*fn_args)
+            instr_size *= len(iterable)
+
+        self.num_instructions = instr_size
 
     # TODO: Add
     def evaluate_iterable_instruction(self, fn_args: tuple, instructions: List[Instruction], iter_idx: int, iter_args: dict):

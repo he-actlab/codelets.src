@@ -1,13 +1,19 @@
 from typing import List, Union, Dict, Tuple
+
 from codelets.adl.flex_param import FlexParam
 from codelets.adl.operation.operand import OperandTemplate, Datatype
-from .operation import Operation, Loop, Transfer, Compute, Configure, LoopTypes
-from dataclasses import replace
+from .operation import Operation, Loop, Transfer, Compute, Configure
 from types import LambdaType
 from pytools import memoize_method
+from collections import defaultdict
+from dataclasses import replace
+from numbers import Integral
 from copy import deepcopy
 from sympy import symbols, Idx, Expr, Basic
 from itertools import chain
+import json
+import numpy as np
+
 import polymath as pm
 
 class Codelet(object):
@@ -20,9 +26,7 @@ class Codelet(object):
                  outputs: List[OperandTemplate],
                  is_instance: bool =False,
                  cdlt_id: int = None,
-                 required_params: Dict[str, Union[int, str, FlexParam]] = None,
-                 fixed_params=None,
-                 operand_tiling=None):
+                 required_params: Dict[str, Union[int, str, FlexParam, LambdaType]] = None):
 
         self._op_name = op_name
         self._inputs = inputs
@@ -30,6 +34,11 @@ class Codelet(object):
         self._ops = []
         self._op_map = {}
         self._global_op_map = {}
+        self._num_instr = -1
+
+        # Added, possibly need to consolidate
+        self._domain_tiling = {}
+        self._tile_levels = defaultdict(list)
         if required_params is not None:
             self._required_params = {}
             for k, v in required_params.items():
@@ -38,8 +47,6 @@ class Codelet(object):
             self._required_params = {}
         self._is_instance = is_instance
         self._instance_id = None
-        self._operand_tiling = operand_tiling or {}
-        self._fixed_params = fixed_params or {}
         if self.is_instance:
             self._instance_id = Codelet.codelet_instance_id
             Codelet.codelet_instance_id += 1
@@ -53,6 +60,9 @@ class Codelet(object):
     def __enter__(self):
         Operation.current_codelet = self
         Operation.loop_stack.append(-1)
+        Operation.id_counter = 0
+        Operation.loop_ctxt_level = 0
+        Operation.op_id_counters = defaultdict(int)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -63,10 +73,6 @@ class Codelet(object):
     @property
     def is_instance(self):
         return self._is_instance
-
-    @property
-    def fixed_params(self):
-        return self._fixed_params
 
     @property
     def instance_id(self):
@@ -104,20 +110,18 @@ class Codelet(object):
     def global_op_map(self) -> Dict[int, Union[Loop, Compute, Transfer, Configure]]:
         return self._global_op_map
 
+    # TODO: Memoize this method
+    @property
+    def operands(self):
+        return self.inputs + self.outputs
+
     @ops.setter
     def ops(self, ops):
         self._ops = ops
 
     @property
     def num_instr(self):
-        num = 0
-        for o in self.ops:
-            num += len(o.instructions)
-        return num
-
-    @property
-    def operand_tiling(self):
-        return self._operand_tiling
+        return self._num_instr
 
     @memoize_method
     def operand_dimensions(self) -> List[str]:
@@ -127,14 +131,20 @@ class Codelet(object):
             operand_dims += o.shape_list
         return list(set(operand_dims))
 
-    def set_path_tiling(self, path_key: Tuple[str, str], dim_tiling: Dict[str, int]):
-        if len(list(dim_tiling.keys())) != len(self.operand_dimensions()):
-            raise RuntimeError(f"Invalid argument for setting the path tiling:\n"
-                               f"Arg keys: {dim_tiling.keys()}\n"
-                               f"Operand dimensions: {self.operand_dimensions()}")
+    @property
+    def domain_tiling(self):
+        return self._domain_tiling
 
-        assert path_key not in self.operand_tiling
-        self.operand_tiling[path_key] = deepcopy(dim_tiling)
+    @property
+    def tile_levels(self):
+        return self._tile_levels
+
+    def operand_dim_mapping(self):
+        operands = self.inputs + self.outputs
+        operand_dims = {}
+        for o in operands:
+            operand_dims.update(o.shape_symbols)
+        return operand_dims
 
     def unset_params(self):
         unset_params = []
@@ -153,19 +163,25 @@ class Codelet(object):
                 return o
         raise KeyError(f"Unable to find operand {op_name}: {self.inputs + self.outputs}")
 
-    def codelet_copy(self, is_instance=False):
-        inputs = [i.copy() for i in self.inputs]
-        outputs = [o.copy() for o in self.outputs]
+    def copy(self):
 
-        cdlt = Codelet(self.op_name, inputs, outputs,
-                       is_instance=is_instance,
-                       cdlt_id=self.cdlt_id,
-                       required_params=self.copy_required_params())
-
+        obj = type(self).__new__(self.__class__)
+        obj._op_name = self.op_name
+        obj._cdlt_id = self.cdlt_id
+        obj._inputs = [i.copy() for i in self.inputs]
+        obj._outputs = [o.copy() for o in self.outputs]
+        obj._required_params = self.copy_required_params()
+        obj._ops = []
+        obj._op_map = {}
+        obj._global_op_map = {}
+        obj._num_instr = self._num_instr
+        obj._cdlt_id = self._cdlt_id
+        obj._instance_id = Codelet.codelet_instance_id
+        obj._domain_tiling = deepcopy(self._domain_tiling)
+        obj._tile_levels = deepcopy(self._tile_levels)
         for o in self.ops:
-            cdlt.add_op(o.copy_op(cdlt, o))
-
-        return cdlt
+            obj.add_op(o.copy(obj))
+        return obj
 
     def copy_required_params(self):
         params = {}
@@ -178,24 +194,7 @@ class Codelet(object):
                 raise TypeError(f"Invalid type when copying params:\n"
                                 f"Name: {k}\n"
                                 f"Param: {v}")
-
         return params
-
-
-    def get_transfer_op(self, op_id: int) -> Transfer:
-        return self.op_map[f'transfer{op_id}']
-
-    def get_configure_op(self, op_id: int) -> Configure:
-        return self.op_map[f'config{op_id}']
-
-    def get_compute_op(self, op_id: int) -> Compute:
-        return self.op_map[f'compute{op_id}']
-
-    def get_loop_op(self, op_id: int) -> Loop:
-        return self.op_map[f'loop{op_id}']
-
-    def get_operation_instructions(self, op, hag):
-        pass
 
     def get_op(self, global_op_id: int) -> Operation:
         for o in self.ops:
@@ -203,43 +202,32 @@ class Codelet(object):
                 return o
         raise KeyError(f"Unable to find global op id {global_op_id}")
 
-    def emit_operations(self):
-        op_str = f"CODELET:\t{self.op_name}{self.codelet_id}\n"
-        for o in self.ops:
-            if isinstance(o, Loop) and o.loop_type != LoopTypes.LINEAR:
-                continue
-            ostr = f"\t"*(o.loop_level + 1)
-            ostr += f"{str(o)}\n"
-            op_str += ostr
-
-        return op_str
-
-    def emit_str_instructions(self, hag):
-        op_str = f"CODELET:\t{self.op_name}\n"
-        for o in self.ops:
-            if isinstance(o, Loop) and o.loop_type != LoopTypes.LINEAR:
-                continue
-            instr_list = o.instruction_str()
-            ostr = f"\t"*(o.loop_level + 1)
-            instr_list = f"\n{ostr}".join(instr_list)
-            ostr += f"{instr_list}\n"
-            op_str += ostr
-        return op_str
 
     def emit(self, output_type):
         if output_type == "operations":
-            op_str = f"CODELET:\t{self.op_name}{self.codelet_id}\n"
+            op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
             for o in self.ops:
-                if isinstance(o, Loop) and o.loop_type != LoopTypes.LINEAR:
-                    continue
                 ostr = f"\t" * (o.loop_level + 1)
                 ostr += f"{o.emit(output_type)}\n"
                 op_str += ostr
+        elif output_type == "json":
+            op_params = {}
+            operand_dim_map = self.operand_dim_mapping()
+            for k, v in self.required_params.items():
+                if k not in operand_dim_map:
+                    assert isinstance(v, FlexParam)
+                    op_params[k] = v.value
+
+            op_str = {}
+            op_str['operand'] = self.op_name
+            op_str['iterable_dimensions'] = [[k, v] for k, v in operand_dim_map.items()]
+            op_str['operation_parameters'] = op_params
+            op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
+            op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
+            op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
         elif output_type not in ["decimal", "binary"]:
-            op_str = f"CODELET:\t{self.op_name}{self.codelet_id}\n"
+            op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
             for o in self.ops:
-                if isinstance(o, Loop) and o.loop_type != LoopTypes.LINEAR:
-                    continue
                 instr_list = o.emit(output_type)
                 ostr = f"\t" * (o.loop_level + 1)
                 instr_list = f"\n{ostr}".join(instr_list)
@@ -248,8 +236,6 @@ class Codelet(object):
         else:
             op_str = []
             for o in self.ops:
-                if isinstance(o, Loop) and o.loop_type != LoopTypes.LINEAR:
-                    continue
                 instr_list = o.emit(output_type)
                 op_str += instr_list
             op_str = "\n".join(op_str)
@@ -263,11 +249,15 @@ class Codelet(object):
         self.op_map[op.op_str] = op
         self.global_op_map[op.global_op_id] = op
 
-    def add_required_param(self, key, value=None):
+    def add_required_param(self, key, value=None, check_key=True):
         if key in self.required_params:
-            raise KeyError(f"Key {key} already exists in params:\n"
-                           f"Previous value: {self.required_params[key]}\n"
-                           f"Updated value: {value}")
+            if check_key:
+                raise KeyError(f"Key {key} already exists in params:\n"
+                               f"Previous value: {self.required_params[key]}\n"
+                               f"Updated value: {value}")
+            else:
+                return
+
         if isinstance(value, LambdaType):
             flex_param = FlexParam(key, fn=value)
             for a in flex_param.fn_args:
@@ -319,15 +309,27 @@ class Codelet(object):
                         add_codelet=False, **kwargs)
         self.add_op(comp)
 
-    def transfer(self, operand, path, offsets, sizes, **kwargs):
+    def transfer(self, operand, path, offsets, sizes=None, **kwargs):
         xfer = Transfer(operand, path, offsets, sizes,
                         add_codelet=False, **kwargs)
         self.add_op(xfer)
 
-    def get_previous_transfer_size(self, op: Transfer):
-        for o in range(op.op_id, -1, -1):
-            if self.get_transfer_op(o).dest == op.source:
-                pass
+    def set_domain_tile(self, hag_node: str, domain_key: str, split_factor: int):
+        if hag_node not in self.domain_tiling:
+            self.domain_tiling[hag_node] = {}
+
+        if domain_key in self.domain_tiling[hag_node] and self.domain_tiling[hag_node][domain_key] != split_factor:
+            raise RuntimeError(f"The tile split factor has already been set for {hag_node} in domain"
+                               f" {domain_key}:\n"
+                               f"Previous value: {self.domain_tiling[hag_node][domain_key]}\n"
+                               f"New value: {split_factor}")
+        # TODO: Add other checks here to validate split
+        self.domain_tiling[hag_node][domain_key] = split_factor
+
+    def set_tile_level(self, level: int, node: str):
+        if level in self.tile_levels:
+            assert node not in self.tile_levels[level]
+        self.tile_levels[level].append(node)
 
     def set_dim_values(self, node, operand):
         if not operand.is_instantiated():
@@ -343,6 +345,12 @@ class Codelet(object):
                 raise RuntimeError(f"All shape values were not set for node {node.name}, operand {operand.name}:\n"
                                    f"Node shape: {node.shape}\n"
                                    f"Operand shape variables: {operand.shape_list}")
+
+    def get_tile_level(self, node_name: str):
+        for i in self.tile_levels.keys():
+            if node_name in self.tile_levels[i]:
+                return i
+        raise KeyError(f"Unable to find tile level for node {node_name}")
 
 
     def get_node_shape_map(self, op_tmplt: OperandTemplate, node: pm.Node) -> Dict[str, Dict]:
@@ -406,13 +414,23 @@ class Codelet(object):
         self.instantiate_operands(node, hag)
 
         self.instantiate_node_params(node, hag)
-
         for o in self.ops:
             for rp in o.required_params:
                 if rp in self.required_params and rp in o.unset_params():
                     o.set_required_param(rp, self.required_params[rp])
             assert isinstance(o, Operation)
             o.evaluate_parameters(node, hag, self)
+
+    def get_operand_shapes(self):
+        shape_dims = {}
+        operands = (self.inputs + self.outputs)
+        for o in operands:
+            shape_dims.update(o.shape_symbols)
+
+        return shape_dims
+
+
+
 
 
 

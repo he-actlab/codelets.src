@@ -1,14 +1,13 @@
-from codelets.adl.serialization import serialize_graph, deserialize_graph, generate_hw_cfg
+from codelets.compiler.serialization import serialize_graph
 from codelets.examples.genesys import generate_genesys,\
-    genesys_instructions, genesys_codelets, define_genesys, genesys_templates
-from codelets.adl.util import get_lambda_source
+    genesys_instructions, define_genesys
 import polymath as pm
 from codelets import compile, deserialize_graph
 from collections import namedtuple
-import pytest
 import json
 from pathlib import Path
-from test.util import get_single_conv2d_node
+import copy
+from codelets.compiler import CodeletJSONEncoder
 
 CWD = Path(f"{__file__}").parent
 BENCH_DIR = f"{CWD}/input_files"
@@ -25,11 +24,12 @@ def parse_cfg():
 def test_genesys_resnet18():
 
     graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.srdfg")
-    genesys = define_genesys(testing=False)
-
+    genesys = define_genesys("transformation")
+    # genesys = define_genesys("nchw")
+    #
     program = compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
-    print(program.emit("operations"))
-
+    res = program.emit("operations")
+    print(res)
 
 def test_genesys_serialization():
     genesys_cfg = parse_cfg()
@@ -51,10 +51,6 @@ def test_generate_genesys():
 def test_flex_template():
     genesys = define_genesys()
     cdlt = genesys.get_codelet_template("conv", is_instance=True)
-
-
-
-
 
 
 

@@ -6,6 +6,7 @@ import re
 from types import FunctionType, LambdaType, CodeType
 import inspect
 from dataclasses import dataclass, field
+IMPORT_VALS = ["import numpy as np"]
 flex_param_cnt = count()
 
 @dataclass
@@ -68,6 +69,7 @@ class FlexParam:
 
         # TODO: Important--> this assumes that iter_args are iterated over in the correct order
         try:
+            import numpy as np
             result = self.fn(*(fn_args))
         except Exception as e:
             raise RuntimeError(f"Error while trying to execute param func:\n"
@@ -88,6 +90,8 @@ class FlexParam:
         flex_param.value = self.value
         flex_param.fn_code = self.fn_code
         return flex_param
+
+    __copy__ = copy
 
 
 

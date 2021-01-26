@@ -71,8 +71,9 @@ class ArchitectureNode(Node):
         self._all_subgraph_nodes = {}
         self._subgraph_nodes = {}
         self._subgraph_edges = []
-        self._in_edges = {}
-        self._out_edges = {}
+        self._edge_map = {}
+        self._in_edges = []
+        self._out_edges = []
 
         # primitives
         self._primitives = {}
@@ -113,7 +114,7 @@ class ArchitectureNode(Node):
                  preds={self.get_preds_indices()} ({self._attrs["in_degree"]}), \
                  succs={self.get_succs_indices()} ({self._attrs["out_degree"]})'
     
-    # two categories of operation
+    # two categories of operand
     # modifying anode type arbitrarily should not be permitted
 
     @property
@@ -135,6 +136,18 @@ class ArchitectureNode(Node):
     @property
     def subgraph(self):
         return self._subgraph
+
+    @property
+    def edge_map(self):
+        return self._edge_map
+
+    @property
+    def in_edges(self):
+        return self._in_edges
+
+    @property
+    def out_edges(self):
+        return self._out_edges
 
     @property
     def primitives(self) -> Dict[str, Instruction]:
@@ -221,14 +234,15 @@ class ArchitectureNode(Node):
             if isinstance(dst, (int, str)):
                 dst = self.get_subgraph_node(dst)
 
-            if src.index not in self.subgraph._nodes:
-                self.add_in_edge(src)
-
-            if dst.index not in self.subgraph._nodes:
-                self.add_out_edge(dst)
-
             edge = Edge(src=src.index, dst=dst.index, attributes=attr, transfer_fn_map=transfer_fn_map)
+            if src.name not in dst._in_edges:
+                dst._in_edges.append(src.name)
+
+            if dst.name not in src._out_edges:
+                src._out_edges.append(dst.name)
+
             self._subgraph_edges.append(edge)
+            self._edge_map[(src.name, dst.name)] = edge
             self.subgraph.add_edge(src, dst)
 
     def add_subgraph_node(self, node: 'ArchitectureNode'):
@@ -287,6 +301,15 @@ class ArchitectureNode(Node):
         else:
             raise RuntimeError(f"Invalid template type: {template_type}")
 
+    def has_node(self, name: str) -> bool:
+        if name in self._all_subgraph_nodes:
+            return True
+        else:
+            for k, n in self._all_subgraph_nodes.items():
+                if n.has_node(name):
+                    return True
+        return False
+
 
     # TODO: Need to validate that each parameter is correctly mapped
     def add_start_template(self, target, template, template_fns=None):
@@ -310,38 +333,23 @@ class ArchitectureNode(Node):
     def add_loop_template(self, target, template, template_fns=None):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
-    def add_in_edge(self, src):
-        self._in_edges[src.field_name] = src
-        self.subgraph.add_input(src)
+    def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
+        assert isinstance(name, str)
+        if self.has_node(name):
+            return self._all_subgraph_nodes[name]
+        elif self.parent_graph == self:
+            for n in self.parent_ctx_nodes:
+                if n.name == name:
+                    return n
 
-    def add_out_edge(self, dst):
-        self._out_edges[dst.field_name] = dst
-        self.subgraph.add_output(dst)
-
-    def get_subgraph_node(self, name) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
-        if self.parent_graph == self:
-            if isinstance(name, str):
-                for n in self.parent_ctx_nodes:
-                    if n.name == name:
-                        return n
-            else:
-                assert isinstance(name, int)
-                for n in self.parent_ctx_nodes:
-                    if n.index == name:
-                        return n
+            for n in self.parent_ctx_nodes:
+                if n.has_node(name):
+                    return n.get_subgraph_node(name)
         else:
-            if isinstance(name, str):
-                if name in self._in_edges:
-                    return self._in_edges[name]
-                elif name in self._out_edges:
-                    return self._out_edges[name]
-                elif name in self._all_subgraph_nodes:
-                    return self._all_subgraph_nodes[name]
-            else:
-                assert isinstance(name, int)
-                for n, v in self._all_subgraph_nodes.items():
-                    if v.index == name:
-                        return v
+            for n, v in self._all_subgraph_nodes.items():
+                if n.has_node(name):
+                    return n.get_subgraph_node(name)
+
         raise KeyError(f"{name} not found in subgraph or input_components")
 
     def get_type(self):
@@ -380,11 +388,12 @@ class ArchitectureNode(Node):
 
     def add_codelet(self, codelet: Codelet):
         # TODO: Validate memory paths
-        self._codelets[codelet.op_name] = codelet.codelet_copy()
+        self._codelets[codelet.op_name] = codelet.copy()
 
-    def get_codelet_template(self, name, is_instance=False) -> Codelet:
+    def get_codelet_template(self, name) -> Codelet:
         if name in self.codelets:
-            return self.codelets[name].codelet_copy(is_instance=is_instance)
+            Codelet.codelet_instance_id += 1
+            return self.codelets[name].copy()
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_codelet(name):
@@ -416,6 +425,17 @@ class ArchitectureNode(Node):
         n = (begin_cycle, end_cycle)
         overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
         return len(overlaps) == 0
+
+
+    def edge_exists(self, src_node: str, dst_node: str):
+        if dst_node not in self.get_subgraph_node(src_node).out_edges:
+            return False
+        elif src_node not in self.get_subgraph_node(dst_node).in_edges:
+            return False
+        return True
+
+    def read_capacity(self):
+        raise NotImplementedError
 
     @property
     def viz_color(self):
