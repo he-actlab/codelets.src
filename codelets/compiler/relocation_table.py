@@ -14,7 +14,7 @@ class Fragment:
 @dataclass
 class Relocation:
     offset_type: str
-    bases: Dict[Union[int,str], Fragment] = field(default_factory=dict)
+    bases: Dict[Union[int, str], Fragment] = field(default_factory=dict)
     total_length: int = field(default=0)
 
     def __getitem__(self, item):
@@ -77,9 +77,13 @@ class RelocationTable(object):
             stored_size = relocatable.bases[offset_id].end - relocatable.bases[offset_id].start
             assert stored_size == size
 
-    def add_relocation(self, node: pm.Node, cdlt: Codelet):
+    def add_instr_relocation(self, cdlt: Codelet):
         instr_len = cdlt.num_instr
-        self.update_relocation_offset('INSTR_MEM', cdlt.cdlt_id, instr_len)
+        self.update_relocation_offset('INSTR_MEM', cdlt.instance_id, instr_len)
+
+    def add_data_relocation(self, node: pm.Node):
+        # instr_len = cdlt.num_instr
+        # self.update_relocation_offset('INSTR_MEM', cdlt.instance_id, instr_len)
         for i in node.inputs:
             data_size = np.prod(i.shape)
             # TODO: Figure out if input storage type is needed

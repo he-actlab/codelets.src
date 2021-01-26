@@ -1,9 +1,10 @@
-from . import Operation, DataIndex
+from . import Operation
 from functools import partial
 from codelets.adl.flex_param import FlexParam
 from typing import List, Dict, Union
 from dataclasses import field, dataclass
 from collections import deque, defaultdict
+from copy import copy
 from sympy import symbols, IndexedBase, Idx, Expr
 
 ARITHMETIC_LOOP_EVAL = """
@@ -22,8 +23,6 @@ class Loop(Operation):
                  end=None,
                  stride=1,
                  offset=0,
-                 loop_type=LoopTypes.LINEAR,
-                 loop_operator=None,
                  loop_op_params=None,
                  add_codelet=True,
                  **kwargs
@@ -36,12 +35,11 @@ class Loop(Operation):
             self._end = start
         self._stride = stride
         self._offset = offset
-        self._loop_type = loop_type
-        self._loop_operator = loop_operator
 
         req_params = []
         if loop_op_params:
             req_params += loop_op_params
+
         if isinstance(self.start, str):
             req_params.append(self.start)
 
@@ -82,17 +80,20 @@ class Loop(Operation):
             self.param_symbols[self.offset] = offset
         else:
             offset = self.offset
-        self.param_symbols[self.op_str] = Idx(self.op_str, (start, end))*stride + self.offset
+        self.param_symbols[self.op_str] = Idx(self.op_str, (start, end))*stride + offset
 
 
     def __enter__(self):
         Operation.loop_ctxt_level += 1
         Operation.loop_stack.append(self.loop_id)
+        Operation.loop_ctx_dependencies.append(self.op_str)
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
         Operation.loop_ctxt_level -= 1
         Operation.loop_stack.pop()
+        Operation.loop_ctx_dependencies.pop()
+
 
     def set_loop_level(self, level):
         pass
@@ -141,19 +142,10 @@ class Loop(Operation):
     def offset(self, offset):
         self._offset = offset
 
-    @property
-    def loop_type(self):
-        return self._loop_type
-
-    @property
-    def loop_operator(self):
-        return self._loop_operator
-
-    def op_type_args_copy(self, _):
-        return (self.start, self.end, self.stride, self.offset, self.loop_type, self.loop_operator)
 
     def __add__(self, other):
         if isinstance(other, str) and other not in self.param_symbols:
+            Operation.current_codelet.add_required_param(other, check_key=False)
             sym = symbols(other, integer=True)
             self.param_symbols[other] = sym
             return self.param_symbols[self.op_str] + sym
@@ -170,6 +162,7 @@ class Loop(Operation):
 
     def __mul__(self, other):
         if isinstance(other, str) and other not in self.param_symbols:
+            Operation.current_codelet.add_required_param(other, check_key=False)
             sym = symbols(other, integer=True)
             self.param_symbols[other] = sym
             return self.param_symbols[self.op_str]*sym
@@ -269,5 +262,29 @@ class Loop(Operation):
         op_params = [f"LO: {self.start}", f"HI: {self.end}", f"stride: {self.stride}"]
         return op_params
 
+    def emit(self, output_type):
+        # TODO: Add template
+        if output_type == "operations":
+            op_str = f"{self.op_str}: {self.offset} <= {self.op_str} < {self.end}; {self.op_str}+{self.stride}"
+        elif output_type == "json":
+            op_str = {"op_type": self.op_type,
+                      "op_id": self.global_op_id,
+                      "start": self.start,
+                      "end": self.end,
+                      "offset": self.offset,
+                      "stride": self.stride}
+        else:
+            op_str = []
+            for ft in self.instructions:
+                op_str += ft.emit(output_type)
+        return op_str
 
 
+    def copy(self, cdlt):
+        obj = super(Loop, self).copy(cdlt)
+        obj._start = copy(self.start)
+        obj._end = copy(self.end)
+        obj._stride = copy(self.stride)
+        obj._offset = copy(self.offset)
+
+        return obj

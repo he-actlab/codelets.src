@@ -45,6 +45,7 @@ class OperandTemplate:
     dtype: Datatype = field(default=None)
     node_name: str = field(default=None)
     evaluated_tiling: List[Tuple[str, List]] = field(default_factory=list, init=False)
+    dependencies: List[str] = field(default_factory=list)
 
     def is_dtype_supported(self, dtype_name) -> bool:
         return dtype_name in [str(dt) for dt in self.supported_dtypes]
@@ -74,11 +75,19 @@ class OperandTemplate:
             s.append(self.shape_symbols[sname])
         return tuple(s)
 
+    @property
+    def unset_tiling(self):
+        return [k for k, v in self.tiling.items() if len(v) == 0]
+
     def is_tiling_set(self, path_key):
         if path_key in self.tiling:
             return len(self.tiling[path_key]) == len(self.shape_symbols)
         else:
             return False
+
+    def add_transfer(self, op_str: str, path_key: Tuple[str, str], dim_tiling: Dict[str, Union[str, int, None]]):
+        self.dependencies.append(op_str)
+        self.add_path_tiling(path_key, dim_tiling)
 
     def add_path_tiling(self, path_key: Tuple[str, str], dim_tiling: Dict[str, Union[str, int, None]]):
         if self.is_tiling_set(path_key):
@@ -117,16 +126,29 @@ class OperandTemplate:
             self.evaluated_tiling.append((path_key[1], dest_tiling))
 
     def copy(self):
+        # TODO: Fix this
         op_temp = OperandTemplate(name=self.name,
                                supported_dtypes=self.supported_dtypes,
                                 shape_list=self.shape_list,
                                 shape_symbols=self.shape_symbols.copy(),
+                                dependencies=self.dependencies.copy(),
                                 tiling=deepcopy(self.tiling),
                                 sorted_tile_keys=self.sorted_tile_keys.copy(),
                                 dtype=self.dtype,
                                 node_name=self.node_name)
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
         return op_temp
+
+    def emit(self, output_type):
+        if output_type == "json":
+            blob = {"name": self.name,
+                    "dtype": str(self.dtype),
+                    "shape": [[k, v] for k, v in self.shape_symbols.items()],
+                    "tiling": {t[0]: t[1] for t in self.evaluated_tiling},
+                    }
+        else:
+            raise TypeError(f"Unable to support output type for operand: {output_type}")
+        return blob
 
     @staticmethod
     def from_json(ot_obj: Dict):

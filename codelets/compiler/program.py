@@ -2,7 +2,7 @@ import json
 from typing import List
 from codelets.adl.flex_template import FlexTemplate
 from codelets.adl.graph import ArchitectureNode
-from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure
+from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl import Codelet
 from pathlib import Path
 import numpy as np
@@ -79,14 +79,22 @@ class CodeletProgram(object):
 
     def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
         # TODO: Replace this with evaluate
+        cdlt._num_instr = 0
+        for o in cdlt.ops:
+            args = (self, self.hag, o.global_op_id, cdlt.instance_id)
+            for flex_temp in o.instructions:
+                flex_temp.set_instruction_length(*args)
+                cdlt._num_instr += flex_temp.num_instructions
+
+        self.relocatables.add_instr_relocation(cdlt)
+
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
             for ft in o.instructions:
                 ft.evaluate(*args)
 
     def instantiate_codelet(self, node):
-        cdlt = self.hag.get_codelet_template(node.op_name, is_instance=True)
-        self.relocatables.add_relocation(node, cdlt)
+        cdlt = self.hag.get_codelet_template(node.op_name)
         self.add_codelet(cdlt)
         return cdlt
 
@@ -94,21 +102,16 @@ class CodeletProgram(object):
         codelet_strings = []
         for c in self.codelets:
             codelet_strings.append(c.emit(output_type))
-        return "\n".join(codelet_strings)
+        if output_type != "json":
+            return "\n".join(codelet_strings)
+        else:
+            return codelet_strings
 
 
-    def instantiate_instructions_templates(self, cdlt):
+    def instantiate_instructions_templates(self, node, cdlt):
         self.set_instruction_templates(cdlt)
+        self.relocatables.add_data_relocation(node)
         self.instantiate_instructions(cdlt)
-        #
-        # for k, v in cdlt.op_params.items():
-        #     if isinstance(v, Callable):
-        #         instance_params[k] = v(node)
-        #     else:
-        #         instance_params[k] = v
-        # cdlt_instance = Codelet(cap_copy, inputs, outputs, cdlt, op_params=instance_params)
-        # compilation_parameters = get_compilation_parameters(self.hag, cdlt_instance)
-
 
 
     # TODO: Fix these
@@ -119,8 +122,6 @@ class CodeletProgram(object):
 
     def save_text(self, full_path):
         instructions = []
-        # for c in self.codelets:
-        #     instructions += c.em
         instructions = "\n".join(instructions)
         with open(full_path, 'w') as outfile:
             outfile.write(instructions)

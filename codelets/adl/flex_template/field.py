@@ -63,30 +63,6 @@ class Field:
             return self.value_str
         return str(self.value)
 
-    # def get_param_fnc(self, **iter_args):
-    #     if len(iter_args) > 0:
-    #         iter_arg_str = ", " + ", ".join(list(iter_args.keys()))
-    #     else:
-    #         iter_arg_str = ""
-    #
-    #     param_fnc_str = INSTR_FN_TEMPLATE.format(FN_ID=self.field_id, FN_BODY=self.param_fn, ITER_ARGS=iter_arg_str)
-    #     param_fnc_code = compile(param_fnc_str, "<string>", "exec")
-    #     param_fnc = FunctionType(param_fnc_code.co_consts[0], globals(), name=INSTR_FN_NAME_TEMPLATE.format(FN_ID=self.field_id))
-    #     return param_fnc, param_fnc_str
-
-    # def run_param_fnc(self, *args, **iter_args):
-    #     param_fnc, param_func_str = self.get_param_fnc(**iter_args)
-    #     # TODO: Important--> this assumes that iter_args are iterated over in the correct order
-    #     kwargs_as_args = tuple([v for _, v in iter_args.items()])
-    #     try:
-    #         args = args + kwargs_as_args
-    #         result = param_fnc(*(args))
-    #     except Exception as e:
-    #         raise RuntimeError(f"Error while trying to execute param func:\n"
-    #                            f"Func: {param_func_str}\n"
-    #                            f"Args: {args}\n"
-    #                            f"Error: {e}")
-    #     return result
 
     def set_value_from_param_fn(self, *args, **iter_args):
         param_fn_args = list(args)
@@ -96,7 +72,6 @@ class Field:
                 param_fn_args.append(v)
         param_fn_args = tuple(param_fn_args)
         self.value = self.param_fn.evaluate_fn(*param_fn_args)
-        # self.value = self.run_param_fnc(*args, **iter_args)
 
     def template_header(self):
         return FIELD_HEADER.format(field_name=self.field_name)
@@ -108,10 +83,7 @@ class Field:
             else:
                 return f"${{{self.param_fn}}}"
         elif output_type == "string_placeholders":
-            if self.isset:
-                return self.get_string_value()
-            else:
-                return f"$({self.field_name})"
+            return f"$({self.field_name})"
         elif output_type == "decimal":
             assert self.isset
             return f"{self.value}"
