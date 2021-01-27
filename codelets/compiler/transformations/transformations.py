@@ -25,13 +25,31 @@ def find_minimum_idx(op: Operation, op_idx_map, op_list):
     return min_idx + 1
 
 def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_level: int):
-    # split_factor = cdlt.t
+
+    loop_domain_key = cdlt.domain_loop_map[outer_loop.op_str]
+    cdlt.domain_loop_map[inner_loop.op_str] = loop_domain_key
+    split_factor = cdlt.domain_tiling[inner_tile_level][loop_domain_key]
+
+    initial_size = outer_loop.max() - outer_loop.min() + 1
+    if initial_size % split_factor != 0:
+        raise RuntimeError(f"Invalid split factor for iterator:\n"
+                           f"Split factor: {split_factor}\n"
+                           f"Size: {initial_size}")
+
+    outer_loop.start = 0
+    outer_loop.end = split_factor
+    outer_loop.stride = initial_size // split_factor
+    outer_loop.offset = 0
+    inner_loop.start = 0
+    inner_loop.end = initial_size // split_factor
+    inner_loop.stride = 1
+    inner_loop.offset = 0
+
 
     return inner_loop
 
 
 def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
-
     full_path = outer_xfer.path.copy()
     all_transfers = outer_xfer.transfers.copy()
     all_offsets = outer_xfer.offsets.copy()
@@ -39,9 +57,18 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     outer_xfer.path = full_path[:2]
     inner_xfer.path = full_path[1:]
 
+
     outer_xfer_key = tuple(full_path[:2])
+
     outer_xfer.transfers = {outer_xfer_key: all_transfers[outer_xfer_key]}
     inner_xfer.transfers.pop(outer_xfer_key)
+
+    # Update dependencies
+    new_inner_deps = []
+    # for d in inner_xfer.dependencies:
+    #
+    #     dep_op = cdlt.op_map[str(d)]
+    #     inner_xfer.dependencies
 
     outer_xfer.offsets = all_offsets[:2]
     inner_xfer.offsets = all_offsets[1:]
@@ -50,24 +77,27 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     outer_xfer.sizes = [all_sizes[0]]
     inner_xfer.sizes = all_sizes[1:]
 
+
     return inner_xfer
 
 
 def split_operation(cdlt: Codelet, op: Operation, loop_level: int, tile_level: int):
+    if isinstance(op, Compute):
+        inner_op = op
+        inner_op.loop_level = loop_level
+    else:
+        inner_op = op.copy(cdlt)
+        inner_op.op_id = Operation.op_id_counters[op.op_type]
+        inner_op.global_op_id = Operation.id_counter
+        inner_op.loop_level = loop_level
+        op.set_split_mapping(tile_level, inner_op.op_str)
+        Operation.op_id_counters[op.op_type] += 1
+        Operation.id_counter += 1
 
-    inner_op = op.copy(cdlt)
-
-    inner_op.op_id = Operation.op_id_counters[op.op_type]
-    inner_op.global_op_id = Operation.id_counter
-    inner_op.loop_level = loop_level
-    Operation.op_id_counters[op.op_type] += 1
-    Operation.id_counter += 1
-    cdlt.op_map[inner_op.op_str] = inner_op
-    cdlt.global_op_map[inner_op.global_op_id] = inner_op
-    if isinstance(op, Transfer):
-        inner_op = split_transfer(cdlt, op, inner_op)
-    elif isinstance(op, Loop):
-        inner_op = split_loop(cdlt, op, inner_op, tile_level)
+        if isinstance(op, Transfer):
+            inner_op = split_transfer(cdlt, op, inner_op)
+        elif isinstance(op, Loop):
+            inner_op = split_loop(cdlt, op, inner_op, tile_level)
 
     return inner_op
 

@@ -86,7 +86,8 @@ class OperandTemplate:
             return False
 
     def add_transfer(self, op_str: str, path_key: Tuple[str, str], dim_tiling: Dict[str, Union[str, int, None]]):
-        self.dependencies.append(op_str)
+        if op_str not in self.dependencies:
+            self.dependencies.append(op_str)
         self.add_path_tiling(path_key, dim_tiling)
 
     def add_path_tiling(self, path_key: Tuple[str, str], dim_tiling: Dict[str, Union[str, int, None]]):

@@ -7,6 +7,7 @@ from codelets.adl.graph import ArchitectureNode, StorageNode
 from codelets.adl.operation import Compute, OperandTemplate, Operation, Transfer
 from codelets.compiler.transformations.transformations import split_operation, \
     TileConstraint
+from codelets.compiler.analysis import collect_operand_dependencies
 
 
 def tile(cdlt: Codelet, hag: ArchitectureNode) -> Codelet:
@@ -14,35 +15,43 @@ def tile(cdlt: Codelet, hag: ArchitectureNode) -> Codelet:
     op_list_copy = cdlt.ops.copy()
 
     # TODO: Fix extract band to extract multiple bands
-    start_idx, end_idx = extract_band(cdlt)
-    loop_levels = [o.loop_level for o in op_list_copy[start_idx:end_idx]]
+    # start_idx, end_idx = extract_band(cdlt)
+    read_start_idx, read_end_idx, write_start_idx, write_end_idx = extract_band(cdlt)
+
+    # TODO: Need to fix this logic, as it doesnt make sense with interleaved loop levels
+    loop_levels = [o.loop_level for o in op_list_copy[read_start_idx:write_end_idx]]
     loop_level_factor = max(loop_levels) - min(loop_levels)
-    added_ops = []
-
-
     cdlt = set_codelet_tiling(cdlt, hag)
 
 
+    # TODO: THis currently only works for 2 transfers, need to fix to work for 2+
     for level in range(len(cdlt.tile_levels) - 2):
-        for op_idx in range(start_idx, end_idx):
+        split_level_factor = level + 1
+        # First split reads
+        for read_offset in range(read_start_idx, read_end_idx):
+            outer_op_idx = read_offset + (read_end_idx - read_start_idx)*(split_level_factor - 1)
+            inner_op_idx = read_offset + (read_end_idx - read_start_idx)*(split_level_factor)
+            loop_level = loop_level_factor + cdlt.ops[outer_op_idx].loop_level
+            inner_op = split_operation(cdlt, cdlt.ops[outer_op_idx], loop_level, level)
+            cdlt.insert_op(inner_op, inner_op_idx)
 
-            loop_level = (level + 1)*loop_level_factor + op_list_copy[op_idx].loop_level
-            inner_op = split_operation(cdlt, op_list_copy[op_idx], loop_level, level)
-            op_list_copy[op_idx] = inner_op
+        # Now update compute loop level
+        compute_idx = read_end_idx + (read_end_idx - read_start_idx) * (split_level_factor)
+        cdlt.ops[compute_idx].loop_level = cdlt.ops[compute_idx].loop_level + loop_level_factor
 
-            added_ops.append(inner_op)
-            # if isinstance(op, Transfer):
-            #     src_shape = op.operand.sha
-            #     for i, (pt, ofs) in enumerate(zip(op.path[1:], op.offsets[1:])):
-            #         src_node = op.path[i]
-            #         dst_node = pt
-            #         xfer_info = op.transfers[(src_node, dst_node)]
-            #         src_shape = [cdlt.domain_tiling[src_node][dom_key]
-                                 # xfer_info._src_dim_sizes =
+        write_start = write_start_idx + (read_end_idx - read_start_idx) * (split_level_factor) + 1
+        write_end = write_end_idx + (read_end_idx - read_start_idx) * (split_level_factor) + 1
 
-    assert isinstance(cdlt.ops[end_idx], Compute)
-    cdlt.ops[end_idx].loop_level += (len(cdlt.tile_levels) - 2)*loop_level_factor
-    cdlt.ops[end_idx:end_idx] = added_ops
+        # Now split writes
+        for write_offset in range(write_start, write_end):
+            inner_op_idx = write_offset + (write_end_idx - write_start_idx)*(split_level_factor - 1)
+            outer_op_idx = write_offset + (write_end_idx - write_start_idx)*(split_level_factor)
+            if level == 0:
+                cdlt.ops[inner_op_idx].loop_level += loop_level_factor
+            loop_level = cdlt.ops[inner_op_idx].loop_level - loop_level_factor
+            outer_op = split_operation(cdlt, cdlt.ops[inner_op_idx], loop_level, level)
+            cdlt.insert_op(outer_op, outer_op_idx)
+
     return cdlt
 
 def shape_from_offset(offset):
@@ -59,22 +68,28 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode):
             temp_tiling[arch_node] = static_shapes
 
     # TESTING
+    # TODO: Add another level of memory to test second level of tiling
+
     for level, nodes in list(cdlt.tile_levels.items()):
-        for n in nodes:
-            for domain_key, size in static_shapes.items():
-                # TODO: For now, no splits are applied
-                cdlt.set_domain_tile(n, domain_key, 1)
+        for domain_key, size in static_shapes.items():
+            # TODO: For now, no splits are applied
+            if domain_key == "OC":
+                cdlt.set_domain_tile(level, domain_key, 2)
+            elif domain_key == "OH" and size % 2 == 0:
+                cdlt.set_domain_tile(level, domain_key, 2)
+            else:
+                cdlt.set_domain_tile(level, domain_key, 1)
 
     # 1. go through loops and apply splits
     # 2. go through transfers and apply splits (computing size)
     # 3. while going through transfers, apply splits to operands
     # for o in cdlt.operands:
     #     for idx in range(len(o.evaluated_tiling)):
-    #         hag_node, tiling = o.evaluated_tiling[idx]
+    #         tile_level, tiling = o.evaluated_tiling[idx]
     #         if len(tiling) != len(o.shape_list):
     #             assert idx != 0
     #
-    #             o.evaluated_tiling[idx] = (hag_node, cdlt.domain_tiling[hag_node][])
+    #             o.evaluated_tiling[idx] = (tile_level, cdlt.domain_tiling[tile_level][])
 
     return cdlt
 
@@ -108,21 +123,28 @@ def get_tile_constraints(hag: ArchitectureNode, operands: List[OperandTemplate])
 
 
 def extract_band(cdlt: Codelet):
-    start_idx = -1
-    end_idx = -1
+    read_start_idx = write_start_idx = len(cdlt.ops)
+    read_end_idx = write_end_idx = -1
+
+    output_dependencies = []
+
+    for output in cdlt.outputs:
+        output_dependencies += collect_operand_dependencies(output, cdlt)
+
+    read_ops = True
     for idx, o in enumerate(cdlt.ops):
-        if isinstance(o, Compute):
-            transfer_deps = [cdlt.op_map[d] for d in o.dependencies]
-            loop_deps = list(set(chain.from_iterable([tdep.dependencies + [tdep.op_str] for tdep in transfer_deps])))
-            start_idx = idx - 1
-            end_idx = idx
-            while start_idx > 0:
-                if cdlt.ops[start_idx].op_str in loop_deps:
-                    start_idx -= 1
-                else:
-                    break
-            break
-    return (start_idx + 1, end_idx)
+        if o.op_str in output_dependencies:
+            if isinstance(o, Compute):
+                read_ops = False
+                read_end_idx = idx
+                write_start_idx = idx
+            elif read_ops and read_start_idx > idx:
+                read_start_idx = idx
+            else:
+                write_end_idx = idx
+
+    return (read_start_idx, read_end_idx, write_start_idx, write_end_idx)
+
 
 
 def set_tile_levels(cdlt: Codelet):

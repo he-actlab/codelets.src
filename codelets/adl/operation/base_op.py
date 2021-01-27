@@ -10,7 +10,7 @@ class Operation(object):
 
     BASE_ATTRS = ['loop_id', 'loop_level', 'op_id', 'global_op_id', 'target', 'operation_type',
                   'dependencies', 'param_symbols', 'target', 'operation_type', 'instructions',
-                  'required_params', 'resolved_params', 'dependencies']
+                  'required_params', 'resolved_params', 'dependencies', 'split_map']
 
     id_counter = 0
     op_id_counters = defaultdict(int)
@@ -47,6 +47,7 @@ class Operation(object):
 
         self._required_params = required_params
         self._resolved_params = resolved_params or {}
+        self._split_map = {}
         assert self._loop_id >= 0 or self._operation_type == "config"
         codelet = codelet or Operation.current_codelet
         if add_codelet:
@@ -75,6 +76,10 @@ class Operation(object):
     @property
     def op_id(self) -> int:
         return self._op_id
+
+    @property
+    def split_map(self):
+        return self._split_map
 
     @op_id.setter
     def op_id(self, op_id: int):
@@ -154,6 +159,9 @@ class Operation(object):
                              f"Value: {value}\n"
                              f"Key: {key}")
         self.resolved_params[key] = param
+
+    def set_split_mapping(self, level: int, loop_id: str):
+        self._split_map[level] = loop_id
 
     def unset_params(self):
         unset_params = []

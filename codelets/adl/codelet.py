@@ -39,6 +39,7 @@ class Codelet(object):
         # Added, possibly need to consolidate
         self._domain_tiling = {}
         self._tile_levels = defaultdict(list)
+        self._domain_loop_map = {}
         if required_params is not None:
             self._required_params = {}
             for k, v in required_params.items():
@@ -136,6 +137,10 @@ class Codelet(object):
         return self._domain_tiling
 
     @property
+    def domain_loop_map(self):
+        return self._domain_loop_map
+
+    @property
     def tile_levels(self):
         return self._tile_levels
 
@@ -179,6 +184,7 @@ class Codelet(object):
         obj._instance_id = Codelet.codelet_instance_id
         obj._domain_tiling = deepcopy(self._domain_tiling)
         obj._tile_levels = deepcopy(self._tile_levels)
+        obj._domain_loop_map = deepcopy(self._domain_loop_map)
         for o in self.ops:
             obj.add_op(o.copy(obj))
         return obj
@@ -209,6 +215,12 @@ class Codelet(object):
             for o in self.ops:
                 ostr = f"\t" * (o.loop_level + 1)
                 ostr += f"{o.emit(output_type)}\n"
+                op_str += ostr
+        elif output_type == "operations_idx":
+            op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
+            for i, o in enumerate(self.ops):
+                ostr = f"{i}" + f"\t" * (o.loop_level + 1)
+                ostr += f"{o.emit(output_type[:-4])}\n"
                 op_str += ostr
         elif output_type == "json":
             op_params = {}
@@ -248,6 +260,17 @@ class Codelet(object):
         self.ops.append(op)
         self.op_map[op.op_str] = op
         self.global_op_map[op.global_op_id] = op
+
+    def insert_op(self, op: Operation, insert_idx: int):
+        if op in self.ops:
+            self.ops.insert(insert_idx, self.ops.pop(self.ops.index(op)))
+        else:
+            for rp_key in op.required_params:
+                if rp_key not in self.required_params:
+                    self.add_required_param(rp_key)
+            self.ops.insert(insert_idx, op)
+            self.op_map[op.op_str] = op
+            self.global_op_map[op.global_op_id] = op
 
     def add_required_param(self, key, value=None, check_key=True):
         if key in self.required_params:
@@ -314,17 +337,19 @@ class Codelet(object):
                         add_codelet=False, **kwargs)
         self.add_op(xfer)
 
-    def set_domain_tile(self, hag_node: str, domain_key: str, split_factor: int):
-        if hag_node not in self.domain_tiling:
-            self.domain_tiling[hag_node] = {}
+    def set_domain_tile(self, tile_level: str, domain_key: str, split_factor: int):
 
-        if domain_key in self.domain_tiling[hag_node] and self.domain_tiling[hag_node][domain_key] != split_factor:
-            raise RuntimeError(f"The tile split factor has already been set for {hag_node} in domain"
+        if tile_level not in self.domain_tiling:
+            self.domain_tiling[tile_level] = {}
+
+        if domain_key in self.domain_tiling[tile_level] and self.domain_tiling[tile_level][domain_key] != split_factor:
+            raise RuntimeError(f"The tile split factor has already been set for level{tile_level}: "
+                               f"{self.tile_levels[tile_level]} in domain"
                                f" {domain_key}:\n"
-                               f"Previous value: {self.domain_tiling[hag_node][domain_key]}\n"
+                               f"Previous value: {self.domain_tiling[tile_level][domain_key]}\n"
                                f"New value: {split_factor}")
         # TODO: Add other checks here to validate split
-        self.domain_tiling[hag_node][domain_key] = split_factor
+        self.domain_tiling[tile_level][domain_key] = split_factor
 
     def set_tile_level(self, level: int, node: str):
         if level in self.tile_levels:
@@ -352,6 +377,9 @@ class Codelet(object):
                 return i
         raise KeyError(f"Unable to find tile level for node {node_name}")
 
+    def get_tile_splits(self, node_name: str):
+        level = self.get_tile_level(node_name)
+        return self.domain_tiling[level]
 
     def get_node_shape_map(self, op_tmplt: OperandTemplate, node: pm.Node) -> Dict[str, Dict]:
         shape_map = {}
