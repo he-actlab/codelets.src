@@ -28,7 +28,7 @@ def test_genesys_resnet18():
     # genesys = define_genesys("nchw")
     #
     program = compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
-    res = program.emit("operations")
+    res = program.emit("operations_idx")
     print(res)
 
 def test_genesys_serialization():

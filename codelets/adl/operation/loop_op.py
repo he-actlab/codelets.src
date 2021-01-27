@@ -142,6 +142,23 @@ class Loop(Operation):
     def offset(self, offset):
         self._offset = offset
 
+    def loop_parameters(self):
+        return {"start": self.start, "extent": self.end, "stride": self.stride, "offset": self.offset}
+
+    # TODO: Need to better define this
+    def min(self):
+        if not all([isinstance(param, int) for param in self.loop_parameters().values()]):
+            raise TypeError(f"Unable to compute minimum value because all loop parameters are not defined:\n"
+                            f"Params: {self.loop_parameters()}")
+        return (self.start + self.offset)*self.stride
+
+    def max(self):
+        if not all([isinstance(param, int) for param in self.loop_parameters().values()]):
+            raise TypeError(f"Unable to compute minimum value because all loop parameters are not defined:\n"
+                            f"Params: {self.loop_parameters()}")
+        return (self.end + self.offset - 1)*self.stride
+
+
 
     def __add__(self, other):
         if isinstance(other, str) and other not in self.param_symbols:
@@ -225,7 +242,14 @@ class Loop(Operation):
         else:
             return self.resolved_params[param_name].value
 
+    # TODO: Need to normalize loops
     def evaluate_parameters(self, node, hag, cdlt):
+        domain_shape_map = cdlt.get_operand_shapes()
+
+        if not isinstance(self.start, str) and str(self.end) in domain_shape_map:
+            assert self.stride == 1
+            cdlt.domain_loop_map[self.op_str] = str(self.end)
+
         self.start = self.eval_start()
         self.end = self.eval_end()
         self.stride = self.eval_stride()

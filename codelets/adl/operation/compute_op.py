@@ -34,7 +34,8 @@ class Compute(Operation):
                                       dependencies=dependencies,
                                       **kwargs)
         for d in dests:
-            d.dependencies.append(self.op_str)
+            if self.op_str not in d.dependencies:
+                d.dependencies.append(self.op_str)
 
     @property
     def sources(self):

@@ -80,12 +80,15 @@ class TransferInfo:
 
         return dom_offsets
 
-
     def set_src_domain_offsets(self, cdlt):
         self.src_domain_offsets = self.compute_domain_offsets(cdlt, self._src_dim_sizes, self._src_offset)
 
     def set_dst_domain_offsets(self, cdlt):
         self.dst_domain_offsets = self.compute_domain_offsets(cdlt, self._dst_dim_sizes, self._dst_offset)
+
+    def compute_size_from_splits(self, symbol_splits: Dict[str, int]):
+
+        pass
 
 
 # TODO: Check to make sure there are edges for the entire path
@@ -150,6 +153,7 @@ class Transfer(Operation):
             if isinstance(s, str):
                 req_params.append(s)
         dependencies += [d for d in self._operand.dependencies if d not in dependencies]
+
         super(Transfer, self).__init__('transfer', req_params,
                                        add_codelet=add_codelet,
                                        dependencies=dependencies,
