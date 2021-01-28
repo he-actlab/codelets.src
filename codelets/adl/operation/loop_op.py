@@ -150,13 +150,13 @@ class Loop(Operation):
         if not all([isinstance(param, int) for param in self.loop_parameters().values()]):
             raise TypeError(f"Unable to compute minimum value because all loop parameters are not defined:\n"
                             f"Params: {self.loop_parameters()}")
-        return (self.start + self.offset)*self.stride
+        return self.start*self.stride + self.offset
 
     def max(self):
         if not all([isinstance(param, int) for param in self.loop_parameters().values()]):
             raise TypeError(f"Unable to compute minimum value because all loop parameters are not defined:\n"
                             f"Params: {self.loop_parameters()}")
-        return (self.end + self.offset - 1)*self.stride
+        return (self.end - 1)*self.stride + self.offset + 1
 
 
 
