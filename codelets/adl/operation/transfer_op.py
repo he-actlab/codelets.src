@@ -102,37 +102,6 @@ class Transfer(Operation):
         # TODO: Add type checking for offset lists
         self._path = path
         self._offsets = []
-        req_params = []
-        dependencies = []
-        for i, o in enumerate(offsets):
-            if isinstance(o, (list, tuple)):
-                assert len(o) == len(operand.shape_list)
-                off = o
-            else:
-                # TODO: Add check for numpy type as well
-                assert isinstance(o, int)
-                off = [0] * len(operand.shape_list)
-                off[-1] = o
-            arr_idx_symbols = []
-            for dim, idx in enumerate(off):
-                if isinstance(idx, Loop):
-                    arr_idx_symbol = idx.param_symbols[idx.op_str]
-                    dependencies.append(idx.op_str)
-                elif isinstance(idx, Basic):
-                    arr_idx_symbol = idx
-                    loop_idx = idx.atoms(Idx)
-                    dependencies += [str(l) for l in list(loop_idx) if str(l) not in dependencies]
-                elif isinstance(idx, str):
-                    req_params.append(idx)
-                    arr_idx_symbol = symbols(idx, integer=True)
-                elif isinstance(idx, int):
-                    arr_idx_symbol = idx
-                else:
-                    raise TypeError(f"Invalid type for loop index: {idx}, type: {type(idx)}")
-
-                arr_idx_symbols.append(arr_idx_symbol)
-
-            self._offsets.append(arr_idx_symbols)
         assert len(path) >= 2
         assert len(path) == len(offsets)
         self._sizes = sizes or [[]]*(len(path)-1)
@@ -140,13 +109,48 @@ class Transfer(Operation):
         assert len(path) == (len(self._sizes) + 1)
         self._operand = operand
         self._transfers = {}
+        req_params = []
+        dependencies = []
+
+        # for i, o in enumerate(offsets):
+        #     if isinstance(o, (list, tuple)):
+        #         assert len(o) == len(operand.shape_list)
+        #         off = o
+        #     else:
+        #         # TODO: Add check for numpy type as well
+        #         assert isinstance(o, int)
+        #         off = [0] * len(operand.shape_list)
+        #         off[-1] = o
+        #     arr_idx_symbols = []
+        #     for dim, idx in enumerate(off):
+        #         if isinstance(idx, Loop):
+        #             arr_idx_symbol = idx.param_symbols[idx.op_str]
+        #             dependencies.append(idx.op_str)
+        #         elif isinstance(idx, Basic):
+        #             arr_idx_symbol = idx
+        #             loop_idx = idx.atoms(Idx)
+        #             dependencies += [str(l) for l in list(loop_idx) if str(l) not in dependencies]
+        #         elif isinstance(idx, str):
+        #             req_params.append(idx)
+        #             arr_idx_symbol = symbols(idx, integer=True)
+        #         elif isinstance(idx, int):
+        #             arr_idx_symbol = idx
+        #         else:
+        #             raise TypeError(f"Invalid type for loop index: {idx}, type: {type(idx)}")
+        #
+        #         arr_idx_symbols.append(arr_idx_symbol)
+        #
+        #     self._offsets.append(arr_idx_symbols)
+
         if len(self.operand.sorted_tile_keys) > 0 and path[0] != self.operand.sorted_tile_keys[-1]:
             raise RuntimeError(f"Invalid transfer operation for operand {self.operand.name}:\n"
                                f"{path[0]} is the first architecture node, but the operand is currently stored in "
                                f"{self.operand.sorted_tile_keys[-1]}.")
-        for i, (pt, ofs) in enumerate(zip(path[1:], self.offsets[1:])):
-            xfer_key = (path[i], pt)
-            self._transfers[xfer_key] = TransferInfo(path[i], pt, self.offsets[i], ofs, self._sizes[i])
+
+
+        # for i, (pt, ofs) in enumerate(zip(path[1:], self.offsets[1:])):
+        #     xfer_key = (path[i], pt)
+        #     self._transfers[xfer_key] = TransferInfo(path[i], pt, self.offsets[i], ofs, self._sizes[i])
 
 
         for s in self._sizes:
@@ -158,6 +162,15 @@ class Transfer(Operation):
                                        add_codelet=add_codelet,
                                        dependencies=dependencies,
                                        **kwargs)
+
+        for i, (pt, ofs) in enumerate(zip(path[1:], offsets[1:])):
+            xfer_key = (path[i], pt)
+            src_off = self.initialize_offsets(offsets[i])
+            if i == 0:
+                self._offsets.append(src_off)
+            dst_off = self.initialize_offsets(ofs)
+            self._offsets.append(dst_off)
+            self._transfers[xfer_key] = TransferInfo(path[i], pt, src_off, dst_off, self._sizes[i])
 
         for key, tinfo in self.transfers.items():
             if len(tinfo.size) == len(self._operand.shape_list):
@@ -206,6 +219,35 @@ class Transfer(Operation):
     @transfers.setter
     def transfers(self, transfers):
         self._transfers = transfers
+
+    def initialize_offsets(self, offset):
+        if isinstance(offset, (list, tuple)):
+            assert len(offset) == len(self.operand.shape_list)
+            off = offset
+        else:
+            # TODO: Add check for numpy type as well
+            assert isinstance(offset, int)
+            off = [0] * len(self.operand.shape_list)
+            off[-1] = offset
+        arr_idx_symbols = []
+        for dim, idx in enumerate(off):
+            if isinstance(idx, Loop):
+                arr_idx_symbol = idx.param_symbols[idx.op_str]
+                self.dependencies.append(idx.op_str)
+            elif isinstance(idx, Basic):
+                arr_idx_symbol = idx
+                loop_idx = idx.atoms(Idx)
+                self.dependencies += [str(l) for l in list(loop_idx) if str(l) not in self.dependencies]
+            elif isinstance(idx, str):
+                self.required_params.append(idx)
+                arr_idx_symbol = symbols(idx, integer=True)
+            elif isinstance(idx, int):
+                arr_idx_symbol = idx
+            else:
+                raise TypeError(f"Invalid type for loop index: {idx}, type: {type(idx)}")
+
+            arr_idx_symbols.append(arr_idx_symbol)
+        return arr_idx_symbols
 
     def op_type_params(self):
         op_params = []
@@ -268,7 +310,8 @@ class Transfer(Operation):
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
-            op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}"
+            op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}," \
+                     f"OFFSETS: {self.offsets[0]}, DEPS: {self.dependencies}"
         elif output_type == "json":
             transfer_info = {}
             for path_key, xfer in self.transfers.items():

@@ -2,6 +2,7 @@ from codelets.adl.graph import ArchitectureNode
 from codelets.adl.operation import Operation, Loop, Compute, Configure, Transfer
 from codelets.adl.codelet import Codelet
 from typing import List, Union, Dict, Tuple
+from sympy import Basic, Idx
 
 TileConstraint = Dict[Tuple[str, str], Tuple[int, int]]
 
@@ -30,14 +31,16 @@ def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_lev
     cdlt.domain_loop_map[inner_loop.op_str] = loop_domain_key
     split_factor = cdlt.domain_tiling[inner_tile_level][loop_domain_key]
 
-    initial_size = outer_loop.max() - outer_loop.min() + 1
+    initial_size = outer_loop.max() - outer_loop.min()
+
     if initial_size % split_factor != 0:
         raise RuntimeError(f"Invalid split factor for iterator:\n"
                            f"Split factor: {split_factor}\n"
-                           f"Size: {initial_size}")
+                           f"Size: {initial_size}\n"
+                           f"Loop min/max: {outer_loop.min()}, {outer_loop.max()}")
 
     outer_loop.start = 0
-    outer_loop.end = split_factor
+    outer_loop.end = initial_size
     outer_loop.stride = initial_size // split_factor
     outer_loop.offset = 0
     inner_loop.start = 0
@@ -63,19 +66,54 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     outer_xfer.transfers = {outer_xfer_key: all_transfers[outer_xfer_key]}
     inner_xfer.transfers.pop(outer_xfer_key)
 
-    # Update dependencies
-    new_inner_deps = []
-    # for d in inner_xfer.dependencies:
-    #
-    #     dep_op = cdlt.op_map[str(d)]
-    #     inner_xfer.dependencies
-
     outer_xfer.offsets = all_offsets[:2]
     inner_xfer.offsets = all_offsets[1:]
 
     all_sizes = outer_xfer.sizes.copy()
     outer_xfer.sizes = [all_sizes[0]]
     inner_xfer.sizes = all_sizes[1:]
+    # Update dependencies
+    new_inner_deps = []
+    dep_map = {}
+    dep_symbols = {}
+    if inner_xfer.loop_level > outer_xfer.loop_level:
+
+        for d in inner_xfer.dependencies:
+            dep_op = cdlt.op_map[d]
+            for level, name in dep_op.split_map.items():
+                dep_map[name] = d
+                dep_symbols[d] = Idx(name, (dep_op.start, dep_op.end))
+                new_inner_deps.append(name)
+        inner_xfer.dependencies = new_inner_deps
+        new_inner_offsets = []
+        for off_list in outer_xfer.offsets:
+            new_offset = []
+            for o in off_list:
+                if isinstance(o, Basic):
+                    sym_map = {i: dep_symbols[str(i)] for i in list(o.atoms(Idx))}
+                    new_offset.append(o.subs(sym_map))
+            new_inner_offsets.append(new_offset)
+        inner_xfer.offsets = new_inner_offsets
+
+        # for path, t in all_transfers.items():
+
+        # print(outer_xfer.transfers[outer_xfer_key]._dst_offset)
+
+
+
+    else:
+        for d in outer_xfer.dependencies:
+            dep_op = cdlt.op_map[d]
+            if dep_op.op_type == "compute":
+                new_inner_deps.append(d)
+                inner_xfer.dependencies.remove(d)
+            else:
+
+                for level, name in dep_op.split_map.items():
+                    dep_map[name] = d
+                    new_inner_deps.append(name)
+        outer_xfer.dependencies = new_inner_deps
+
 
 
     return inner_xfer

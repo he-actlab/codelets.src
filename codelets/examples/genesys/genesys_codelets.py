@@ -177,7 +177,7 @@ def conv2d_nchw_transformation(hag: ArchitectureNode):
                                     cdlt.transfer(data, ["DRAM", "IBUF", "pe_array"], [[n, ic, y*"stride" + kh, x*"stride" + kw], 0, 0])
                                     cdlt.transfer(out, ["DRAM", "OBUF", "pe_array"], [[n, oc, y, x], 0, 0])
                                     cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                                    cdlt.transfer(out, ["pe_array", "OBUF", "DRAM"], [[n, oc, y, x], 0, 0])
+                                    cdlt.transfer(out, ["pe_array", "OBUF", "DRAM"], [0, 0, [n, oc, y, x]])
 
 
         # TODO: Add store off chip
