@@ -24,7 +24,8 @@ class Codelet(object):
     def __init__(self, op_name,
                  inputs: List[OperandTemplate],
                  outputs: List[OperandTemplate],
-                 is_instance: bool =False,
+                 hag,
+                 is_instance: bool = False,
                  cdlt_id: int = None,
                  required_params: Dict[str, Union[int, str, FlexParam, LambdaType]] = None):
 
@@ -35,11 +36,16 @@ class Codelet(object):
         self._op_map = {}
         self._global_op_map = {}
         self._num_instr = -1
-
+        self._hag = hag
         # Added, possibly need to consolidate
         self._domain_tiling = {}
         self._tile_levels = defaultdict(list)
         self._domain_loop_map = {}
+
+        self._id_counter = 0
+        self._loop_ctxt_level = 0
+        self._op_id_counters = defaultdict(int)
+
         if required_params is not None:
             self._required_params = {}
             for k, v in required_params.items():
@@ -64,11 +70,17 @@ class Codelet(object):
         Operation.id_counter = 0
         Operation.loop_ctxt_level = 0
         Operation.op_id_counters = defaultdict(int)
+        OperandTemplate.current_codelet = self
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         Operation.current_codelet = None
+        OperandTemplate.current_codelet = None
         last_id = Operation.loop_stack.pop()
+        self._id_counter = Operation.id_counter
+        self._loop_ctxt_level = Operation.loop_ctxt_level
+        self._op_id_counters = Operation.op_id_counters
         assert last_id == -1
 
     @property
@@ -78,6 +90,10 @@ class Codelet(object):
     @property
     def instance_id(self):
         return self._instance_id
+
+    @property
+    def hag(self):
+        return self._hag
 
     @property
     def cdlt_id(self):
@@ -124,6 +140,19 @@ class Codelet(object):
     def num_instr(self):
         return self._num_instr
 
+    @property
+    def op_id_counters(self):
+        return self._op_id_counters
+
+    @property
+    def id_counter(self):
+        return self._id_counter
+
+    @id_counter.setter
+    def id_counter(self, id_counter):
+        self._id_counter = id_counter
+
+
     @memoize_method
     def operand_dimensions(self) -> List[str]:
         operands = self.inputs + self.outputs
@@ -168,6 +197,33 @@ class Codelet(object):
                 return o
         raise KeyError(f"Unable to find operand {op_name}: {self.inputs + self.outputs}")
 
+    def get_max_loop_level(self):
+        max_level = -1
+        for l in self.ops:
+            if l.loop_level > max_level:
+                max_level = l.loop_level
+        return max_level
+
+    def extract_bands(self):
+        bands = []
+        start_idx = None
+        prev_loop_level = -1
+        found_band = False
+        for i, o in enumerate(self.ops):
+            if o.op_type == "loop":
+                if not found_band:
+                    found_band = True
+                    start_idx = i
+                    prev_loop_level = o.loop_level
+                elif o.loop_level < prev_loop_level:
+                    bands.append((start_idx, i))
+                    found_band = False
+            elif o.loop_level == prev_loop_level:
+                prev_loop_level = -1
+                bands.append((start_idx, i-1))
+                found_band = False
+        return bands
+
     def copy(self):
 
         obj = type(self).__new__(self.__class__)
@@ -176,6 +232,7 @@ class Codelet(object):
         obj._inputs = [i.copy() for i in self.inputs]
         obj._outputs = [o.copy() for o in self.outputs]
         obj._required_params = self.copy_required_params()
+        obj._hag = self.hag
         obj._ops = []
         obj._op_map = {}
         obj._global_op_map = {}
@@ -185,6 +242,9 @@ class Codelet(object):
         obj._domain_tiling = deepcopy(self._domain_tiling)
         obj._tile_levels = deepcopy(self._tile_levels)
         obj._domain_loop_map = deepcopy(self._domain_loop_map)
+        obj._op_id_counters = deepcopy(self._op_id_counters)
+        obj._id_counter = self._id_counter
+        obj._loop_ctxt_level = self._loop_ctxt_level
         for o in self.ops:
             obj.add_op(o.copy(obj))
         return obj
@@ -261,7 +321,7 @@ class Codelet(object):
         self.op_map[op.op_str] = op
         self.global_op_map[op.global_op_id] = op
 
-    def insert_op(self, op: Operation, insert_idx: int):
+    def insert_op(self, op: Operation, insert_idx: int, **kwargs):
         if op in self.ops:
             self.ops.insert(insert_idx, self.ops.pop(self.ops.index(op)))
         else:
@@ -271,6 +331,7 @@ class Codelet(object):
             self.ops.insert(insert_idx, op)
             self.op_map[op.op_str] = op
             self.global_op_map[op.global_op_id] = op
+
 
     def add_required_param(self, key, value=None, check_key=True):
         if key in self.required_params:
@@ -332,8 +393,8 @@ class Codelet(object):
                         add_codelet=False, **kwargs)
         self.add_op(comp)
 
-    def transfer(self, operand, path, offsets, sizes=None, **kwargs):
-        xfer = Transfer(operand, path, offsets, sizes,
+    def transfer(self, operand, path, sizes=None, **kwargs):
+        xfer = Transfer(operand, path, sizes=sizes,
                         add_codelet=False, **kwargs)
         self.add_op(xfer)
 
@@ -351,12 +412,10 @@ class Codelet(object):
         # TODO: Add other checks here to validate split
         self.domain_tiling[tile_level][domain_key] = split_factor
 
-    def set_tile_level(self, level: int, node: str):
-        if level in self.tile_levels:
-            assert node not in self.tile_levels[level]
-        self.tile_levels[level].append(node)
+    def set_tile_levels(self):
+        self._tile_levels = self.hag.node_levels.copy()
 
-    def set_dim_values(self, node, operand):
+    def set_dim_values(self, node: pm.Node, operand: OperandTemplate):
         if not operand.is_instantiated():
             for j, s in enumerate(node.shape):
                 key = operand.shape_list[j]
@@ -391,26 +450,32 @@ class Codelet(object):
         return shape_map
 
     def set_dtype(self, node, operand):
-        if "hag_dtype" not in node.kwargs:
-            dtype = operand.supported_dtypes[0]
-            node.add_attribute("hag_dtype", str(dtype))
-        else:
+
+        if "hag_dtype" in node.kwargs:
             assert operand.is_dtype_supported(node.kwargs['hag_dtype'])
             dtype = Datatype.from_str(node.kwargs['hag_dtype'])
+        elif operand.dtype is not None:
+            dtype = operand.dtype
+        else:
+            dtype = operand.supported_dtypes[0]
+            node.add_attribute("hag_dtype", str(dtype))
         operand.set_dtype(dtype)
 
-    def set_op_node_name(self, node, operand):
+    def set_op_node_name(self, node: pm.Node, operand: OperandTemplate):
         if operand.node_name is not None and operand.node_name != node.name:
             raise RuntimeError(f"Name already set to different value for operand:\n"
                                f"Previous name: {operand.node_name}\n"
                                f"New name: {node.name}")
         operand.set_node_name(node.name)
 
-    def instantiate_operands(self, node, hag):
+    def instantiate_operands(self, node: pm.Node):
         all_cdlt_ops = self.inputs + self.outputs
         all_node_ops = node.inputs + node.outputs
         for i, n in enumerate(all_node_ops):
             operand = all_cdlt_ops[i]
+            for rp_key in operand.required_params:
+                if rp_key not in self.required_params:
+                    self.add_required_param(rp_key)
             self.set_dim_values(n, operand)
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
@@ -433,21 +498,39 @@ class Codelet(object):
                                    f"Key: {k}\n"
                                    f"Kwargs: {node.kwargs.keys()}")
 
-        for operand in (self.inputs + self.outputs):
-            operand.evaluate_operand(node, self.required_params, hag)
+    def has_hag_edge(self, src: str, dst: str):
+        return self.hag.has_edge(src, dst)
 
-
+    def get_new_op_ids(self, op: Operation):
+        global_id = self.id_counter
+        op_id = self.op_id_counters[op.op_type]
+        self.id_counter = self.id_counter + 1
+        self.op_id_counters[op.op_type] += 1
+        return op_id, global_id
 
     def instantiate_operations(self, node: pm.Node, hag):
-        self.instantiate_operands(node, hag)
+        # First initialize shapes and symbols for operands, as well as datatypes
+        self.instantiate_operands(node)
 
+        # next, set the parameters supplied by the PolyMath node (e.g., stride, pad, etc)
         self.instantiate_node_params(node, hag)
         for o in self.ops:
             for rp in o.required_params:
                 if rp in self.required_params and rp in o.unset_params():
                     o.set_required_param(rp, self.required_params[rp])
+            o.dependencies = list(set(o.dependencies))
+            if o.op_str in o.dependencies:
+                o.dependencies.remove(o.op_str)
+
             assert isinstance(o, Operation)
+
+        # Now set the required parameters in each operation, as specified
+        for o in self.ops:
             o.evaluate_parameters(node, hag, self)
+
+        for operand in self.operands:
+            operand.evaluate_operand(node, hag, self)
+
 
     def get_operand_shapes(self):
         shape_dims = {}

@@ -289,7 +289,7 @@ class Loop(Operation):
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
-            op_str = f"{self.op_str}: {self.offset} <= {self.op_str} < {self.end}; {self.op_str}+{self.stride}"
+            op_str = f"{self.op_str}: START={self.start}; STOP={self.end}; STRIDE={self.stride}; OFFSET:{self.offset}"
         elif output_type == "json":
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,
@@ -304,11 +304,11 @@ class Loop(Operation):
         return op_str
 
 
-    def copy(self, cdlt):
-        obj = super(Loop, self).copy(cdlt)
-        obj._start = copy(self.start)
-        obj._end = copy(self.end)
-        obj._stride = copy(self.stride)
-        obj._offset = copy(self.offset)
+    def copy(self, cdlt, start=None, stride=None, end=None, offset=None, **kwargs):
+        obj = super(Loop, self).copy(cdlt, **kwargs)
+        obj._start = start or copy(self.start)
+        obj._end = end or copy(self.end)
+        obj._stride = stride or copy(self.stride)
+        obj._offset = offset or copy(self.offset)
 
         return obj

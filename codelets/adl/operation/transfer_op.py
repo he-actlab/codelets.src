@@ -1,28 +1,24 @@
 from .base_op import Operation
-from typing import List, Union, Dict, Tuple
-from codelets.adl.operation.operand import OperandTemplate
+from typing import List, Union, Dict, Tuple, Callable
+from codelets.adl.operation.operand import OperandTemplate, Offset, IndexedOperandTemplate
 from . import Loop
 import numpy as np
+from itertools import chain
 from numbers import Integral
 from codelets.adl import util
 from dataclasses import dataclass, replace, field
 from copy import copy, deepcopy
 from sympy import Basic, symbols, Idx, IndexedBase, Integer
+from . import size_from_offsets, get_transfer_dim_sizes
 
-@dataclass(frozen=True)
-class Offset:
-    dim: int
-    loop_id: int
-    stride: int
-    dim_size: int
-    offset: int
+OffsetType = Union[str, Integral, Basic]
 
 @dataclass
 class TransferInfo:
     src: str
     dst: str
-    _src_offset: List[Basic]
-    _dst_offset: List[Basic]
+    _src_offset: List[OffsetType]
+    _dst_offset: List[OffsetType]
     size: List[Union[str, Integral]]
     _src_dim_sizes: List[Integral] = field(default_factory=list)
     _dst_dim_sizes: List[Integral] = field(default_factory=list)
@@ -37,6 +33,28 @@ class TransferInfo:
                        src_domain_offsets=[replace(sdo) for sdo in self.src_domain_offsets],
                        dst_domain_offsets=[replace(ddo) for ddo in self.dst_domain_offsets]
                        )
+
+    def copy(self, cdlt):
+        src_off_copy = []
+        for op in self._src_offset:
+            if isinstance(op, Operation):
+                src_off_copy.append(cdlt.global_op_map[op.global_op_id])
+            else:
+                src_off_copy.append(op)
+        dst_off_copy = []
+        for op in self._dst_offset:
+            if isinstance(op, Operation):
+                dst_off_copy.append(cdlt.global_op_map[op.global_op_id])
+            else:
+                dst_off_copy.append(op)
+        return replace(self, _src_offset=src_off_copy,
+                       _dst_offset=dst_off_copy,
+                       _src_dim_sizes=self._src_dim_sizes.copy(),
+                       _dst_dim_sizes=self._dst_dim_sizes.copy(),
+                       src_domain_offsets=[replace(sdo) for sdo in self.src_domain_offsets],
+                       dst_domain_offsets=[replace(ddo) for ddo in self.dst_domain_offsets]
+                       )
+
     @property
     def src_offset(self):
         return self.src_domain_offsets
@@ -45,6 +63,15 @@ class TransferInfo:
     def dst_offset(self):
         return self.dst_domain_offsets
 
+    def compute_src_size(self, cdlt):
+        self.size = size_from_offsets(cdlt, self._src_offset)
+        self._src_dim_sizes = self.size
+        self.set_src_domain_offsets(cdlt)
+
+    def compute_dst_size(self, cdlt):
+        self.size = size_from_offsets(cdlt, self._dst_offset)
+        self._dst_dim_sizes = self.size
+        self.set_dst_domain_offsets(cdlt)
 
     def compute_domain_offsets(self, cdlt, dim_sizes, offsets):
         if len(dim_sizes) > 0:
@@ -86,103 +113,65 @@ class TransferInfo:
     def set_dst_domain_offsets(self, cdlt):
         self.dst_domain_offsets = self.compute_domain_offsets(cdlt, self._dst_dim_sizes, self._dst_offset)
 
-    def compute_size_from_splits(self, symbol_splits: Dict[str, int]):
-
-        pass
-
 
 # TODO: Check to make sure there are edges for the entire path
 class Transfer(Operation):
 
-    def __init__(self, operand: OperandTemplate, path: List[str], offsets: List[List[Loop]],
+    def __init__(self, operand: Union[OperandTemplate, IndexedOperandTemplate], path: List[str],
                  sizes=None,
                  add_codelet=True,
                  **kwargs):
 
         # TODO: Add type checking for offset lists
-        self._path = path
-        self._offsets = []
+        # Set path, make sure there is at least 2 locations to transfer to/from
         assert len(path) >= 2
-        assert len(path) == len(offsets)
-        self._sizes = sizes or [[]]*(len(path)-1)
-        assert all([not isinstance(s, Loop) for s in self._sizes])
-        assert len(path) == (len(self._sizes) + 1)
-        self._operand = operand
+        self._path = path
+
+
+        sizes = sizes or [[]]*(len(path)-1)
+
+        # For each pair of nodes in the path, there needs to be a size
+        assert len(path) == (len(sizes) + 1)
+
         self._transfers = {}
+        self._access_indices = []
         req_params = []
         dependencies = []
 
-        # for i, o in enumerate(offsets):
-        #     if isinstance(o, (list, tuple)):
-        #         assert len(o) == len(operand.shape_list)
-        #         off = o
-        #     else:
-        #         # TODO: Add check for numpy type as well
-        #         assert isinstance(o, int)
-        #         off = [0] * len(operand.shape_list)
-        #         off[-1] = o
-        #     arr_idx_symbols = []
-        #     for dim, idx in enumerate(off):
-        #         if isinstance(idx, Loop):
-        #             arr_idx_symbol = idx.param_symbols[idx.op_str]
-        #             dependencies.append(idx.op_str)
-        #         elif isinstance(idx, Basic):
-        #             arr_idx_symbol = idx
-        #             loop_idx = idx.atoms(Idx)
-        #             dependencies += [str(l) for l in list(loop_idx) if str(l) not in dependencies]
-        #         elif isinstance(idx, str):
-        #             req_params.append(idx)
-        #             arr_idx_symbol = symbols(idx, integer=True)
-        #         elif isinstance(idx, int):
-        #             arr_idx_symbol = idx
-        #         else:
-        #             raise TypeError(f"Invalid type for loop index: {idx}, type: {type(idx)}")
-        #
-        #         arr_idx_symbols.append(arr_idx_symbol)
-        #
-        #     self._offsets.append(arr_idx_symbols)
-
-        if len(self.operand.sorted_tile_keys) > 0 and path[0] != self.operand.sorted_tile_keys[-1]:
-            raise RuntimeError(f"Invalid transfer operation for operand {self.operand.name}:\n"
-                               f"{path[0]} is the first architecture node, but the operand is currently stored in "
-                               f"{self.operand.sorted_tile_keys[-1]}.")
-
-
-        # for i, (pt, ofs) in enumerate(zip(path[1:], self.offsets[1:])):
-        #     xfer_key = (path[i], pt)
-        #     self._transfers[xfer_key] = TransferInfo(path[i], pt, self.offsets[i], ofs, self._sizes[i])
-
-
-        for s in self._sizes:
+        for s in sizes:
             if isinstance(s, str):
                 req_params.append(s)
-        dependencies += [d for d in self._operand.dependencies if d not in dependencies]
 
         super(Transfer, self).__init__('transfer', req_params,
                                        add_codelet=add_codelet,
                                        dependencies=dependencies,
                                        **kwargs)
+        operand.test_add_transfer_access(path, self.op_str, sizes)
+        if isinstance(operand, OperandTemplate):
+            operand = operand.add_data_access([], self.op_str, "read", sizes[0], access_node=path[0])
+        else:
+            operand = operand.operand_template.add_data_access(self.offsets, self.op_str, "read", sizes[0], access_node=path[0])
 
-        for i, (pt, ofs) in enumerate(zip(path[1:], offsets[1:])):
+        self._access_indices.append(len(operand.data_moves) - 1)
+
+        self._operand = operand
+        self._dependencies += [d for d in self._operand.dependencies if d not in self.dependencies]
+        self._required_params += [r for r in self.operand.required_params if r not in self.required_params]
+
+        for i, pt in enumerate(path[1:]):
             xfer_key = (path[i], pt)
-            src_off = self.initialize_offsets(offsets[i])
-            if i == 0:
-                self._offsets.append(src_off)
-            dst_off = self.initialize_offsets(ofs)
-            self._offsets.append(dst_off)
-            self._transfers[xfer_key] = TransferInfo(path[i], pt, src_off, dst_off, self._sizes[i])
+            if i > 0:
+                self.operand.add_data_access([0] * len(self.operand.shape_list), self.op_str, "read", sizes[i], access_node=path[i])
+                self._access_indices.append(len(operand.data_moves) - 1)
 
-        for key, tinfo in self.transfers.items():
-            if len(tinfo.size) == len(self._operand.shape_list):
-                shape_dict = {s: tinfo.size[idx] for idx, s in enumerate(self._operand.shape_list)}
-            elif len(tinfo.size) == 0:
-                shape_dict = {}
-            else:
-                assert len(tinfo.size) == 1
-                shape_dict = {s: 1 for idx, s in enumerate(self._operand.shape_list)}
-                shape_dict[self._operand.shape_list[-1]] = tinfo.size[0]
+            self.operand.add_data_access([0]*len(self.operand.shape_list), self.op_str, "write", sizes[i], access_node=pt, path_key=(xfer_key))
+            self._access_indices.append(len(operand.data_moves) - 1)
 
-            self._operand.add_transfer(self.op_str, key, shape_dict)
+            src_off = list(chain(self.operand.data_moves[-2].offset_map.values()))
+            dst_off = list(chain(self.operand.data_moves[-1].offset_map.values()))
+            self._transfers[xfer_key] = TransferInfo(path[i], pt, src_off, dst_off, sizes[i])
+
+
 
     @property
     def path(self):
@@ -194,27 +183,38 @@ class Transfer(Operation):
 
     @property
     def offsets(self):
-        return self._offsets
+        nodes = []
+        offsets = []
+        for k, v in self.transfers.items():
 
-    @offsets.setter
-    def offsets(self, offsets):
-        self._offsets = offsets
+            if k[0] not in nodes:
+                offsets.append(v._src_offset)
+                nodes.append(k[0])
+
+            if k[1] not in nodes:
+                offsets.append(v._dst_offset)
+                nodes.append(k[1])
+        return offsets
 
     @property
-    def sizes(self) -> List[Union[str, int]]:
-        return self._sizes
+    def sizes(self) -> List[List[Union[str, Integral]]]:
+        return [v.size for _, v in self.transfers.items()]
 
-    @sizes.setter
-    def sizes(self, sizes):
-        self._sizes = sizes
+    @property
+    def data_transfer_sizes(self) -> List[Union[str, Integral]]:
+        return [np.prod(s) for s in self.sizes]
 
     @property
     def operand(self) -> OperandTemplate:
         return self._operand
 
     @property
-    def transfers(self) -> Dict[Tuple[str, str],TransferInfo]:
+    def transfers(self) -> Dict[Tuple[str, str], TransferInfo]:
         return self._transfers
+
+    @property
+    def access_indices(self):
+        return self._access_indices
 
     @transfers.setter
     def transfers(self, transfers):
@@ -251,67 +251,48 @@ class Transfer(Operation):
 
     def op_type_params(self):
         op_params = []
-        for i, offset in enumerate(self.offsets):
-            offset_str = ",".join([o.op_str if isinstance(o, Operation) else f"{o}" for o in offset])
-            op_params.append(f"{self.path[i]}[{offset_str}]")
+        for i, off in enumerate(self.offsets):
+                offset_str = ",".join([o.op_str if isinstance(o, Operation) else f"{o}" for o in off])
+                op_params.append(f"{self.path[i]}[{offset_str}]")
 
         return op_params
 
-    def get_transfer_dim_sizes(self, path_key, hag):
-        src_shape = None
-        dst_shape = None
-
-        for i, p in enumerate(self.operand.evaluated_tiling[:-1]):
-            # TODO: FIx this to validate against path key
-            if p[0] == path_key[0] and self.operand.evaluated_tiling[i+1][0] == path_key[1]:
-                src_shape = p[1]
-                dst_shape = self.operand.evaluated_tiling[i+1][1]
-                break
-
-        # if src_shape is None or not all([isinstance(i, Integral) for i in src_shape]) or len(src_shape) == 0:
-        #     raise RuntimeError
-        #
-        # if dst_shape is None or not all([isinstance(i, Integral) for i in dst_shape]) or len(dst_shape) == 0:
-        #     raise RuntimeError
-
-        return src_shape, dst_shape
 
     def evaluate_parameters(self, node, hag, cdlt):
+        pass
+        # print(self.required_params)
+        # for a_idx in self.access_indices:
+        #     access = self.operand.data_moves[a_idx]
 
-        for path_key, tinfo in self.transfers.items():
-            src_shape, dst_shape = self.get_transfer_dim_sizes(path_key, hag)
-            tinfo._src_dim_sizes = src_shape
-            tinfo._dst_dim_sizes = dst_shape
-            tinfo.set_src_domain_offsets(cdlt)
-            tinfo.set_dst_domain_offsets(cdlt)
-            self.operand.tiling[path_key] = dst_shape
-
-        all_sizes = []
-        for size_list in self.sizes:
-            new_sizes = []
-            for s in size_list:
-                if isinstance(s, str):
-                    size = cdlt.required_params[s].value
-                elif isinstance(s, Integral):
-                    size = s
-                else:
-                    raise TypeError(f"Invalid type for size: {s}\n"
-                                    f"Type: {type(s)}")
-                new_sizes.append(size)
-
-
-            if len(new_sizes) == 0:
-                all_sizes.append(None)
-            else:
-                all_sizes.append(int(np.prod(new_sizes)))
-
-        self._sizes = all_sizes
+        # for path_key, tinfo in self.transfers.items():
+        #     src_shape, dst_shape = get_transfer_dim_sizes(self.operand, path_key)
+        #     tinfo._src_dim_sizes = src_shape
+        #     tinfo._dst_dim_sizes = dst_shape
+        #     tinfo.set_src_domain_offsets(cdlt)
+        #     tinfo.set_dst_domain_offsets(cdlt)
+        #     self.operand.tiling[path_key] = dst_shape
+        #
+        #     new_sizes = []
+        #     for s in tinfo.size:
+        #         if isinstance(s, str):
+        #             size = cdlt.required_params[s].value
+        #         elif isinstance(s, Integral):
+        #             size = s
+        #         else:
+        #             raise TypeError(f"Invalid type for size: {s}\n"
+        #                             f"Type: {type(s)}")
+        #         new_sizes.append(size)
+        #
+        #     if len(new_sizes) == 0:
+        #         tinfo.size = []
+        #     else:
+        #         tinfo.size = new_sizes
 
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
             op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}," \
-                     f"OFFSETS: {self.offsets[0]}, DEPS: {self.dependencies}"
+                     f"OFFSETS: {self.offsets[1]}"
         elif output_type == "json":
             transfer_info = {}
             for path_key, xfer in self.transfers.items():
@@ -333,22 +314,12 @@ class Transfer(Operation):
         return op_str
 
 
-    def copy(self, cdlt):
-        obj = super(Transfer, self).copy(cdlt)
-        offsets = []
-        for offset in self.offsets:
-            offset_copy = []
-            for op in offset:
-                if isinstance(op, Operation):
-                    offset_copy.append(cdlt.global_op_map[op.global_op_id])
-                else:
-                    offset_copy.append(op)
-            offsets.append(offset_copy)
-        obj._operand = cdlt.get_operand(self.operand.name)
-        obj._path = self.path.copy()
-        obj._offsets = offsets
-        obj._sizes = deepcopy(self.sizes)
-        obj._transfers = {k: copy(v) for k, v in self.transfers.items()}
+    def copy(self, cdlt, operand=None, path=None, access_indices=None, transfers=None, **kwargs):
+        obj = super(Transfer, self).copy(cdlt, **kwargs)
+        obj._operand = operand or self.operand.copy()
+        obj._path = path or self.path.copy()
+        obj._access_indices = access_indices or self._access_indices.copy()
+        obj._transfers = transfers or {k: v.copy(cdlt) for k, v in self.transfers.items()}
         return obj
 
 

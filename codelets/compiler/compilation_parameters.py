@@ -5,7 +5,7 @@ from codelets.adl.backups.operand import Datatype
 
 import numpy as np
 from itertools import product
-from .util import factors
+from codelets.compiler.transformations.util import factors
 
 def get_compilation_parameters(hag: ArchitectureNode, cdlt: Codelet):
     tiling_options = get_tiling_options(hag, cdlt)

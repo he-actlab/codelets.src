@@ -40,6 +40,7 @@ class Operation(object):
         Operation.op_id_counters[operation_type] += 1
         Operation.id_counter += 1
         self._dependencies = dependencies or []
+
         self._param_symbols = param_symbols or {}
         self._target = target
         self._operation_type = operation_type
@@ -137,6 +138,7 @@ class Operation(object):
     def dependencies(self, dependencies):
         self._dependencies = dependencies
 
+
     def __str__(self):
         op_str = f"{self.op_type}{self.op_id} -> {self.target}, PARAMS: {list(self.required_params)}, " \
                  f"{self.op_type.upper()}PARAMS: {self.op_type_params()}"
@@ -182,22 +184,25 @@ class Operation(object):
     def evaluate_parameters(self, node, hag, cdlt):
         raise NotImplementedError
 
-    def copy(self, cdlt):
+    def copy(self, cdlt, **kwargs):
         obj = type(self).__new__(self.__class__)
         for a_key in Operation.BASE_ATTRS:
             parg_key = f"_{a_key}"
-            a = self.__dict__[parg_key]
-            if isinstance(a, (str, int)) or a is None:
-                obj.__dict__[parg_key] = a
-            elif isinstance(a, dict):
-                obj.__dict__[parg_key] = {}
-                for k, v in a.items():
-                    obj.__dict__[parg_key][k] = copy(v)
+            if a_key in kwargs:
+                obj.__dict__[parg_key] = kwargs[a_key]
             else:
-                assert isinstance(a, list)
-                obj.__dict__[parg_key] = []
-                for v in a:
-                    obj.__dict__[parg_key].append(copy(v))
+                a = self.__dict__[parg_key]
+                if isinstance(a, (str, int)) or a is None:
+                    obj.__dict__[parg_key] = a
+                elif isinstance(a, dict):
+                    obj.__dict__[parg_key] = {}
+                    for k, v in a.items():
+                        obj.__dict__[parg_key][k] = copy(v)
+                else:
+                    assert isinstance(a, list)
+                    obj.__dict__[parg_key] = []
+                    for v in a:
+                        obj.__dict__[parg_key].append(copy(v))
         return obj
 
 

@@ -26,17 +26,16 @@ def find_minimum_idx(op: Operation, op_idx_map, op_list):
     return min_idx + 1
 
 def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_level: int):
-
     loop_domain_key = cdlt.domain_loop_map[outer_loop.op_str]
     cdlt.domain_loop_map[inner_loop.op_str] = loop_domain_key
     split_factor = cdlt.domain_tiling[inner_tile_level][loop_domain_key]
-
     initial_size = outer_loop.max() - outer_loop.min()
 
     if initial_size % split_factor != 0:
         raise RuntimeError(f"Invalid split factor for iterator:\n"
                            f"Split factor: {split_factor}\n"
                            f"Size: {initial_size}\n"
+                           f"Loop key: {loop_domain_key}\n"
                            f"Loop min/max: {outer_loop.min()}, {outer_loop.max()}")
 
     outer_loop.start = 0
@@ -51,11 +50,10 @@ def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_lev
 
     return inner_loop
 
-
+# TODO: THis function needs to be fixed, too complicated and not generalizeable
 def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     full_path = outer_xfer.path.copy()
     all_transfers = outer_xfer.transfers.copy()
-    all_offsets = outer_xfer.offsets.copy()
 
     outer_xfer.path = full_path[:2]
     inner_xfer.path = full_path[1:]
@@ -66,12 +64,6 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     outer_xfer.transfers = {outer_xfer_key: all_transfers[outer_xfer_key]}
     inner_xfer.transfers.pop(outer_xfer_key)
 
-    outer_xfer.offsets = all_offsets[:2]
-    inner_xfer.offsets = all_offsets[1:]
-
-    all_sizes = outer_xfer.sizes.copy()
-    outer_xfer.sizes = [all_sizes[0]]
-    inner_xfer.sizes = all_sizes[1:]
     # Update dependencies
     new_inner_deps = []
     dep_map = {}
@@ -85,22 +77,18 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
                 dep_symbols[d] = Idx(name, (dep_op.start, dep_op.end))
                 new_inner_deps.append(name)
         inner_xfer.dependencies = new_inner_deps
-        new_inner_offsets = []
-        for off_list in outer_xfer.offsets:
-            new_offset = []
-            for o in off_list:
-                if isinstance(o, Basic):
-                    sym_map = {i: dep_symbols[str(i)] for i in list(o.atoms(Idx))}
-                    new_offset.append(o.subs(sym_map))
-            new_inner_offsets.append(new_offset)
-        inner_xfer.offsets = new_inner_offsets
 
-        # for path, t in all_transfers.items():
+        new_offset = []
 
-        # print(outer_xfer.transfers[outer_xfer_key]._dst_offset)
+        for o in outer_xfer.transfers[outer_xfer_key]._src_offset:
+            if isinstance(o, Basic):
+                sym_map = {i: dep_symbols[str(i)] for i in list(o.atoms(Idx))}
+                new_offset.append(o.subs(sym_map))
 
-
-
+        inner_xfer.transfers[tuple(full_path[1:3])]._src_offset = new_offset
+        outer_xfer.transfers[outer_xfer_key].compute_src_size(cdlt)
+        for _, v in inner_xfer.transfers.items():
+            v.compute_src_size(cdlt)
     else:
         for d in outer_xfer.dependencies:
             dep_op = cdlt.op_map[d]
@@ -108,13 +96,26 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
                 new_inner_deps.append(d)
                 inner_xfer.dependencies.remove(d)
             else:
-
                 for level, name in dep_op.split_map.items():
                     dep_map[name] = d
                     new_inner_deps.append(name)
+                    if dep_op.op_type == "loop":
+                        dep_symbols[d] = Idx(name, (dep_op.start, dep_op.end))
+
         outer_xfer.dependencies = new_inner_deps
 
 
+        for path, xfer in inner_xfer.transfers.items():
+
+            new_offset = []
+            for o in xfer._dst_offset:
+                if isinstance(o, Basic):
+                    sym_map = {i: dep_symbols[str(i)] for i in list(o.atoms(Idx))}
+                    new_offset.append(o.subs(sym_map))
+                outer_xfer.transfers[outer_xfer_key]._dst_offset = new_offset
+            xfer.compute_dst_size(cdlt)
+
+        outer_xfer.transfers[outer_xfer_key].compute_dst_size(cdlt)
 
     return inner_xfer
 
@@ -125,12 +126,12 @@ def split_operation(cdlt: Codelet, op: Operation, loop_level: int, tile_level: i
         inner_op.loop_level = loop_level
     else:
         inner_op = op.copy(cdlt)
-        inner_op.op_id = Operation.op_id_counters[op.op_type]
-        inner_op.global_op_id = Operation.id_counter
+        inner_op.op_id = cdlt.op_id_counters[op.op_type]
+        inner_op.global_op_id = cdlt.id_counter
         inner_op.loop_level = loop_level
         op.set_split_mapping(tile_level, inner_op.op_str)
-        Operation.op_id_counters[op.op_type] += 1
-        Operation.id_counter += 1
+        cdlt.op_id_counters[op.op_type] += 1
+        cdlt.id_counter = cdlt.id_counter + 1
 
         if isinstance(op, Transfer):
             inner_op = split_transfer(cdlt, op, inner_op)
@@ -163,3 +164,34 @@ def lift_operations(cdlt: Codelet):
     return cdlt
 
 
+def hoist(cdlt: Codelet) -> Codelet:
+    for o in cdlt.ops:
+        i = cdlt.ops.index(o)
+        i_loop_level = o.loop_level
+        idx = -1
+        loop_level = -1
+        for dep in o.dependencies:
+
+            dep_idx = cdlt.ops.index(cdlt.op_map[dep])
+            if cdlt.ops[dep_idx].op_type == "loop":
+                dep_level = cdlt.ops[dep_idx].loop_level + 1
+            else:
+                dep_level = cdlt.ops[dep_idx].loop_level
+
+            if dep_level > loop_level:
+                loop_level = dep_level
+
+            if dep_idx > idx:
+                idx = dep_idx
+
+        if idx < 0:
+            idx = i
+
+        if idx < i:
+            cdlt.ops.insert(idx + 1, cdlt.ops.pop(i))
+            idx += 1
+
+        if loop_level < i_loop_level and loop_level > 0:
+            cdlt.ops[idx].loop_level = loop_level
+
+    return cdlt

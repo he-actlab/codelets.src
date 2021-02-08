@@ -7,8 +7,6 @@ class StorageNode(ArchitectureNode):
                     "double": 2,
                     "quadruple": 4}
     def __init__(self, name,
-                 read_bw=-1,
-                 write_bw=-1,
                  access_type=None,
                  size=-1,
                  buffering_scheme=None,
@@ -21,8 +19,6 @@ class StorageNode(ArchitectureNode):
                  index=None):
         super(StorageNode, self).__init__(name=name, index=index)
         self.set_attr("node_color", self.viz_color)
-        self.read_bw = read_bw
-        self.write_bw = write_bw
         self.access_type = access_type
         self.size = size
         self.width = width
@@ -70,14 +66,6 @@ class StorageNode(ArchitectureNode):
         return self._output_ports
 
     @property
-    def read_bw(self):
-        return self._read_bw
-
-    @property
-    def write_bw(self):
-        return self._write_bw
-
-    @property
     def access_type(self):
         return self._access_type
 
@@ -109,14 +97,6 @@ class StorageNode(ArchitectureNode):
     def size(self, size):
         self.set_size(size)
 
-    @read_bw.setter
-    def read_bw(self, read_bw):
-        self.set_read_bw(read_bw)
-
-    @write_bw.setter
-    def write_bw(self, write_bw):
-        self.set_write_bw(write_bw)
-
     @access_type.setter
     def access_type(self, access_type):
         self.set_access_type(access_type)
@@ -138,9 +118,6 @@ class StorageNode(ArchitectureNode):
     def node_type(self):
         return 'storage'
 
-    def set_read_bw(self, bw):
-        self._read_bw = bw
-
     def set_buffer_scheme(self, scheme):
         self._buffering_scheme = scheme
 
@@ -149,15 +126,6 @@ class StorageNode(ArchitectureNode):
 
     def set_output_ports(self, output_buffers):
         self._output_ports = output_buffers
-
-    def get_read_bw(self):
-        return self._read_bw
-    
-    def set_write_bw(self, bw):
-        self._write_bw = bw
-
-    def get_write_bw(self):
-        return self._write_bw
 
     def set_access_type(self, access_type):
         assert access_type in StorageNode.ACCESS_TYPES
@@ -173,14 +141,11 @@ class StorageNode(ArchitectureNode):
         return self._size
 
     def get_viz_attr(self):
-        return f"R/W Bandwidth: {self.get_read_bw()}/{self.get_write_bw()}\\n" \
-               f"Access Type: {self.get_access_type()}\\n" \
+        return f"Access Type: {self.get_access_type()}\\n" \
                f"Size: {self.get_size()}"
 
     def to_json(self) -> Dict:
         blob = self.initialize_json()
-        blob['attributes']['read_bw'] = self.read_bw
-        blob['attributes']['write_bw'] = self.write_bw
         blob['attributes']['access_type'] = self.access_type
         blob['attributes']['size'] = self.size
         blob['attributes']['input_ports'] = self.input_ports

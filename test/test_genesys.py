@@ -23,9 +23,8 @@ def parse_cfg():
 
 def test_genesys_resnet18():
 
-    graph = pm.pb_load(f"{BENCH_DIR}/resnet18v1.srdfg")
+    graph = pm.pb_load(f"{BENCH_DIR}/resnet18.srdfg")
     genesys = define_genesys("transformation")
-    # genesys = define_genesys("nchw")
     #
     program = compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
     res = program.emit("operations_idx")
