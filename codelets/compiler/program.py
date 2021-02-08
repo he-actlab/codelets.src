@@ -90,6 +90,7 @@ class CodeletProgram(object):
 
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
+
             for ft in o.instructions:
                 ft.evaluate(*args)
 

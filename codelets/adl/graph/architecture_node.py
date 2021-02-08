@@ -1,11 +1,13 @@
 from types import FunctionType
-from codelets.graph import Node
+from codelets.graph import Node, Graph
+from .graph_algorithms import compute_node_levels
 from codelets.adl.graph.architecture_graph import ArchitectureGraph
 from typing import List, Dict, Union, TYPE_CHECKING
 from codelets.adl.flex_template import FlexTemplate, Instruction
 from codelets.adl import Codelet
 from pygraphviz import AGraph
 from collections import namedtuple, deque
+from dataclasses import dataclass, field
 import itertools
 
 from codelets.adl.operation import Loop, Compute, Configure, Transfer
@@ -14,9 +16,17 @@ if TYPE_CHECKING:
     from .compute_node import ComputeNode
     from .storage_node import StorageNode
     from .communication_node import CommunicationNode
-Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
+# Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
 OpTemplate = namedtuple('OpTemplate', ['instructions', 'functions'])
 
+@dataclass
+class Edge:
+    src: str
+    src_id: int
+    dst: str
+    dst_id: int
+    bandwidth: int = field(default=0)
+    attributes: Dict[str, int] = field(default_factory=dict)
 
 class UtilFuncs(object):
 
@@ -93,6 +103,8 @@ class ArchitectureNode(Node):
         if self.parent_graph is not None:
             ArchitectureNode.sub_graph_ctx_nodes[-1].append(self)
 
+        self._node_levels = {}
+
     def __enter__(self):
         ArchitectureNode.graph_stack.append(self)
         ArchitectureNode.sub_graph_ctx_nodes.append([])
@@ -106,8 +118,12 @@ class ArchitectureNode(Node):
         assert top_graph == self
         for n in ctx_nodes:
             self.add_subgraph_node(n)
+
         for key, attr in ctx_edges.items():
-            self.add_subgraph_edge(*key, attr)
+            self.add_subgraph_edge(*key, **attr)
+
+        if len(ArchitectureNode.graph_stack) == 1 and ArchitectureNode.graph_stack[0] is None:
+            self.set_node_depths()
 
     def __str__(self):
         return f'op {self.index} ({self.get_type()}): \
@@ -162,6 +178,10 @@ class ArchitectureNode(Node):
         return self._util_fns
 
     @property
+    def node_levels(self):
+        return self._node_levels
+
+    @property
     def operation_mappings(self):
         return self._operation_mappings
 
@@ -175,6 +195,12 @@ class ArchitectureNode(Node):
     @property
     def node_type(self):
         raise NotImplementedError
+
+    def get_node_level(self, node_name: str):
+        for lev, names in self.node_levels.items():
+            if node_name in names:
+                return lev
+        raise KeyError(f"Unable to find node level for {node_name}")
 
     def networkx_visualize(self, filename):
         dgraph = AGraph(strict=False, directed=True)
@@ -212,29 +238,24 @@ class ArchitectureNode(Node):
     def has_codelet(self, name):
         return name in self.all_codelet_names
 
-    def add_subgraph_edge(self, src, dst, attributes=None, transfer_fn_map=None):
+    def add_subgraph_edge(self, src, dst, bandwidth=0, attributes=None, transfer_fn_map=None):
         if self.parent_graph is not None:
-            ArchitectureNode.sub_graph_ctx_edges[-1][(src, dst)] = attributes
+            attributes = attributes or {}
+            kwargs = {"bandwidth": bandwidth, "attributes": attributes}
+            ArchitectureNode.sub_graph_ctx_edges[-1][(src, dst)] = kwargs
         else:
             if self._has_parent:
                 raise RuntimeError("Already added node to graph, cannot continue to add subgraph edges")
-            if attributes:
-                assert isinstance(attributes, dict)
-                attr = []
-                for k,v in attributes.items():
-                    attr.append({k: v})
-            else:
-                attr = []
-
-
+            attr = attributes or {}
 
             if isinstance(src, (int, str)):
                 src = self.get_subgraph_node(src)
 
             if isinstance(dst, (int, str)):
                 dst = self.get_subgraph_node(dst)
-
-            edge = Edge(src=src.index, dst=dst.index, attributes=attr, transfer_fn_map=transfer_fn_map)
+            if bandwidth is None:
+                raise TypeError(f"Invalid value for bandwidth: {bandwidth}")
+            edge = Edge(src.index, src.name, dst.index, dst.name, bandwidth=bandwidth, attributes=attr)
             if src.name not in dst._in_edges:
                 dst._in_edges.append(src.name)
 
@@ -310,6 +331,11 @@ class ArchitectureNode(Node):
                     return True
         return False
 
+    def has_edge(self, src: str, dst: str) -> bool:
+        if self.parent_graph == self:
+            return (src, dst) in self.edge_map or (src, dst) in self.parent_ctx_edges
+        else:
+            return (src, dst) in self.edge_map
 
     # TODO: Need to validate that each parameter is correctly mapped
     def add_start_template(self, target, template, template_fns=None):
@@ -347,10 +373,33 @@ class ArchitectureNode(Node):
                     return n.get_subgraph_node(name)
         else:
             for n, v in self._all_subgraph_nodes.items():
-                if n.has_node(name):
-                    return n.get_subgraph_node(name)
+                if v.has_node(name):
+                    return v.get_subgraph_node(name)
 
         raise KeyError(f"{name} not found in subgraph or input_components")
+
+    def get_subgraph_edge(self, src: str, dst: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
+        key = (src, dst)
+        if key in self.edge_map:
+            return self.edge_map[key]
+        elif self.parent_graph == self and key in self.parent_ctx_edges:
+            return self.parent_ctx_edges[key]
+        else:
+            for n, v in self._all_subgraph_nodes.items():
+                if v.has_edge(src, dst):
+                    return v.edge_map[key]
+
+        raise KeyError(f"{key} not found in subgraph or edges:"
+                       f"Edges: {self.edge_map.keys()}")
+
+
+    def set_node_depths(self):
+        assert self.parent_graph != self
+        self._node_levels = compute_node_levels(self.all_subgraph_nodes)
+
+    def get_node_depth(self, node_name: str):
+        node = self.get_subgraph_node(node_name)
+
 
     def get_type(self):
         return self._anode_type
@@ -388,6 +437,8 @@ class ArchitectureNode(Node):
 
     def add_codelet(self, codelet: Codelet):
         # TODO: Validate memory paths
+        if codelet.op_name in self._codelets:
+            raise KeyError(f"Duplicate codelets for {codelet.op_name}")
         self._codelets[codelet.op_name] = codelet.copy()
 
     def get_codelet_template(self, name) -> Codelet:
@@ -408,7 +459,7 @@ class ArchitectureNode(Node):
     
     def set_occupied(self, op_code, primitive, begin_cycle, end_cycle):
         
-        # check for overlaps, "o" is occupied and "n" is new
+        # check for overlaps, "expr" is occupied and "n" is new
         n = (begin_cycle, end_cycle)
         overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
         assert len(overlaps) == 0, 'this op_node cannot be mapped here, check before using set_occupied'
@@ -421,7 +472,7 @@ class ArchitectureNode(Node):
 
     def is_available(self, begin_cycle, end_cycle):
 
-        # check for overlaps, "o" is occupied and "n" is new
+        # check for overlaps, "expr" is occupied and "n" is new
         n = (begin_cycle, end_cycle)
         overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
         return len(overlaps) == 0
@@ -444,8 +495,13 @@ class ArchitectureNode(Node):
     def get_subgraph_nodes(self) -> List['ComputeNode']:
         return list(self._subgraph_nodes.values())
 
-    def get_subgraph_edges(self):
+    @property
+    def subgraph_edges(self) -> List[Edge]:
         return self._subgraph_edges
+
+    @property
+    def all_subgraph_nodes(self):
+        return self._all_subgraph_nodes
 
     def get_graph_node_count(self):
         count = 0
@@ -454,14 +510,14 @@ class ArchitectureNode(Node):
         return count
 
     def get_graph_edge_count(self):
-        count = len(self.get_subgraph_edges())
+        count = len(self.subgraph_edges)
         for n in self.get_subgraph_nodes():
             count += n.get_graph_edge_count()
         return count
 
     def print_subgraph_edges(self, tabs=""):
         edge_pairs = [f"SRC: {self.subgraph.get_node_by_index(e.src).name}\t" \
-                      f"DST:{self.subgraph.get_node_by_index(e.dst).name}" for e in self.get_subgraph_edges()]
+                      f"DST:{self.subgraph.get_node_by_index(e.dst).name}" for e in self.subgraph_edges]
         print(f"Total edges: {len(edge_pairs)}\n"
               f"Unique: {len(set(edge_pairs))}")
         print("\n".join(edge_pairs))
@@ -485,8 +541,14 @@ class ArchitectureNode(Node):
         blob['subgraph'] = {}
         blob['subgraph']['nodes'] = [sg.to_json() for sg in self.get_subgraph_nodes()]
         blob['subgraph']['edges'] = []
-        for e in self.get_subgraph_edges():
-            e_attr = {list(k.keys())[0]:  list(k.values())[0] for k in e.attributes}
+        for e in self.subgraph_edges:
+            e_attr = {k: v for k, v in e.attributes.items()}
             sub_edge = {'src': e.src, 'dest': e.dst, 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
         return blob
+
+    # TODO: Finish filling this out
+    def data_transfer_constraints(self, src: str, dst: str):
+        src_node = self.get_subgraph_node(src)
+        dst_node = self.get_subgraph_node(dst)
+        edge = self.edge_map[(src, dst)]

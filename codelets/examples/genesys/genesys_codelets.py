@@ -5,162 +5,56 @@ from codelets.adl.graph import ArchitectureNode
 import numpy as np
 from . import OP_DTYPES
 
-def mmmul():
-    pass
-    # A = OperandTemplate("A", OP_DTYPES, ["M", "N"])
-    # B = OperandTemplate("B", OP_DTYPES, ["N", "P"])
-    # C = OperandTemplate("C", OP_DTYPES, ["M", "P"])
-    # with Codelet("mmul", [A, B], [C]) as cdlt:
-    #     # Add setup op
-    #     with Loop(0, "M_T") as m_t:
-    #         with Loop(0, "N_T") as n_t:
-    #             with Loop(0, "P_T") as p_t:
-
-def conv2d_nhwc_test(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "H", "W"])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"])
+def gemm(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
+    weight = OperandTemplate("weight", OP_DTYPES, ["P", "N"], dtype=OP_DTYPES[0])
+    bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[1])
+    out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
-    required_params['OW_TILE_SIZE'] = 1
-    required_params['OH_TILE_SIZE'] = 1
-    required_params['IC_TILE_SIZE'] = 1
-    required_params['OC_TILE_SIZE'] = 1
-    required_params['KW_TILE_SIZE'] = 1
-    required_params['KH_TILE_SIZE'] = 1
-    required_params['N_TILE_SIZE'] = 1
-    with Codelet("conv", [data, weight], [out], required_params=required_params) as cdlt:
+
+    with Codelet("gemm", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
+
         cdlt.configure("start", "systolic_array")
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
-        with Loop(0, "OC", stride="OC_TILE_SIZE") as oc:
-            with Loop(0, "IC", stride="IC_TILE_SIZE") as ic:
-                with Loop(0, "KH", stride="KH_TILE_SIZE") as kh:
-                    with Loop(0, "KW", stride="KW_TILE_SIZE") as kw:
-                        cdlt.transfer(weight, ["DRAM", "WBUF"], [[oc, ic, kh, kw], 0], [1])
-    return cdlt
+        with Loop(0, "N") as n:
+            with Loop(0, "P") as p:
+                with Loop(0, "M") as m:
 
+                    # cdlt.transfer(weight[n, p], ["DRAM", "WBUF", "pe_array"])
+                    # cdlt.transfer(data[m, n], ["DRAM", "IBUF", "pe_array"])
+                    # cdlt.transfer(bias[p], ["DRAM", "IBUF", "pe_array"])
+                    # cdlt.transfer(out[n, p], ["DRAM", "OBUF", "pe_array"])
+                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                    # cdlt.transfer(out[n, p], ["pe_array", "OBUF", "DRAM"])
 
-#
-# def conv2d_nhwc(hag: ArchitectureNode):
-#     # TODO: Need to figure out how to change the memory layout
-#     data = OperandTemplate("data", OP_DTYPES, ["N", "H", "W", "IC"])
-#     weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"])
-#     out = OperandTemplate("out", OP_DTYPES, ["N", "OH", "OW", "OC"])
-#     required_params = {}
-#     required_params['OW_TILE_SIZE'] = 1
-#     required_params['OH_TILE_SIZE'] = 1
-#     required_params['IC_TILE_SIZE'] = 1
-#     required_params['OC_TILE_SIZE'] = 1
-#     required_params['KW_TILE_SIZE'] = 1
-#     required_params['KH_TILE_SIZE'] = 1
-#     required_params['N_TILE_SIZE'] = 1
-#
-#     with Codelet("conv", [data, weight], [out], required_params=required_params) as cdlt:
-#         cdlt.configure("start", "systolic_array")
-#         cdlt.configure("start", "WBUF")
-#         cdlt.configure("start", "IBUF")
-#         cdlt.configure("start", "OBUF")
-#         with Loop(0, "OC", stride="OC_TILE_SIZE") as oc:
-#             with Loop(0, "N", stride="N_TILE_SIZE") as n:
-#                 with Loop(0, "IC", stride="IC_TILE_SIZE") as ic:
-#                     with Loop(0, "KH", stride="KH_TILE_SIZE") as kh:
-#                         with Loop(0, "KW", stride="KW_TILE_SIZE") as kw:
-#                             with Loop(0, "OH", stride="OH_TILE_SIZE") as y:
-#                                 with Loop(0, "OW", stride="OW_TILE_SIZE") as x:
-#                                     cdlt.transfer(weight, ["DRAM", "WBUF"], [[oc, ic, kh, kw], 0], [1])
-#                                     cdlt.transfer(data, ["DRAM", "IBUF"],
-#                                                   [[n, y*"stride" + kh, x*"stride" + kw, ic], 0], [1])
-#                                     cdlt.transfer(out, ["DRAM", "OBUF"], [[n, y, x, oc], 0], [1])
-#                                     with Loop(0, "OC_TILE_SIZE") as oc_t:
-#                                         with Loop(0, "N_TILE_SIZE") as n_t:
-#                                             with Loop(0, "IC_TILE_SIZE") as ic_t:
-#                                                 with Loop(0, "KH_TILE_SIZE") as kh_t:
-#                                                     with Loop(0, "KW_TILE_SIZE") as kw_t:
-#                                                         with Loop(0, "OH_TILE_SIZE") as y_t:
-#                                                             with Loop(0, "OW_TILE_SIZE") as x_t:
-#                                                                 wbuf_data_size = np.prod(hag.get_subgraph_node("systolic_array").dimensions)
-#                                                                 ibuf_data_size = hag.get_subgraph_node("systolic_array").dimensions[0]
-#                                                                 cdlt.transfer(weight, ["WBUF", "systolic_array"], [[oc_t, ic_t, kh_t, kw_t], 0], [wbuf_data_size])
-#                                                                 cdlt.transfer(data, ["IBUF", "systolic_array"], [[n_t, y_t*"stride" + kh_t, x_t*"stride" + kw_t, ic_t], 0], [ibuf_data_size])
-#                                                                 cdlt.transfer(out, ["systolic_array", "OBUF"], [[n_t, y_t, x_t, oc_t], 0], [ibuf_data_size])
-#                                                                 cdlt.compute("MVMUL", ["IBUF", "WBUF"], ["OBUF"], target="systolic_array")
-#
-#         cdlt.configure("end", "WBUF")
-#         cdlt.configure("end", "IBUF")
-#         cdlt.configure("end", "OBUF")
-#         cdlt.configure("end", "systolic_array")
-#     return cdlt
-
-def maxpool2d_nchw(hag: ArchitectureNode):
-    loop_order = ["n", "ic", "kh", "kh", "ow", "oh"]
-
-def conv2d_nchw(hag: ArchitectureNode):
-    # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"])
-    required_params = {}
-    required_params['OW_TILE_SIZE'] = lambda OW: OW
-    required_params['OH_TILE_SIZE'] = lambda OH: OH
-    required_params['IC_TILE_SIZE'] = lambda IC: IC
-    required_params['OC_TILE_SIZE'] = lambda OC: OC
-    required_params['KW_TILE_SIZE'] = lambda KW: KW
-    required_params['KH_TILE_SIZE'] = lambda KH: KH
-    required_params['N_TILE_SIZE'] = lambda N: N
-
-    with Codelet("conv", [data, weight], [out], required_params=required_params) as cdlt:
-        cdlt.add_required_param("IH_TILE_SIZE", lambda stride, pad, OH_TILE_SIZE, KH_TILE_SIZE:  (OH_TILE_SIZE - 1)*stride - 2*pad + KH_TILE_SIZE)
-        cdlt.add_required_param("IW_TILE_SIZE", lambda stride, pad, OW_TILE_SIZE, KW_TILE_SIZE:  (OW_TILE_SIZE - 1)*stride - 2*pad + KW_TILE_SIZE)
-        cdlt.configure("start", "systolic_array")
-        cdlt.configure("start", "WBUF")
-        cdlt.configure("start", "IBUF")
-        cdlt.configure("start", "OBUF")
-        with Loop(0, "OC", stride="OC_TILE_SIZE") as oc:
-            with Loop(0, "N", stride="N_TILE_SIZE") as n:
-                with Loop(0, "IC", stride="IC_TILE_SIZE") as ic:
-                    with Loop(0, "KH", stride="KH_TILE_SIZE") as kh:
-                        with Loop(0, "KW", stride="KW_TILE_SIZE") as kw:
-                            with Loop(0, "OH", stride="OH_TILE_SIZE") as y:
-                                with Loop(0, "OW", stride="OW_TILE_SIZE") as x:
-                                    cdlt.transfer(weight, ["DRAM", "WBUF"], [[oc, ic, kh, kw], 0], [[oc.stride, ic.stride, kh.stride, kw.stride]])
-                                    # cdlt.transfer(weight, ["DRAM", "WBUF"], [[oc, ic, kh, kw], 0])
-                                    cdlt.transfer(data, ["DRAM", "IBUF"],
-                                                  [[n, ic, y*"stride" + kh, x*"stride" + kw], 0],
-                                                  [[n.stride, ic.stride, "IH_TILE_SIZE", "IW_TILE_SIZE"]])
-                                    cdlt.transfer(out, ["DRAM", "OBUF"], [[n, oc, y, x], 0], [[n.stride, oc.stride, y.stride, x.stride]])
-                                    with Loop(0, "OC_TILE_SIZE") as oc_t:
-                                        with Loop(0, "N_TILE_SIZE") as n_t:
-                                            with Loop(0, "IC_TILE_SIZE") as ic_t:
-                                                with Loop(0, "KH_TILE_SIZE") as kh_t:
-                                                    with Loop(0, "KW_TILE_SIZE") as kw_t:
-                                                        with Loop(0, "OH_TILE_SIZE") as y_t:
-                                                            with Loop(0, "OW_TILE_SIZE") as x_t:
-                                                                wbuf_data_size = hag.get_subgraph_node("WBUF").read_bw
-                                                                ibuf_data_size = hag.get_subgraph_node("IBUF").read_bw
-                                                                cdlt.transfer(weight, ["WBUF", "pe_array"], [[oc_t, ic_t, kh_t, kw_t], 0], [[wbuf_data_size]])
-                                                                cdlt.transfer(data, ["IBUF", "pe_array"], [[n_t, ic_t, y_t*"stride" + kh_t, x_t*"stride" + kw_t], 0], [[ibuf_data_size]])
-                                                                cdlt.transfer(out, ["OBUF", "pe_array"], [[n_t, oc_t, y_t, x_t], 0], [[ibuf_data_size]])
-                                                                cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                                                                cdlt.transfer(out, ["pe_array", "OBUF"], [0, [n_t, oc_t, y_t, x_t]], [[ibuf_data_size]])
-                                    cdlt.transfer(out, ["OBUF", "DRAM"], [[n_t, oc_t, y_t, x_t], [n, oc, y, x]], [[n.stride, oc.stride, y.stride, x.stride]])
-
+                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
+                    cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
+                    cdlt.transfer(bias[p], ["DRAM", "IBUF"])
+                    cdlt.transfer(out[n, p], ["DRAM", "OBUF"])
+                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                    cdlt.transfer(out[n, p], ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
     return cdlt
 
-def conv2d_nchw_transformation(hag: ArchitectureNode):
+
+
+def conv2d_nchw(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"])
+    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
-    with Codelet("conv", [data, weight], [out], required_params=required_params) as cdlt:
+    with Codelet("conv", [data, weight], [out], hag, required_params=required_params) as cdlt:
 
         cdlt.configure("start", "systolic_array")
         cdlt.configure("start", "WBUF")
@@ -173,12 +67,11 @@ def conv2d_nchw_transformation(hag: ArchitectureNode):
                         with Loop(0, "KW") as kw:
                             with Loop(0, "OH") as y:
                                 with Loop(0, "OW") as x:
-                                    cdlt.transfer(weight, ["DRAM", "WBUF", "pe_array"], [[oc, ic, kh, kw], 0, 0])
-                                    cdlt.transfer(data, ["DRAM", "IBUF", "pe_array"], [[n, ic, y*"stride" + kh, x*"stride" + kw], 0, 0])
-                                    cdlt.transfer(out, ["DRAM", "OBUF", "pe_array"], [[n, oc, y, x], 0, 0])
+                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
+                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
+                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
                                     cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                                    cdlt.transfer(out, ["pe_array", "OBUF", "DRAM"], [0, 0, [n, oc, y, x]])
-
+                                    cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -187,6 +80,126 @@ def conv2d_nchw_transformation(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
     return cdlt
 
+def conv2d_bias_nchw(hag: ArchitectureNode):
+    # TODO: Need to figure out how to change the memory layout
+    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[1])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    required_params = {}
+
+    with Codelet("conv_bias", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "BBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with Loop(0, "OC") as oc:
+            with Loop(0, "N") as n:
+                with Loop(0, "IC") as ic:
+                    with Loop(0, "KH") as kh:
+                        with Loop(0, "KW") as kw:
+                            with Loop(0, "OH") as y:
+                                with Loop(0, "OW") as x:
+                                    # cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
+                                    # cdlt.transfer(bias[oc], ["DRAM", "BBUF", "pe_array"])
+                                    # cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
+                                    # cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
+                                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    # cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
+
+                                    #
+                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
+                                    cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
+                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
+                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "BBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+    return cdlt
+
+def elem_add(hag: ArchitectureNode):
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"])
+    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"])
+    with Codelet("elem_add", [op1, op2], [out], hag) as cdlt:
+        # out.set_start_location("VMEM1")
+        cdlt.configure("start", "SIMD")
+        # cdlt.configure("start", "VMEM")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "H") as h:
+                    with Loop(0, "W") as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        cdlt.compute("ADD", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+def relu(hag: ArchitectureNode):
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"])
+    with Codelet("relu", [op1], [out], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        # cdlt.configure("start", "VMEM")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "H") as h:
+                    with Loop(0, "W") as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.compute("RELU", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+
+def maxpool2d_nchw(hag: ArchitectureNode):
+    # loop_order = ["n", "oc", "kh", "kh", "ow", "oh"]
+    #
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"])
+    #
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"])
+    # # TODO: Add option to create operand
+    # # 1. set IMM to negative infinity
+    with Codelet("max_pool", [data], [out], hag) as cdlt:
+
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "VMEM")
+        cdlt.configure("start", "IMM") # 1.
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "OH") as y:
+                    with Loop(0, "OW") as x:
+                        cdlt.transfer(data[n, c, y * "stride", x * "stride"], ["DRAM", "VMEM"])
+
+                        cdlt.compute("MAX", [data, "IMM"], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, y, x], ["SIMD", "VMEM"])
+
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "KH") as kh:
+                    with Loop(0, "KW") as kw:
+                        with Loop(0, "OH") as y:
+                            with Loop(0, "OW") as x:
+                                cdlt.transfer(data[n, c, y*"stride" + kh, x*"stride" + kw], ["DRAM", "VMEM"])
+                                cdlt.transfer(out[n, c, y, x], ["VMEM"])
+                                cdlt.compute("MAX", [data], [out[n]], target="SIMD")
+                                cdlt.transfer(out[n, c, y, x], ["pe_array", "OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+#
 GENESYS_CODELETS = {
-    "conv" : conv2d_nchw
+    # "conv": conv2d_nchw,
+    "conv_bias": conv2d_bias_nchw,
+    # "gemm": gemm
+    # "elem_add": elem_add
 }

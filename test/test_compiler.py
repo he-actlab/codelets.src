@@ -1,10 +1,8 @@
 import polymath as pm
 from pathlib import Path
-from codelets import compile, deserialize_graph
+from codelets import compile
 import json
 from codelets.examples.genesys import generate_genesys
-from codelets.compiler.util import factors
-
 
 CWD = Path(f"{__file__}").parent
 GENESYS_CFG_PATH = f"{CWD}/scratch/genesys_cfg.json"

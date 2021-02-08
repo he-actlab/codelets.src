@@ -13,8 +13,17 @@ class Configure(Operation):
                  ):
         self._target_name = target
         self._start_or_finish = start_or_finish
-        super(Configure, self).__init__('config', [],
+        required_params = []
+        resolved_params = {}
+        for k, v in kwargs.items():
+            if v is None:
+                required_params.append(k)
+            else:
+                resolved_params[k] = FlexParam(k)
+                resolved_params[k].value = v
+        super(Configure, self).__init__('config', required_params,
                                         target=target,
+                                        resolved_params=resolved_params,
                                         add_codelet=add_codelet, **kwargs)
     @property
     def target_name(self):
@@ -46,9 +55,9 @@ class Configure(Operation):
                 op_str += ft.emit(output_type)
         return op_str
 
-    def copy(self, cdlt):
-        obj = super(Configure, self).copy(cdlt)
-        obj._target_name = self.target
-        obj._start_or_finish = self.start_or_finish
+    def copy(self, cdlt, target=None, start_or_finish=None, **kwargs):
+        obj = super(Configure, self).copy(cdlt, **kwargs)
+        obj._target_name = target or self.target
+        obj._start_or_finish = start_or_finish or self.start_or_finish
         return obj
 

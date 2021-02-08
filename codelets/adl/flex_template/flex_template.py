@@ -52,7 +52,6 @@ class FlexTemplate:
         for idx in range(len(self.iterables)):
             iterable = self.iterables[idx].evaluate_fn(*fn_args)
             instr_size *= len(iterable)
-
         self.num_instructions = instr_size
 
     # TODO: Add

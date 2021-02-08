@@ -3,7 +3,23 @@ from codelets.adl.flex_template.instruction import Field, Instruction
 OPCODE_WIDTH = 4
 FUNCTION_CODE_WIDTH = 4
 
+DTYPE_CFG_NAMES = ["32FXP", "16FXP", "8FXP", "32FP", "16FP"]
 
+LOOP_OP_NAMES = ["SET_INDEX", "SET_ITER", "SET_INST"]
+
+ITER_CFG_NAMES = ["BASE_SIGN_EXT", "BASE_LOW", "BASE_HIGH", "BASE_ZEROFILL", "STRIDE_SIGN_EXT", "STRIDE_LOW",
+                  "STRIDE_HIGH", "STRIDE_ZEROFILL", "SET_IMM_LOW", "SET_IMM_HIGH", "IMM_SIGN_EXT"]
+DTYPE_CASE_NAMES = ["32FXP_16FXP", "32FXP_8FXP", "32FXP_4FXP", "16FXP_32FXP", "8FXP_32FXP", "4FXP_32FXP",
+                        "32FP_16FP", "16FP_32FP", "FLOOR", "CEIL"]
+CMP_OP_NAMES = ["EQUAL", "NEQ", "GT", "GTE", "LT", "LTE"]
+CALC_OP_NAMES = ["RELU", "LEAKY_RELU", "SIGMOID", "TANH", "EXP", "LN", "SQRT", "INV_SQRT", "LOG2"]
+ALU_OP_NAMES = ["ADD", "SUB", "MUL", "MACC", "DIV", "MAX", "MIN", "RSHIFT", "LSHIFT", "MOVE", "COND_MOVE_TRUE",
+                    "COND_MOVE_FALSE", "NOT", "AND", "OR"]
+
+DTYPE_CAST_OPS = (3, DTYPE_CASE_NAMES)
+CMP_OPS = (2, CMP_OP_NAMES)
+CALC_OPS = (1, CALC_OP_NAMES)
+ALU_OPS = (0, ALU_OP_NAMES)
 
 # LOOP INSTR
 def loop_instr():
@@ -67,7 +83,7 @@ def load_store():
 
 
 def create_simd_alu_ops(op_name, function_code):
-    NS_NAMES = ["OBUF", "IBUF", "VMEM", "IMM", "DRAM", "VMEM_RD", "VMEM_WR"]
+    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
     NS_OP_CODES = {name: i for i, name in enumerate(NS_NAMES)}
 
     dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
@@ -85,7 +101,7 @@ def create_simd_alu_ops(op_name, function_code):
     return instr_temp
 
 def create_simd_calc_ops(op_name, function_code):
-    NS_NAMES = ["OBUF", "IBUF", "VMEM", "IMM", "DRAM", "VMEM_RD", "VMEM_WR"]
+    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
     NS_OP_CODES = {name: i for i, name in enumerate(NS_NAMES)}
 
     dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
@@ -103,7 +119,7 @@ def create_simd_calc_ops(op_name, function_code):
     return instr_temp
 
 def create_simd_op(op_name, opcode, function_code):
-    NS_NAMES = ["OBUF", "IBUF", "VMEM", "IMM", "DRAM", "VMEM_RD", "VMEM_WR"]
+    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
     NS_OP_CODES = {name: i for i, name in enumerate(NS_NAMES)}
 
     dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
@@ -122,14 +138,9 @@ def create_simd_op(op_name, opcode, function_code):
 def creat_bin_ops():
 
 
-    DTYPE_CAST_NAMES = (3, ["32FXP_16FXP", "32FXP_8FXP", "32FXP_4FXP", "16FXP_32FXP", "8FXP_32FXP", "4FXP_32FXP",
-                        "32FP_16FP", "16FP_32FP", "FLOOR", "CEIL"])
-    CMP_OP_NAMES = (2, ["EQUAL", "NEQ", "GT", "GTE", "LT", "LTE"])
-    CALC_OP_NAMES = (1, ["RELU", "LEAKY_RELU", "SIGMOID", "TANH", "EXP", "LN", "SQRT", "INV_SQRT", "LOG2"])
-    ALU_OP_NAMES = (0, ["ADD", "SUB", "MUL", "MACC", "DIV", "MAX", "MIN", "RSHIFT", "LSHIFT", "MOVE", "COND_MOVE_TRUE",
-                    "COND_MOVE_FALSE", "NOT", "AND", "OR"])
+
     instructions = []
-    for op_type_list in [DTYPE_CAST_NAMES, CALC_OP_NAMES, ALU_OP_NAMES, CMP_OP_NAMES]:
+    for op_type_list in [DTYPE_CAST_OPS, CALC_OPS, ALU_OPS, CMP_OPS]:
         op_code = op_type_list[0]
         op_fnctions = op_type_list[1]
         for fn_code, op_fn in enumerate(op_fnctions):
@@ -137,7 +148,6 @@ def creat_bin_ops():
     return instructions
 
 def create_dtype_cfg_ops():
-    DTYPE_CFG_NAMES = ["32FXP", "16FXP", "8FXP", "32FP", "16FP"]
     instructions = []
     for fn_code, fn_name in enumerate(DTYPE_CFG_NAMES):
         imm_ns_idx = Field("IMM_NS_INDEX_ID", 24)
@@ -147,7 +157,7 @@ def create_dtype_cfg_ops():
     return instructions
 
 def create_lock_ns_op():
-    NS_NAMES = ["OBUF", "IBUF", "VMEM", "IMM", "DRAM", "VMEM_RD", "VMEM_WR"]
+    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
     NS_OP_CODES = {name: i << 5 for i, name in enumerate(NS_NAMES)}
     instructions = []
     for op_code, op_name in enumerate(["LOCK_NS", "UNLOCK_NS"]):
@@ -165,8 +175,7 @@ def create_lock_ns_op():
 
 
 def create_iterator_ops():
-    ITER_CFG_NAMES = ["BASE_SIGN_EXT", "BASE_LOW", "BASE_HIGH", "BASE_ZEROFILL", "STRIDE_SIGN_EXT", "STRIDE_LOW",
-                      "STRIDE_HIGH", "STRIDE_ZEROFILL", "SET_IMM_LOW", "SET_IMM_HIGH", "IMM_SIGN_EXT"]
+
     instructions = []
     for fn_code, fn_name in enumerate(ITER_CFG_NAMES):
         ns_id = Field("NS_ID", 3)
@@ -179,24 +188,26 @@ def create_iterator_ops():
 
 def create_simd_loop_ops():
 
-    LOOP_OP_NAMES = ["SHORT_LOOP", "LONG_LOOP_INSTR", "LONG_LOOP_ITER"]
     instructions = []
 
-    # short
-    num_instr = Field("NUM_INSTR", 12)
-    num_iters = Field("NUM_ITERS", 12)
+    # SET_INDEX
+    loop_id = Field("LOOP_ID", 3)
+    dst_idx = Field("DEST_INDEX", 5)
+    src1_idx = Field("SRC1_INDEX", 8)
+    src2_idx = Field("SRC2_INDEX", 8)
     instructions.append(Instruction(LOOP_OP_NAMES[0], (7 << FUNCTION_CODE_WIDTH) + 0, OPCODE_WIDTH + FUNCTION_CODE_WIDTH,
-                             (num_instr, num_iters)))
+                             (loop_id, dst_idx, src1_idx, src2_idx)))
 
-    # long loop inst
-    num_instr_long = Field("NUM_INSTR", 24)
+    # SET_ITER
+    loop_id = Field("LOOP_ID", 3)
+    num_iter = Field("NUM_ITER", 21)
     instructions.append(Instruction(LOOP_OP_NAMES[1], (7 << FUNCTION_CODE_WIDTH) + 1, OPCODE_WIDTH + FUNCTION_CODE_WIDTH,
-                             (num_instr_long,)))
+                             (loop_id, num_iter)))
 
-    # long loop iter
-    num_iters_long = Field("NUM_ITERS", 24)
+    # SET_INST
+    num_instr = Field("NUM_INST", 24)
     instructions.append(Instruction(LOOP_OP_NAMES[2], (7 << FUNCTION_CODE_WIDTH) + 2, OPCODE_WIDTH + FUNCTION_CODE_WIDTH,
-                             (num_iters_long,)))
+                             (num_instr,)))
 
     return instructions
 

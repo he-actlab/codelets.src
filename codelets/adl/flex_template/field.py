@@ -1,10 +1,10 @@
 import numpy as np
 from collections import namedtuple
 from typing import Callable, List, Dict, Optional, Union
-from codelets.adl.backups.operand import Operand, NullOperand
 from codelets.adl.flex_param import FlexParam
 from itertools import count
 from dataclasses import dataclass, asdict, field
+from numbers import Integral
 from types import FunctionType
 import sys
 import inspect
@@ -71,7 +71,17 @@ class Field:
                 self.param_fn.add_fn_arg(k)
                 param_fn_args.append(v)
         param_fn_args = tuple(param_fn_args)
-        self.value = self.param_fn.evaluate_fn(*param_fn_args)
+        result = self.param_fn.evaluate_fn(*param_fn_args)
+        if isinstance(result, str) and result in self.value_names:
+            self.value = self.value_names[result]
+            self.value_str = result
+        elif not isinstance(result, Integral):
+            print(f"Result: {result}, Type: {type(result)}\n"
+                  f"Arg name: {self.field_name}")
+
+            self.value = result
+        else:
+            self.value = result
 
     def template_header(self):
         return FIELD_HEADER.format(field_name=self.field_name)

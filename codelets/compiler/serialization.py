@@ -7,7 +7,7 @@ from codelets.adl.graph.storage_node import StorageNode
 from codelets.adl.codelet import Codelet
 from codelets.adl.operation import OperandTemplate
 from codelets.adl.flex_template.instruction import Instruction
-from codelets.adl.backups.operand import Operand, Datatype, NullOperand
+from codelets.adl.operation import OperandTemplate, Datatype
 import linecache
 from typing import List, Dict
 from jsonschema import validate
@@ -168,17 +168,17 @@ def _deserialize_capabilities(capability_list: List[Dict]):
 # Add compoennts, index size to source
 def _deserialize_operands(op_list):
     operands = []
-    for o in op_list:
-        if o['field_name'] == "null":
-            op = NullOperand(o['bitwidth'], 0)
-        else:
-            args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['supported_dtypes']), o['bitwidth'])
-            kwargs = {}
-            kwargs['value_names'] = o['possible_values']
-            kwargs['index_size'] = o['index_size']
-            kwargs['components'] = o['components']
-            op = Operand(*args, **kwargs)
-        operands.append(op)
+    # for o in op_list:
+    #     if o['field_name'] == "null":
+    #         op = NullOperand(o['bitwidth'], 0)
+    #     else:
+    #         args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['supported_dtypes']), o['bitwidth'])
+    #         kwargs = {}
+    #         kwargs['value_names'] = o['possible_values']
+    #         kwargs['index_size'] = o['index_size']
+    #         kwargs['components'] = o['components']
+    #         op = Operand(*args, **kwargs)
+    #     operands.append(op)
     return operands
 
 def _deserialize_dtypes(dtypes):

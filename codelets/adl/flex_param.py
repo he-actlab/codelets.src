@@ -5,6 +5,7 @@ from itertools import count
 import re
 from types import FunctionType, LambdaType, CodeType
 import inspect
+from numbers import Integral
 from dataclasses import dataclass, field
 IMPORT_VALS = ["import numpy as np"]
 flex_param_cnt = count()
@@ -77,6 +78,11 @@ class FlexParam:
                                f"Arg names: {self.fn_args}\n"
                                f"Args: {fn_args}\n"
                                f"Error: {e}")
+
+        if isinstance(result, (int, np.float)):
+            assert (result - int(result)) == 0
+            result = int(result)
+
         if not self.is_set():
             self.value = result
 

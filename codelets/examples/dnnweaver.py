@@ -5,7 +5,7 @@ import numpy as np
 # compute node:       list of primitives
 # edge:               latency and bw are written into the "subgraph_edge"
 # storage node:       capacity, r/w bw, access type in "MemConfig" TODO I/O ports
-# communication node: fan i/o through graph API, communication type input, bw input...
+# communication node: fan i/expr through graph API, communication type input, bw input...
 # primitives:       ???
 # composite primitives: ???
 
