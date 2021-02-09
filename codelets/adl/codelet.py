@@ -269,6 +269,7 @@ class Codelet(object):
         raise KeyError(f"Unable to find global op id {global_op_id}")
 
 
+
     def emit(self, output_type):
         if output_type == "operations":
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
@@ -413,7 +414,8 @@ class Codelet(object):
         self.domain_tiling[tile_level][domain_key] = split_factor
 
     def set_tile_levels(self):
-        self._tile_levels = self.hag.node_levels.copy()
+        self._tile_levels = deepcopy(self.hag.node_levels.copy())
+        self._tile_levels = {i: self._tile_levels[i] for i in sorted(list(self._tile_levels.keys()))}
 
     def set_dim_values(self, node: pm.Node, operand: OperandTemplate):
         if not operand.is_instantiated():

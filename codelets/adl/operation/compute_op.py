@@ -30,22 +30,12 @@ class Compute(Operation):
                                       dependencies=dependencies,
                                       **kwargs)
         for s_call in sources:
-            s_call.test_add_compute_access(target, self.op_str, "source")
-            if isinstance(s_call, OperandTemplate):
-                s = s_call.add_data_access([], self.op_str, "read", [], path_key=(self.target,))
-            else:
-                s = s_call.operand_template.add_data_access(s_call.offsets, self.op_str, "read", [], path_key=(self.target,))
-
+            s = s_call.add_compute_access(target, self.op_str, "source")
             self._dependencies += [dep for dep in s.dependencies if dep not in dependencies]
             self._sources.append(s)
 
         for d_call in dests:
-            d_call.test_add_compute_access(target, self.op_str, "dest")
-
-            if isinstance(d_call, OperandTemplate):
-                d = d_call.add_data_access([], self.op_str, "write", [], access_node=self.target, path_key=(self.target,))
-            else:
-                d = d_call.operand_template.add_data_access(d_call.offsets, self.op_str, "write", [], access_node=self.target, path_key=(self.target,))
+            d = d_call.add_compute_access(target, self.op_str, "dest")
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies]
             d.dependencies.append(self.op_str)
             self._dests.append(d)
@@ -117,7 +107,7 @@ class Compute(Operation):
         obj = super(Compute, self).copy(cdlt, **kwargs)
 
         obj._op_name = op_name or self.op_name
-        obj._sources = sources or [s.copy() for s in self.sources]
-        obj._dests = dests or [d.copy() for d in self.dests]
+        obj._sources = sources or [cdlt.get_operand(s.name) for s in self.sources]
+        obj._dests = dests or [cdlt.get_operand(d.name) for d in self.dests]
         return obj
 

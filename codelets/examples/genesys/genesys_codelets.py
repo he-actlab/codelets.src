@@ -102,20 +102,20 @@ def conv2d_bias_nchw(hag: ArchitectureNode):
                         with Loop(0, "KW") as kw:
                             with Loop(0, "OH") as y:
                                 with Loop(0, "OW") as x:
-                                    # cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
-                                    # cdlt.transfer(bias[oc], ["DRAM", "BBUF", "pe_array"])
-                                    # cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
-                                    # cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
-                                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                                    # cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
+                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
+                                    cdlt.transfer(bias[oc], ["DRAM", "BBUF", "pe_array"])
+                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
+                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
+                                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
 
                                     #
-                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
-                                    cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
-                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
-                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
-                                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
+                                    # cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
+                                    # cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
+                                    # cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
+                                    # cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    # cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")

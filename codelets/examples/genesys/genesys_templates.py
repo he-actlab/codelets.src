@@ -238,7 +238,7 @@ def obuf_start_template(hag: ComputeNode):
 def dram_buffer_template(buffer_name, hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("DRAM", "{buffer_name}")].src_offset')
+    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{buffer_name}")')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "LD")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -260,7 +260,7 @@ def buffer_dram_template(buffer_name, hag):
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
 
 
-    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "DRAM")].dst_offset')
+    instr.add_iterable('offset', f'op.get_dst_offset("{buffer_name}", "DRAM")')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "ST")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -281,7 +281,7 @@ def buffer_dram_template(buffer_name, hag):
 def buffer_sa_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("{buffer_name}", "pe_array")].src_offset')
+    instr.add_iterable('offset', f'op.get_src_offset("{buffer_name}", "pe_array")')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "RD")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -295,7 +295,7 @@ def buffer_sa_template(buffer_name, hag):
 def sa_buffer_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("pe_array", "{buffer_name}")].dst_offset')
+    instr.add_iterable('offset', f'op.get_dst_offset("pe_array", "{buffer_name}")')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "WR")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -349,7 +349,7 @@ def dram_simd_template(mem_name, hag):
 def simd_dram_template(mem_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.transfers[("DRAM", "{mem_name}")].src_offset')
+    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
     instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
     instr.set_field_by_name("ACCESS_TYPE", "LD")
     instr.set_field_by_name("BUFFER", f"{mem_name}")

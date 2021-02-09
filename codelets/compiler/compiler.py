@@ -48,7 +48,7 @@ def map_tile_nodes(node_sequence, program: CodeletProgram) -> CodeletProgram:
         # TODO: Check if certain optimizations are necessary
 
         cdlt = tile(cdlt, program.hag)
-        cdlt = hoist(cdlt)
+        # cdlt = hoist(cdlt)
 
         codelets[n.name] = cdlt
 
