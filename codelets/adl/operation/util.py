@@ -28,12 +28,12 @@ def evaluate_offset(expr: Basic, values: Dict[str, int]):
         if str(f_sym) in values:
             expr = expr.subs(f_sym, values[str(f_sym)])
     if not isinstance(expr, (Integer, Integral)):
-        raise TypeError(f"Unable to compute domain offsets because offset is not an integer:"
+        raise TypeError(f"Unable to compute domain domain_offsets because offset is not an integer:"
                         f"Offset: {expr}\tType: {type(expr)}")
     return int(expr)
 
 
-def size_from_offsets(cdlt, offsets):
+def size_from_offsets(cdlt, domain_offsets):
     sizes = []
 
     for o in offsets:
@@ -49,7 +49,7 @@ def size_from_offsets(cdlt, offsets):
     return sizes
 
 
-def size_from_extent(cdlt, offsets):
+def size_from_extent(cdlt, domain_offsets):
     sizes = []
 
     for o in offsets:

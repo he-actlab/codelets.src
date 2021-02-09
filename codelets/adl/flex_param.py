@@ -140,7 +140,7 @@ def get_lambda_source(lambda_func):
     # where lambdas are just a part of bigger expressions, they will have
     # some trailing junk after their definition.
     #
-    # Unfortunately, AST nodes only keep their _starting_ offsets
+    # Unfortunately, AST nodes only keep their _starting_ domain_offsets
     # from the original source, so we have to determine the end ourselves.
     # We do that by gradually shaving extra junk from after the definition.
     lambda_text = source_text[lambda_node.col_offset:]
