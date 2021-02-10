@@ -93,7 +93,7 @@ class DataMovement:
 
     def get_size_from_splits(self, cdlt, splits):
         sizes = {}
-        dtype_size = cdlt.get_operand(self.operand_name).dtype.bytes()
+
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
@@ -106,11 +106,17 @@ class DataMovement:
                 size = self.resolve_offset(o, max_vals) + 1
             else:
                 size = o
-            sizes[name] = size * dtype_size
+            sizes[name] = size
 
         return sizes
 
-    def set_size_from_splits(self, cdlt, level, split_levels):
+    def set_size_from_splits(self, cdlt, split_levels):
+        src_level = cdlt.get_tile_level(self.src_node)
+        dst_level = cdlt.get_tile_level(self.dst_node)
+        if src_level > dst_level:
+            level = dst_level
+        else:
+            level = src_level
         splits = defaultdict(lambda: 1)
         for lev in range(level):
             for key, loop in split_levels[lev+1].items():

@@ -35,92 +35,92 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
 
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, heuristic_fn)
-    # for start, end in bands:
-    #     idx = start
-    #     splits = loop_splits[cdlt.ops[idx].op_str] - 1
-    #     dep_mapping = {}
-    #     for split in range(splits):
-    #         op_band = cdlt.ops[start: end + 1]
-    #         offset = (end - start)
-    #         num_splits = 0
-    #         for op in op_band:
-    #             i = cdlt.ops.index(op)
-    #             target_idx = offset + i
-    # 
-    #             if cdlt.ops[target_idx].op_type == "loop":
-    #                 inner_loop_level = cdlt.ops[target_idx].loop_level + 1
-    #             else:
-    #                 inner_loop_level = cdlt.ops[target_idx].loop_level
-    # 
-    #             if inner_loop_level < op.loop_level:
-    #                 raise RuntimeError
-    # 
-    #             inner_deps = [dep_mapping[dp] for dp in op.dependencies]
-    #             new_op_id, new_global_id = cdlt.get_new_op_ids(op)
-    #             extra_kwargs = {}
-    # 
-    #             if op.op_type == "transfer":
-    #                 if len(op.path) <= 2:
-    #                     dep_mapping[op.op_str] = op.op_str
-    #                     offset -= 1
-    #                     if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
-    #                         cdlt.insert_op(op, target_idx)
-    #                     continue
-    #                 elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
-    #                     inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
-    #                     op._path = outer_path
-    #                     extra_kwargs["path"] = inner_path
-    #                     extra_kwargs["operand"] = op.operand
-    #                     inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
-    #                                                 op_id=new_op_id,
-    #                                                 global_op_id=new_global_id,
-    #                                                 dependencies=inner_deps, **extra_kwargs)
-    #                     assert id(op.operand) == id(inner_op.operand)
-    #                     op.operand.update_transfer_access(inner_op)
-    # 
-    #                     inner_idx = target_idx
-    #                     dep_mapping[op.op_str] = inner_op.op_str
-    # 
-    #                     # Update outer op
-    #                     op._dependencies.append(inner_op.op_str)
-    #                     cdlt.insert_op(op, target_idx)
-    # 
-    #                 else:
-    #                     outer_path, inner_path = op.path[split: split + 2], op.path[split + 1:]
-    #                     op._path = outer_path
-    #                     extra_kwargs["path"] = inner_path
-    #                     extra_kwargs["operand"] = op.operand
-    # 
-    #                     inner_deps.append(op.op_str)
-    #                     inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
-    #                                                 op_id=new_op_id,
-    #                                                 global_op_id=new_global_id,
-    #                                                 dependencies=inner_deps, **extra_kwargs)
-    #                     assert id(op.operand) == id(inner_op.operand)
-    # 
-    #                     op.operand.update_transfer_access(inner_op)
-    #                     inner_idx = target_idx + 1
-    #                     dep_mapping[op.op_str] = inner_op.op_str
-    # 
-    #                 num_splits += 1
-    #             elif op.op_type == "loop":
-    # 
-    #                 inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
-    #                                                 op_id=new_op_id,
-    #                                                 global_op_id=new_global_id,
-    #                                                 dependencies=inner_deps, **extra_kwargs)
-    # 
-    #                 dep_mapping[op.op_str] = inner_op.op_str
-    #                 inner_idx = target_idx + 1
-    #                 num_splits += 1
-    #             else:
-    #                 dep_mapping[op.op_str] = op.op_str
-    #                 op.dependencies = inner_deps
-    #                 op.loop_level = inner_loop_level
-    #                 inner_op = op
-    #                 inner_idx = target_idx
-    #                 num_splits += 1
-    #             cdlt.insert_op(inner_op, inner_idx)
+    for start, end in bands:
+        idx = start
+        splits = loop_splits[cdlt.ops[idx].op_str] - 1
+        dep_mapping = {}
+        for split in range(splits):
+            op_band = cdlt.ops[start: end + 1]
+            offset = (end - start)
+            num_splits = 0
+            for op in op_band:
+                i = cdlt.ops.index(op)
+                target_idx = offset + i
+
+                if cdlt.ops[target_idx].op_type == "loop":
+                    inner_loop_level = cdlt.ops[target_idx].loop_level + 1
+                else:
+                    inner_loop_level = cdlt.ops[target_idx].loop_level
+
+                if inner_loop_level < op.loop_level:
+                    raise RuntimeError
+
+                inner_deps = [dep_mapping[dp] for dp in op.dependencies]
+                new_op_id, new_global_id = cdlt.get_new_op_ids(op)
+                extra_kwargs = {}
+
+                if op.op_type == "transfer":
+                    if len(op.path) <= 2:
+                        dep_mapping[op.op_str] = op.op_str
+                        offset -= 1
+                        if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+                            cdlt.insert_op(op, target_idx)
+                        continue
+                    elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+                        inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
+                        op._path = outer_path
+                        extra_kwargs["path"] = inner_path
+                        extra_kwargs["operand"] = op.operand
+                        inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
+                                                    op_id=new_op_id,
+                                                    global_op_id=new_global_id,
+                                                    dependencies=inner_deps, **extra_kwargs)
+                        assert id(op.operand) == id(inner_op.operand)
+                        op.operand.update_transfer_access(inner_op)
+
+                        inner_idx = target_idx
+                        dep_mapping[op.op_str] = inner_op.op_str
+
+                        # Update outer op
+                        op._dependencies.append(inner_op.op_str)
+                        cdlt.insert_op(op, target_idx)
+
+                    else:
+                        outer_path, inner_path = op.path[split: split + 2], op.path[split + 1:]
+                        op._path = outer_path
+                        extra_kwargs["path"] = inner_path
+                        extra_kwargs["operand"] = op.operand
+
+                        inner_deps.append(op.op_str)
+                        inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
+                                                    op_id=new_op_id,
+                                                    global_op_id=new_global_id,
+                                                    dependencies=inner_deps, **extra_kwargs)
+                        assert id(op.operand) == id(inner_op.operand)
+
+                        op.operand.update_transfer_access(inner_op)
+                        inner_idx = target_idx + 1
+                        dep_mapping[op.op_str] = inner_op.op_str
+
+                    num_splits += 1
+                elif op.op_type == "loop":
+
+                    inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
+                                                    op_id=new_op_id,
+                                                    global_op_id=new_global_id,
+                                                    dependencies=inner_deps, **extra_kwargs)
+
+                    dep_mapping[op.op_str] = inner_op.op_str
+                    inner_idx = target_idx + 1
+                    num_splits += 1
+                else:
+                    dep_mapping[op.op_str] = op.op_str
+                    op.dependencies = inner_deps
+                    op.loop_level = inner_loop_level
+                    inner_op = op
+                    inner_idx = target_idx
+                    num_splits += 1
+                cdlt.insert_op(inner_op, inner_idx)
 
     return cdlt
 
@@ -173,7 +173,8 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         perm_map = {l: p[i]*accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
         for level_access in level_accesses[lvl]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
-            total_size = np.prod(list(size.values()))
+            dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
+            total_size = np.prod(list(size.values()))*dtype_size
             min_size, max_size = tile_constraints[(level_access.src_node, level_access.dst_node)]
             if total_size < min_size or total_size > max_size:
                 valid_splits = None
@@ -218,11 +219,10 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
                 a.offset_map = o.data_moves[idx - 1].offset_map.copy()
-            level = cdlt.get_tile_level(a.src_node)
             if len(a.shape_map) == 0:
-                a.set_size_from_splits(cdlt, level, selected_splits)
-
+                a.set_size_from_splits(cdlt, selected_splits)
             a.set_offset_map(cdlt, shapes)
+
     cdlt._domain_loop_map = level_factors
     return cdlt
 
