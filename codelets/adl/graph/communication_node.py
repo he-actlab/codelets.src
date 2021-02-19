@@ -1,4 +1,4 @@
-from codelets.adl.architecture_node import ArchitectureNode
+from codelets.adl.graph.architecture_node import ArchitectureNode
 from typing import Dict
 
 class CommunicationNode(ArchitectureNode):
@@ -9,6 +9,10 @@ class CommunicationNode(ArchitectureNode):
         self._comm_type = comm_type
         self._latency = latency
         self._bandwidth = bw
+
+    @property
+    def node_type(self):
+        return 'communication'
 
     @property
     def viz_color(self):

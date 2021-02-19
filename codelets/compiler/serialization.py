@@ -1,17 +1,45 @@
 import json
-from codelets.adl.architecture_graph import ArchitectureGraph
-from typing import Union
-from codelets.adl.architecture_node import ArchitectureNode
-from codelets.adl.communication_node import CommunicationNode
-from codelets.adl.compute_node import ComputeNode
-from codelets.adl.storage_node import StorageNode
+from typing import Union, Any
+from codelets.adl.graph.architecture_node import ArchitectureNode
+from codelets.adl.graph.communication_node import CommunicationNode
+from codelets.adl.graph.compute_node import ComputeNode
+from codelets.adl.graph.storage_node import StorageNode
 from codelets.adl.codelet import Codelet
-from codelets.adl.capability import Capability
-from codelets.adl.operand import Operand, Datatype, NullOperand
-
+from codelets.adl.operation import OperandTemplate
+from codelets.adl.flex_template.instruction import Instruction
+from codelets.adl.operation import OperandTemplate, Datatype
+import linecache
 from typing import List, Dict
 from jsonschema import validate
 from pathlib import Path
+import numpy as np
+from numbers import Integral
+import sympy
+import math
+
+# Need to store
+_next_id = 0
+def exec_with_source(src: str, globals: Dict[str, Any]):
+    global _next_id
+    key = f'<eval_with_key_{_next_id}>'
+    _next_id += 1
+    _eval_cache[key] = [line + '\n' for line in src.splitlines()]
+    # exec(compile(src, key, 'exec'), globals)
+    return eval(compile(src, key, 'eval'))
+
+_eval_cache : Dict[str, List[str]] = {}
+_orig_getlines = linecache.getlines
+def patched_getline(*args, **kwargs):
+    if args[0] in _eval_cache:
+        return _eval_cache[args[0]]
+    return _orig_getlines(*args, **kwargs)
+
+def _lambda_from_src(src: str):
+    gbls: Dict[str, Any] = {'inf': math.inf, 'nan': math.nan}
+    return exec_with_source(src, gbls)
+
+linecache.getlines = patched_getline
+
 
 BaseArchNode = Union[ComputeNode, CommunicationNode, StorageNode]
 CWD = Path(f"{__file__}").parent
@@ -20,7 +48,7 @@ JSON_SCHEMA_PATH = f"{CWD}/adl_schema.json"
 def get_compute_blob(node):
     blob = {"field_name": node.field_name, "dimensions": node.dimensions}
     capabilities = []
-    for name, c in node.capabilities.items():
+    for name, c in node.primitives.items():
         cap_blob = {}
         cap_blob['field_name'] = c.field_name
         cap_blob['input_dimension_names'] = c.input_dimension_names
@@ -36,7 +64,7 @@ def get_compute_blob(node):
         # for sc in c.capability_sequence:
         #     cap_blob['capability_sequence'].append()
         capabilities.append(cap_blob)
-    blob['capabilities'] = capabilities
+    blob['primitives'] = capabilities
     return blob
 
 def get_communication_blob(node):
@@ -98,18 +126,18 @@ def deserialize_graph(filepath, validate_load=False):
     return graph
 
 def _deserialize_node(node_object):
-    args = [node_object['name']]
+    args = [node_object['field_name']]
     subgraph_nodes = [_deserialize_node(n) for n in node_object['subgraph']['nodes']]
 
     kwargs = {}
     kwargs['index'] = node_object['node_id']
 
     for k, v in node_object['attributes'].items():
-        if k == "capabilities":
+        if k == "primitives":
             kwargs[k] = _deserialize_capabilities(v)
         elif k == "codelets":
-            assert "capabilities" in kwargs
-            kwargs[k] = _deserialize_codelets(kwargs['capabilities'], v)
+            assert "primitives" in kwargs
+            kwargs[k] = _deserialize_codelets(kwargs['primitives'], v)
         else:
             kwargs[k] = v
 
@@ -119,7 +147,7 @@ def _deserialize_node(node_object):
         node.add_subgraph_node(sn)
 
     for e in node_object['subgraph']['edges']:
-        node.add_subgraph_edge(e['src'], e['dst'], **e['attributes'])
+        node.add_subgraph_edge(e['src'], e['dest'], **e['attributes'])
 
     return node
 
@@ -130,46 +158,55 @@ def _deserialize_capabilities(capability_list: List[Dict]):
         kwargs = {}
         kwargs['target'] = c['target']
         kwargs['latency'] = c['latency']
-        kwargs['operands'] = _deserialize_operands(c['operands'])
+        kwargs['source'] = _deserialize_operands(c['source'])
         for k, v in c['extra_params'].items():
             kwargs[k] = v
-        cap = Capability(c['op_name'], c['opcode'], c['opcode_width'], **kwargs)
+        cap = Instruction(c['target_name'], c['opcode'], c['opcode_width'], **kwargs)
         caps.append(cap)
     return caps
 
-# Add compoennts, index size to operands
+# Add compoennts, index size to source
 def _deserialize_operands(op_list):
     operands = []
-    for o in op_list:
-        if o['field_name'] == "null":
-            op = NullOperand(o['bitwidth'], 0)
-        else:
-            args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['dtypes']), o['bitwidth'])
-            kwargs = {}
-            kwargs['value_names'] = o['possible_values']
-            kwargs['index_size'] = o['index_size']
-            kwargs['components'] = o['components']
-            op = Operand(*args, **kwargs)
-        operands.append(op)
+    # for o in op_list:
+    #     if o['field_name'] == "null":
+    #         op = NullOperand(o['bitwidth'], 0)
+    #     else:
+    #         args = (o['field_name'], o['field_type'], _deserialize_dtypes(o['supported_dtypes']), o['bitwidth'])
+    #         kwargs = {}
+    #         kwargs['value_names'] = o['possible_values']
+    #         kwargs['index_size'] = o['index_size']
+    #         kwargs['components'] = o['components']
+    #         op = Operand(*args, **kwargs)
+    #     operands.append(op)
     return operands
 
 def _deserialize_dtypes(dtypes):
     return [DTYPE_MAP[dt] for dt in dtypes]
 
-def _deserialize_codelets(capabilities: List[Capability], codelet_list):
+def _deserialize_codelets(capabilities: List[Instruction], codelet_list):
     cap_map = {c.name: c for c in capabilities}
     codelets = []
     for cdlt_obj in codelet_list:
-        input_dtypes = _deserialize_dtypes(cdlt_obj['input_dtypes'])
-        output_dtypes = _deserialize_dtypes(cdlt_obj['output_dtypes'])
-        args = (cdlt_obj['codelet_name'], input_dtypes, output_dtypes)
+        inputs = [OperandTemplate.from_json(ipt_obj) for ipt_obj in cdlt_obj['source']]
+        outputs = [OperandTemplate.from_json(opt_obj) for opt_obj in cdlt_obj['dest']]
+
+        args = (cdlt_obj['codelet_name'],)
         kwargs = {}
+        kwargs['source'] = inputs
+        kwargs['dest'] = outputs
         kwargs['latency'] = cdlt_obj['latency']
-        kwargs['op_params'] = cdlt_obj['op_params']
+        op_params = {}
+        for k, v in cdlt_obj['op_params'].items():
+            if v['type'] == 'function':
+                op_params[k] = _lambda_from_src(v['value'])
+            else:
+                op_params[k] = v['value']
+        kwargs['op_params'] = op_params
         templates = []
         for cap_obj in cdlt_obj['capability_sequence']:
-            assert cap_obj['op_name'] in cap_map
-            cap_tmp = cap_map[cap_obj['op_name']].create_template()
+            assert cap_obj['target_name'] in cap_map
+            cap_tmp = cap_map[cap_obj['target_name']].create_template()
             for of in cap_obj['op_fields']:
                 if of['field_name'] == "null":
                     continue
@@ -189,6 +226,17 @@ def validate_schema(json_graph):
     with open(JSON_SCHEMA_PATH, "r") as schema_file:
         schema = json.load(schema_file)
     validate(json_graph, schema=schema)
+
+
+class CodeletJSONEncoder(json.JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, np.floating):
+            return float(o)
+        elif isinstance(o, sympy.Basic):
+            return str(o)
+        return json.JSONEncoder.default(self, o)
 
 
 NODE_INITIALIZERS = {
