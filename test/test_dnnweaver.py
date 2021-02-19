@@ -1,6 +1,6 @@
 from codelets.examples import generate_dnnweaver
-from codelets.examples.dnnweaver import SysArrayConfig, SIMDConfig, MemConfig, MaxPool
-from codelets.adl.serialization import serialize_graph, deserialize_graph, compare_graphs
+from codelets.examples.dnnweaver import SysArrayConfig, SIMDConfig, MemConfig
+from codelets.compiler.serialization import serialize_graph, deserialize_graph, compare_graphs
 from collections import namedtuple
 import pytest
 from pathlib import Path

@@ -55,7 +55,7 @@ class ArchitectureGraph(Graph):
             name = f"node_{node.index}"
             node_attrs = {}
             node_attrs['style'] = style
-            node_attrs['shape'] = shape
+            node_attrs['shape_symbols'] = shape
             node_attrs['fillcolor'] = 'white' if not node.is_attr_key("node_color") else node.get_attr("node_color")
             label = f"{label}\\n{node.get_viz_attr()}"
             if node.get_type() == "StorageNode":
@@ -84,7 +84,7 @@ class ArchitectureGraph(Graph):
         node_attrs = {}
         node_attrs['label'] = f'{type(node).__name__}' if not node.is_attr_key("field_name") else node.get_attr("field_name")
         node_attrs['style'] = style
-        node_attrs['shape'] = shape
+        node_attrs['shape_symbols'] = shape
         node_attrs['fillcolor'] = color
 
         if node.get_type() == "StorageNode":

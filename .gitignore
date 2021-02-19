@@ -126,7 +126,7 @@ mldata/
 test/scratch/
 
 # TODO info
-TODO
+TODO*
 # Numpy serialized files
 *.npz
 
