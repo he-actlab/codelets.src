@@ -41,22 +41,22 @@ class Graph(object):
 
     def _add_edge(self, src_node, dst_node):
 
-        # check if src and dst are both in the graph
+        # check if src and dest are both in the graph
         assert src_node.index in self._nodes.keys() or src_node.index in self._inputs, 'src_node is not in graph'
         assert dst_node.index in self._nodes.keys() or dst_node.index in self._outputs, 'dst_node is not in graph'
 
-        # NOTE add_succ and add_pred deals with both src and dst nodes.
+        # NOTE add_succ and add_pred deals with both src and dest nodes.
         # therefore, only one invocation is required
         src_node.add_succ(dst_node)
         # dst_node.add_pred(src_node)
     
     def remove_edge(self, src_node, dst_node):
         
-        # check if src and dst are both in the graph
+        # check if src and dest are both in the graph
         assert src_node.index in self._nodes.keys(), 'src_node is not in graph'
         assert dst_node.index in self._nodes.keys(), 'dst_node is not in graph'
 
-        # NOTE remove_succ and remove_pred deals with both src and dst nodes.
+        # NOTE remove_succ and remove_pred deals with both src and dest nodes.
         # therefore, only one invocation is required
         src_node.remove_succ(dst_node)
         #dst_node.remove_pred(src_node)
