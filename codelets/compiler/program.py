@@ -1,5 +1,6 @@
 import json
 from typing import List, Callable, Dict, List, Any
+from collections import defaultdict
 from codelets.adl.flex_template import FlexTemplate
 from codelets.adl.graph import ArchitectureNode
 from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
@@ -14,31 +15,28 @@ EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", 
 
 @dataclass
 class CompilationStage:
-    stage: str
+    name: str
+    level: int
     compilation_fn: Callable
+    dependencies: List[str]
     fn_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         # TODO: Check function signature
         pass
 
-
     def run(self, *args):
         return self.compilation_fn(*args, **self.fn_kwargs)
 
-
 class CodeletProgram(object):
 
-    def __init__(self, name, hag: ArchitectureNode):
-        self._name = name
+    def __init__(self, graph: pm.Node, hag: ArchitectureNode ):
+        self._name = graph.name
         self._hag = hag
+        self._graph = graph
         self._codelets = []
         self._relocatables = RelocationTable()
-        self._compilation_pipeline = {}
-        self._compilation_pipeline['program'] = []
-        self._compilation_pipeline['codelet'] = []
-        self._compilation_pipeline['operation'] = []
-        self._compilation_pipeline['instruction'] = []
+        self._compilation_pipeline = defaultdict(list)
 
     @property
     def name(self) -> str:
@@ -49,6 +47,10 @@ class CodeletProgram(object):
         return self._hag
 
     @property
+    def graph(self):
+        return self._graph
+
+    @property
     def codelets(self) -> List[Codelet]:
         return self._codelets
 
@@ -57,7 +59,7 @@ class CodeletProgram(object):
         return self._relocatables
 
     @property
-    def compilation_pipeline(self) -> Dict[str, List]:
+    def compilation_pipeline(self) -> Dict[int, List]:
         return self._compilation_pipeline
 
     def add_codelet(self, cdlt: Codelet):
@@ -93,20 +95,31 @@ class CodeletProgram(object):
         assert all([i.is_instantiated() for i in inputs])
         assert all([o.is_instantiated() for o in outputs])
 
-    def add_compilation_step(self, stage: str, compilation_fn: Callable, stage_kwargs=None, insert_idx=-1):
+    def add_compilation_step(self, name: str,
+                             compilation_fn: Callable,
+                             level=0,
+                             dependencies=None,
+                             stage_kwargs=None,
+                             insert_idx=-1
+                             ):
         if not callable(compilation_fn):
             raise TypeError(f"Compilation step must be a callable function:\n"
-                            f"Stage: {stage}\n"
+                            f"Name: {name}\n"
                             f"Compilation arg: {compilation_fn}, Type: {type(compilation_fn)}")
-        elif stage not in self.compilation_pipeline:
-            raise KeyError(f"Invalid stage for compilation pipeline:\n"
-                           f"Stage: {stage}")
-        stage_kwargs = stage_kwargs or None
-        fn_obj = CompilationStage(stage, compilation_fn, stage_kwargs)
+        elif name in self.compilation_pipeline[level]:
+            raise KeyError(f"Compilation for compilation stage already exists:\n"
+                           f"Name: {name}")
+        stage_kwargs = stage_kwargs or {}
+        dependencies = dependencies or []
+        level_names = [comp_stage.name for comp_stage in self.compilation_pipeline[level]]
+        for d in dependencies:
+            assert d in level_names
+
+        fn_obj = CompilationStage(name, level, compilation_fn, dependencies, stage_kwargs)
         if insert_idx >= 0:
-            self._compilation_pipeline[stage].insert(insert_idx, fn_obj)
+            self._compilation_pipeline[level].insert(insert_idx, fn_obj)
         else:
-            self._compilation_pipeline[stage].append(fn_obj)
+            self._compilation_pipeline[level].append(fn_obj)
 
     INSTR_FN_TEMPLATE = """def param_fn{FN_ID}(hag, op, cdlt, relocation_table, program, fixed_val=None): return {FN_BODY}"""
 
@@ -166,10 +179,52 @@ class CodeletProgram(object):
         with open(full_path, 'w') as outfile:
             outfile.write(instructions)
 
+    def sequence_nodes(self, sequence_algorithm):
+        # TODO: Add support for different sequencing algos
+        node_list = []
+        all_ops = []
+        if sequence_algorithm == "default":
+            for name, node in self.graph.nodes.items():
+                if not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in all_ops:
+                    all_ops.append(node.op_name)
+                if self.hag.has_codelet(node.op_name):
+                    node_list.append(node)
+        else:
+            raise RuntimeError(f"{sequence_algorithm} is not a valid sequencing algorithm")
+        return node_list
+
+    def compile(self, sequence_algorithm="default"):
+        node_sequence = self.sequence_nodes(sequence_algorithm)
+
+        # This function performs breadth-first compilation, with coarsest abstractions first:
+        # 1. Generate codelets from nodes
+        # 2. Generate operands/operations within codelets
+        # 3. Generate instruction templates within operations
+        codelets = {}
+
+        for n in node_sequence:
+            cdlt = self.instantiate_codelet(n)
+            codelets[n.name] = cdlt
+
+        for n in node_sequence:
+            cdlt = codelets[n.name]
+            cdlt.instantiate_operations(n, self.hag)
+            # TODO: Check if certain optimizations are necessary
+            codelets[n.name] = cdlt
+
+        for level, fns in self.compilation_pipeline.items():
+            for n in node_sequence:
+                cdlt = codelets[n.name]
+                for fn in fns:
+                    cdlt = fn.run(self, n, cdlt)
+                codelets[n.name] = cdlt
+
+        for n in node_sequence:
+            self.instantiate_instructions_templates(n, codelets[n.name])
+
 
 def generate_possible_tilings(shape_dict, memory_paths):
     possible_tilings = {}
-
     for k, v in shape_dict.items():
         tile_permutations = []
 
