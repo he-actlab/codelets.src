@@ -1,15 +1,30 @@
 import json
-from typing import List
+from typing import List, Callable, Dict, List, Any
 from codelets.adl.flex_template import FlexTemplate
 from codelets.adl.graph import ArchitectureNode
 from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl import Codelet
 from pathlib import Path
+from dataclasses import dataclass, field
 import numpy as np
 import polymath as pm
 from .relocation_table import RelocationTable
 
 EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "decimal", "binary"]
+
+@dataclass
+class CompilationStage:
+    stage: str
+    compilation_fn: Callable
+    fn_kwargs: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        # TODO: Check function signature
+        pass
+
+
+    def run(self, *args):
+        return self.compilation_fn(*args, **self.fn_kwargs)
 
 
 class CodeletProgram(object):
@@ -19,6 +34,11 @@ class CodeletProgram(object):
         self._hag = hag
         self._codelets = []
         self._relocatables = RelocationTable()
+        self._compilation_pipeline = {}
+        self._compilation_pipeline['program'] = []
+        self._compilation_pipeline['codelet'] = []
+        self._compilation_pipeline['operation'] = []
+        self._compilation_pipeline['instruction'] = []
 
     @property
     def name(self) -> str:
@@ -35,6 +55,10 @@ class CodeletProgram(object):
     @property
     def relocatables(self) -> RelocationTable:
         return self._relocatables
+
+    @property
+    def compilation_pipeline(self) -> Dict[str, List]:
+        return self._compilation_pipeline
 
     def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)
@@ -68,6 +92,21 @@ class CodeletProgram(object):
     def get_tiling_dims(self, inputs: List[OperandTemplate], outputs: List[OperandTemplate]):
         assert all([i.is_instantiated() for i in inputs])
         assert all([o.is_instantiated() for o in outputs])
+
+    def add_compilation_step(self, stage: str, compilation_fn: Callable, stage_kwargs=None, insert_idx=-1):
+        if not callable(compilation_fn):
+            raise TypeError(f"Compilation step must be a callable function:\n"
+                            f"Stage: {stage}\n"
+                            f"Compilation arg: {compilation_fn}, Type: {type(compilation_fn)}")
+        elif stage not in self.compilation_pipeline:
+            raise KeyError(f"Invalid stage for compilation pipeline:\n"
+                           f"Stage: {stage}")
+        stage_kwargs = stage_kwargs or None
+        fn_obj = CompilationStage(stage, compilation_fn, stage_kwargs)
+        if insert_idx >= 0:
+            self._compilation_pipeline[stage].insert(insert_idx, fn_obj)
+        else:
+            self._compilation_pipeline[stage].append(fn_obj)
 
     INSTR_FN_TEMPLATE = """def param_fn{FN_ID}(hag, op, cdlt, relocation_table, program, fixed_val=None): return {FN_BODY}"""
 

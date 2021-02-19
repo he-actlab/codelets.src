@@ -4,21 +4,16 @@ from typing import List
 from pytools import memoize, memoize_on_first_arg
 
 from codelets.adl import Codelet, ComputeNode
+from codelets.adl.flex_param import FlexParam
 from codelets.adl.graph import ArchitectureNode, StorageNode
-from codelets.adl.operation import Compute, OperandTemplate, Operation, Transfer, size_from_extent, size_from_offsets
-from . import split_operation, factors
+from codelets.adl.operation import Compute, OperandTemplate, Operation, Transfer, Loop
+from codelets.compiler.transformations import split_operation, factors
 import numpy as np
+import polymath as pm
 
 
-def default_tile_heuristic(hag: ArchitectureNode, cdlt: Codelet, tiling_splits):
-    total_accesses = 0
-    for l, splits in tiling_splits.items():
-        for _, s in splits.items():
-            total_accesses += s
-    return total_accesses
-
-
-def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
+def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
+    hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
     # Find amount of splits for each loop by looking at dependencies
@@ -47,7 +42,7 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
                 i = cdlt.ops.index(op)
                 target_idx = offset + i
 
-                if cdlt.ops[target_idx].op_type == "loop":
+                if isinstance(cdlt.ops[target_idx], Loop):
                     inner_loop_level = cdlt.ops[target_idx].loop_level + 1
                 else:
                     inner_loop_level = cdlt.ops[target_idx].loop_level
@@ -59,7 +54,7 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
 
-                if op.op_type == "transfer":
+                if isinstance(op, Transfer):
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         offset -= 1
@@ -90,9 +85,8 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
                         op._path = outer_path
                         extra_kwargs["path"] = inner_path
                         extra_kwargs["operand"] = op.operand
-
                         inner_deps.append(op.op_str)
-                        inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
+                        inner_op = op.copy(cdlt, loop_level=inner_loop_level,
                                                     op_id=new_op_id,
                                                     global_op_id=new_global_id,
                                                     dependencies=inner_deps, **extra_kwargs)
@@ -103,12 +97,20 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
                         dep_mapping[op.op_str] = inner_op.op_str
 
                     num_splits += 1
-                elif op.op_type == "loop":
+                elif isinstance(op, Loop):
 
-                    inner_op = cdlt.ops[i].copy(cdlt, loop_level=inner_loop_level,
+                    extra_kwargs['start'] = 0
+                    extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
+                    extra_kwargs['stride'] = 1
+
+                    inner_op = op.copy(cdlt, loop_level=inner_loop_level,
                                                     op_id=new_op_id,
                                                     global_op_id=new_global_id,
                                                     dependencies=inner_deps, **extra_kwargs)
+
+                    op.start = 0
+                    op.stride = cdlt.domain_loop_map[split + 1][op.op_str]
+                    op.end = cdlt.domain_loop_map[split][op.op_str]
 
                     dep_mapping[op.op_str] = inner_op.op_str
                     inner_idx = target_idx + 1
@@ -125,6 +127,43 @@ def tile(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn=None) -> Codelet:
     return cdlt
 
 
+def hoist(program, node: pm.Node, cdlt: Codelet) -> Codelet:
+    for o in cdlt.ops:
+        i = cdlt.ops.index(o)
+        i_loop_level = o.loop_level
+        idx = -1
+        loop_level = -1
+        for dep in o.dependencies:
+
+            dep_idx = cdlt.ops.index(cdlt.op_map[dep])
+            if cdlt.ops[dep_idx].op_type == "loop":
+                dep_level = cdlt.ops[dep_idx].loop_level + 1
+            else:
+                dep_level = cdlt.ops[dep_idx].loop_level
+
+            if dep_level > loop_level:
+                loop_level = dep_level
+
+            if dep_idx > idx:
+                idx = dep_idx
+
+        if idx < 0:
+            idx = i
+
+        if idx < i:
+            cdlt.ops.insert(idx + 1, cdlt.ops.pop(i))
+            idx += 1
+
+        if loop_level < i_loop_level and loop_level > 0:
+            cdlt.ops[idx].loop_level = loop_level
+
+    return cdlt
+
+def instantiate_codelet(program, node: pm.Node, cdlt: Codelet):
+    cdlt = program.hag.get_codelet_template(node.op_name)
+    program.add_codelet(cdlt)
+    return cdlt
+
 def get_level_tiling(loop_dependencies, shapes, splits):
     out_shapes = {}
     out_factors = {}
@@ -136,10 +175,16 @@ def get_level_tiling(loop_dependencies, shapes, splits):
     next(perms)
     return out_shapes, out_factors, perms
 
-
+def default_tile_heuristic(hag: ArchitectureNode, cdlt: Codelet, tiling_splits):
+    total_accesses = 0
+    for l, splits in tiling_splits.items():
+        for _, s in splits.items():
+            total_accesses += s
+    return total_accesses
 
 def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
-
+    # TODO: Try to look ahead and see if all paths lead to node, in which case
+    # we can add additional constraints to the first level
     tile_constraints = get_tile_constraints(cdlt, hag)
     level_accesses = defaultdict(list)
     loop_dependencies = []
@@ -165,7 +210,6 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
     perm_stack = deque()
     perm_stack.append(product(*tuple(level_factors[0].values())))
     level = 1
-
     @memoize
     def find_valid_splits(p, lvl):
         valid_splits = p
@@ -173,10 +217,13 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         perm_map = {l: p[i]*accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
         for level_access in level_accesses[lvl]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
+
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
             total_size = np.prod(list(size.values()))*dtype_size
-            min_size, max_size = tile_constraints[(level_access.src_node, level_access.dst_node)]
-            if total_size < min_size or total_size > max_size:
+            constraint_sat = tile_constraints[(level_access.src_node, level_access.dst_node)].evaluate_fn(total_size)
+            # min_size, max_size = tile_constraints[(level_access.src_node, level_access.dst_node)]
+
+            if not constraint_sat:
                 valid_splits = None
                 break
         return valid_splits
@@ -222,9 +269,12 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, selected_splits)
             a.set_offset_map(cdlt, shapes)
+    # TODO: Store all information int he codelet
 
-    cdlt._domain_loop_map = level_factors
+    cdlt._domain_tiling = selected_splits
+    cdlt._domain_loop_map = shapes
     return cdlt
+
 
 # TODO: THis needs to return a list of functions with the same function signature
 def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
@@ -237,24 +287,31 @@ def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
             dst_node = hag.get_subgraph_node(access.dst_node)
             edge = hag.get_subgraph_edge(access.src_node, access.dst_node)
             if isinstance(dst_node, ComputeNode):
+                constraint = f"size <= {edge.bandwidth} and size >= 0"
+
                 assert isinstance(src_node, StorageNode)
-                max_size = edge.bandwidth*1000
+                max_size = edge.bandwidth
                 # TODO: Need to add something which adds padding function here and uses a function constraint
                 # min_size = edge.bandwidth
                 min_size = 0
             elif isinstance(dst_node, StorageNode):
                 if isinstance(src_node, ComputeNode):
-                    max_size = edge.bandwidth*1000
+                    constraint = f"size <= {edge.bandwidth} and size >= 0"
+
+                    max_size = edge.bandwidth
                     # min_size = edge.bandwidth
                     min_size = 0
                 else:
                     assert isinstance(src_node, StorageNode)
+                    constraint = f"size <= {dst_node.size} and size >= 0"
+
                     max_size = dst_node.size
                     min_size = 0
                     # min_size = edge.bandwidth
             else:
                 raise TypeError(f"Unable to handle architecture node type {type(dst_node)}")
-            path_constraints[(access.src_node, access.dst_node)] = (min_size, max_size)
+            path_constraints[(access.src_node, access.dst_node)] = FlexParam(f"constraint_{(access.src_node)}_{(access.dst_node)}",
+                                                                              ["size"], constraint)
 
 
     return path_constraints

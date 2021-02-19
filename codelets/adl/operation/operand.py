@@ -123,7 +123,6 @@ class DataMovement:
                 splits[key] *= loop
         self.shape_map = self.get_size_from_splits(cdlt, splits)
 
-
     def set_offset_map(self, cdlt, loop_shapes):
         self.resolve_domain_offsets(cdlt, loop_shapes)
 

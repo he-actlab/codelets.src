@@ -1,11 +1,15 @@
 from typing import Tuple, Dict
 from codelets.adl.graph import ArchitectureNode
 from .program import CodeletProgram
-from .transformations import tile, hoist
+from .codelet_compilation import tile, hoist
 import polymath as pm
 
 TileConstraint = Dict[Tuple[str, str], Tuple[int, int]]
 
+def initialize_program(program_graph, hag: ArchitectureNode):
+    program = CodeletProgram(program_graph.name, hag)
+    node_sequence = sequence_nodes(program_graph, hag)
+    return program
 
 def compile(program_graph, hag: ArchitectureNode, output_path, store_output=True, output_type="json"):
     # TODO: Add lowering pass using HAG
@@ -47,7 +51,7 @@ def map_tile_nodes(node_sequence, program: CodeletProgram) -> CodeletProgram:
         cdlt.instantiate_operations(n, program.hag)
         # TODO: Check if certain optimizations are necessary
 
-        cdlt = tile(cdlt, program.hag)
+        cdlt = tile(program, n, cdlt)
         # cdlt = hoist(cdlt)
 
         codelets[n.name] = cdlt
