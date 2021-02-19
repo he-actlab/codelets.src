@@ -2,7 +2,7 @@ from codelets.compiler.serialization import serialize_graph
 from codelets.examples.genesys import generate_genesys,\
     genesys_instructions, define_genesys
 import polymath as pm
-from codelets import compile, deserialize_graph
+from codelets import deserialize_graph, initialize_program, tile, hoist
 from collections import namedtuple
 import json
 from pathlib import Path
@@ -25,9 +25,12 @@ def test_genesys_resnet18():
 
     graph = pm.pb_load(f"{BENCH_DIR}/resnet18.srdfg")
     genesys = define_genesys("transformation")
-    #
-    program = compile(graph, genesys, f"{BENCH_DIR}", store_output=True, output_type="json")
-    res = program.emit("operations_idx")
+    program = initialize_program(graph, genesys)
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile()
+
+    res = program.emit("string_final")
     print(res)
 
 def test_genesys_serialization():
