@@ -18,7 +18,8 @@ class FlexTemplate:
         self.instructions.append(instruction)
 
     def add_condition(self, condition_str: str):
-        self.conditional = FlexParam("conditional", Instruction.DEFAULT_FN_ARGS, condition_str)
+        base_args = Instruction.DEFAULT_FN_ARGS + self.iter_args
+        self.conditional = FlexParam("conditional", base_args, condition_str)
 
     def add_iterable(self, arg_name: str, iterable):
         iterable_param = FlexParam(arg_name, Instruction.DEFAULT_FN_ARGS, iterable)
@@ -54,12 +55,24 @@ class FlexTemplate:
             instr_size *= len(iterable)
         self.num_instructions = instr_size
 
+    def evaluate_conditional(self, fn_args, iter_args):
+
+        if self.conditional is not None:
+            fn_args = fn_args + tuple(iter_args.values())
+            condition = self.conditional.evaluate_fn(*fn_args)
+        else:
+            condition = True
+        return condition
+
     # TODO: Add
     def evaluate_iterable_instruction(self, fn_args: tuple, instructions: List[Instruction], iter_idx: int, iter_args: dict):
         instruction = self.base_instruction.instruction_copy()
+
         if iter_idx >= len(self.iterables):
-            instruction.evaluate_fields(fn_args, iter_args)
-            instructions.append(instruction)
+            condition = self.evaluate_conditional(fn_args, iter_args)
+            if condition:
+                instruction.evaluate_fields(fn_args, iter_args)
+                instructions.append(instruction)
         else:
             iter_arg_name = self.iter_args[iter_idx]
             iterable_fnc = self.iterables[iter_idx]
@@ -86,6 +99,8 @@ class FlexTemplate:
         return tuple(args)
 
     def emit(self, output_type="string_final"):
+        if self.conditional and not self.conditional.value:
+            return []
         if len(self.instructions) == 0:
             print(self.base_instruction)
 

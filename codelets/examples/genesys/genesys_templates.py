@@ -268,6 +268,16 @@ def buffer_dram_template(buffer_name, hag):
     instr.set_field_flex_param("STRIDE", "offset.stride")
     instructions.append(instr)
 
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.get_dst_offset("{buffer_name}", "DRAM")')
+    instr.add_condition(f'offset.stride >= (1 << 16)')
+    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    instr.set_field_by_name("ACCESS_TYPE", "ST")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
+    instructions.append(instr)
+
     # TODO: Fix loop id for this to be the minimum
     instr = hag.get_primitive_template("LD_ST")
     instr.set_field_by_name("ACCESS_TYPE", "ST")

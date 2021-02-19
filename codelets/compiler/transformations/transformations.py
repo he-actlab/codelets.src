@@ -163,35 +163,3 @@ def lift_operations(cdlt: Codelet):
     cdlt._ops = lifted_ops
     return cdlt
 
-
-def hoist(cdlt: Codelet) -> Codelet:
-    for o in cdlt.ops:
-        i = cdlt.ops.index(o)
-        i_loop_level = o.loop_level
-        idx = -1
-        loop_level = -1
-        for dep in o.dependencies:
-
-            dep_idx = cdlt.ops.index(cdlt.op_map[dep])
-            if cdlt.ops[dep_idx].op_type == "loop":
-                dep_level = cdlt.ops[dep_idx].loop_level + 1
-            else:
-                dep_level = cdlt.ops[dep_idx].loop_level
-
-            if dep_level > loop_level:
-                loop_level = dep_level
-
-            if dep_idx > idx:
-                idx = dep_idx
-
-        if idx < 0:
-            idx = i
-
-        if idx < i:
-            cdlt.ops.insert(idx + 1, cdlt.ops.pop(i))
-            idx += 1
-
-        if loop_level < i_loop_level and loop_level > 0:
-            cdlt.ops[idx].loop_level = loop_level
-
-    return cdlt
