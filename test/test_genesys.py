@@ -22,7 +22,7 @@ def parse_cfg():
     return genesys
 
 def test_genesys_resnet18():
-
+    from pprint import pprint
     graph = pm.pb_load(f"{BENCH_DIR}/resnet18.srdfg")
     genesys = define_genesys("transformation")
     program = initialize_program(graph, genesys)
@@ -30,8 +30,10 @@ def test_genesys_resnet18():
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
 
-    res = program.emit("string_final")
-    print(res)
+    # res = program.emit("operations_idx")
+    # print(res)
+    res = program.emit("json")
+    pprint(res)
 
 def test_genesys_serialization():
     genesys_cfg = parse_cfg()

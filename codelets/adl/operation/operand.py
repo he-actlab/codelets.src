@@ -90,10 +90,25 @@ class DataMovement:
                           deepcopy(self.evaluated_offsets),
                           deepcopy(self.evaluated_domain_offsets)
                           )
+    def substitute_offset_symbols(self, cdlt, dep_map, replacements):
+        new_offset_map = {}
+        for name, o in self.offset_map.items():
+            if isinstance(o, Basic):
+                indices = list(o.atoms(Idx))
+                for idx, i in enumerate(indices):
+                    if str(i) in replacements and str(i) in dep_map:
+                        replacement_op = cdlt.op_map[dep_map[str(i)]]
+                        assert replacement_op.op_type == "loop"
+                        o.subs(i, replacement_op.get_symbol())
+                new_offset_map[name] = o
+            else:
+                new_offset_map[name] = 0
+        self.offset_map = new_offset_map
+        self.set_size_from_splits(cdlt, cdlt.domain_tiling)
+        self.set_offset_map(cdlt, cdlt.domain_loop_map)
 
     def get_size_from_splits(self, cdlt, splits):
         sizes = {}
-
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
@@ -103,9 +118,14 @@ class DataMovement:
                     assert cdlt.op_map[str(i)].end % splits[str(i)] == 0
                     max_vals[str(i)] = cdlt.op_map[str(i)].end // splits[str(i)] - 1
                 max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})
+
                 size = self.resolve_offset(o, max_vals) + 1
+                # TODO: Add logic here to check for zero values
+
+
             else:
                 size = o
+
             sizes[name] = size
 
         return sizes
@@ -206,6 +226,26 @@ class OperandTemplate:
         else:
             return self.data_path[-1]
 
+    def transfer_tile(self, transfer_op):
+        if transfer_op.path[0] not in self.tiling:
+            movement = transfer_op.get_src_movement(transfer_op.path[0], transfer_op.path[1])
+            self.tiling[transfer_op.path[0]] = movement.shape_map
+        else:
+            # TODO: Check if already set
+            pass
+
+    def compute_tile(self, compute_op, operand_type):
+        if operand_type == "source":
+            movement = compute_op.get_src_movement(self.name)
+        elif operand_type == "dest":
+            movement = compute_op.get_dest_movement(self.name)
+        else:
+            raise RuntimeError(f"Invalid operand type {operand_type} for tiling computation.\n"
+                               f"Possible values: 'source', 'dest'")
+
+        if movement.src_node not in self.tiling:
+            self.tiling[movement.src_node] = movement.shape_map
+
     def __getitem__(self, item):
         if not isinstance(item, tuple):
             assert not isinstance(item, list)
@@ -298,6 +338,22 @@ class OperandTemplate:
             key = (a.src_node, a.dst_node)
             if key in pairs:
                 a.op_name = new_op.op_str
+        self.transfer_tile(new_op)
+
+    def update_offset_maps(self, op, dep_map):
+        if op.op_type == "compute":
+            if self in op.sources:
+                movement = op.get_src_movement(self.name)
+            else:
+                assert self in op.dests
+                movement = op.get_dest_movement(self.name)
+        elif op.op_type == "transfer":
+            movement = op.get_src_movement(op.path[0], op.path[1])
+
+    def update_op_accesses(self, cdlt, op, dep_map: Dict[str, str]):
+        accesses = self.get_op_accesses(op.op_str)
+        for a in accesses:
+            a.substitute_offset_symbols(cdlt, dep_map, op.dependencies)
 
     def is_dtype_supported(self, dtype_name) -> bool:
         return dtype_name in [str(dt) for dt in self.supported_dtypes]
@@ -437,7 +493,7 @@ class OperandTemplate:
             blob = {"name": self.name,
                     "dtype": str(self.dtype),
                     "shape_symbols": [[k, v] for k, v in self.shape_symbols.items()],
-                    "tiling": {t[0]: t[1] for t in self.evaluated_tiling},
+                    "tiling": [v for _, v in self.tiling.items()],
                     }
         else:
             raise TypeError(f"Unable to support output type for operand: {output_type}")
