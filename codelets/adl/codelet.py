@@ -292,7 +292,7 @@ class Codelet(object):
                     op_params[k] = v.value
 
             op_str = {}
-            op_str['operand'] = self.op_name
+            op_str['operation'] = self.op_name
             op_str['iterable_dimensions'] = [[k, v] for k, v in operand_dim_map.items()]
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]

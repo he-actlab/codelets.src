@@ -90,19 +90,25 @@ class Transfer(Operation):
     def access_indices(self):
         return self._access_indices
 
-    def get_src_offset(self, src, dst):
+    def get_src_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)
         for a in accesses:
             if a.src_node == src and a.dst_node == dst:
-                return a.domain_offsets()
+                return a
         raise KeyError
 
-    def get_dst_offset(self, src, dst):
+    def get_dst_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)
         for a in accesses:
             if a.src_node == src and a.dst_node == dst:
-                return a.domain_offsets()
+                return a
         raise KeyError
+
+    def get_src_offset(self, src, dst):
+        return self.get_src_movement(src, dst).domain_offsets()
+
+    def get_dst_offset(self, src, dst):
+        return self.get_dst_movement(src, dst).domain_offsets()
 
     def initialize_offsets(self, offset):
         if isinstance(offset, (list, tuple)):
@@ -133,11 +139,16 @@ class Transfer(Operation):
             arr_idx_symbols.append(arr_idx_symbol)
         return arr_idx_symbols
 
+    # TODO: FIx this
     def op_type_params(self):
         op_params = []
         for i, off in enumerate(self.offsets):
+            if isinstance(off, List):
                 offset_str = ",".join([o.op_str if isinstance(o, Operation) else f"{o}" for o in off])
-                op_params.append(f"{self.path[i]}[{offset_str}]")
+            else:
+                assert isinstance(off, Basic)
+                offset_str = f"{off}"
+            op_params.append(f"{self.path[i]}[{offset_str}]")
 
         return op_params
 

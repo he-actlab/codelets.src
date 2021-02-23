@@ -56,6 +56,42 @@ class Compute(Operation):
     def op_name(self):
         return self._op_name
 
+    def get_src_movement(self, src_name):
+        source = None
+        for s in self.sources:
+            if s.name == src_name:
+                source = s
+                break
+        # TODO: Add message
+        if source is None:
+            raise KeyError
+        accesses = source.get_op_accesses(self.op_str)
+        for a in accesses:
+            if a.dst_node == self.target:
+                return a
+        raise KeyError
+
+    def get_dest_movement(self, dest_name):
+        dest = None
+        for d in self.dests:
+            if d.name == dest_name:
+                dest = d
+                break
+        # TODO: Add message
+        if dest is None:
+            raise KeyError
+        accesses = dest.get_op_accesses(self.op_str)
+        for a in accesses:
+            if a.src_node == self.target:
+                return a
+        raise KeyError
+
+    def get_dest_offset(self, dst_name):
+        return self.get_dest_movement(dst_name).domain_offsets()
+
+    def get_source_offset(self, src_name):
+        return self.get_src_movement(src_name).domain_offsets()
+
     def op_type_params(self):
         op_params = [f"OP: {self.op_name}", f"SRC: {self.sources}", f"DST: {self.dests}"]
         return op_params

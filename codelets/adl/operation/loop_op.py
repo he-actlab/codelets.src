@@ -158,7 +158,12 @@ class Loop(Operation):
                             f"Params: {self.loop_parameters()}")
         return (self.end - 1)*self.stride + self.offset + 1
 
-
+    def get_symbol(self):
+        indices = list(self.param_symbols[self.op_str].atoms(Idx))
+        for i in indices:
+            if str(i) == self.op_str:
+                return i
+        raise KeyError
 
     def __add__(self, other):
         if isinstance(other, str) and other not in self.param_symbols:
@@ -310,5 +315,10 @@ class Loop(Operation):
         obj._end = end or copy(self.end)
         obj._stride = stride or copy(self.stride)
         obj._offset = offset or copy(self.offset)
+        if obj.op_str not in obj.param_symbols:
+            obj_idx = Idx(obj.op_str, (obj._start, obj._end))
+            old_idx = obj.param_symbols.pop(self.op_str)
+            new_idx = old_idx.subs(old_idx, obj_idx)
+            obj.param_symbols[obj.op_str] = new_idx
 
         return obj
