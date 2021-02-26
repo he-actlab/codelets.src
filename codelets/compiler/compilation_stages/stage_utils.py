@@ -113,13 +113,16 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
                 a.offset_map = o.data_moves[idx - 1].offset_map.copy()
+
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, selected_splits)
             a.set_offset_map(cdlt, shapes)
-    # TODO: Store all information int he codelet
 
+    # TODO: Store all information int he codelet
     cdlt._domain_tiling = selected_splits
     cdlt._domain_loop_map = shapes
+
+
     return cdlt
 
 

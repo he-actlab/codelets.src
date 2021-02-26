@@ -1,6 +1,6 @@
 
 from codelets.adl import Codelet
-from codelets.adl.operation import Transfer, Loop
+from codelets.adl.operation import Transfer, Loop, Compute
 from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
 
@@ -53,6 +53,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         offset -= 1
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             cdlt.insert_op(op, target_idx)
+                        op.operand.update_op_accesses(cdlt, op, dep_mapping)
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                         inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
@@ -64,6 +65,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                                                     global_op_id=new_global_id,
                                                     dependencies=inner_deps, **extra_kwargs)
                         assert id(op.operand) == id(inner_op.operand)
+                        op.operand.update_op_accesses(cdlt, inner_op, dep_mapping)
                         op.operand.update_transfer_access(inner_op)
 
                         inner_idx = target_idx
@@ -72,8 +74,8 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         # Update outer op
                         op._dependencies.append(inner_op.op_str)
                         cdlt.insert_op(op, target_idx)
-
                     else:
+
                         outer_path, inner_path = op.path[split: split + 2], op.path[split + 1:]
                         op._path = outer_path
                         extra_kwargs["path"] = inner_path
@@ -84,8 +86,10 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                                                     global_op_id=new_global_id,
                                                     dependencies=inner_deps, **extra_kwargs)
                         assert id(op.operand) == id(inner_op.operand)
+                        op.operand.update_op_accesses(cdlt, op, dep_mapping)
 
                         op.operand.update_transfer_access(inner_op)
+
                         inner_idx = target_idx + 1
                         dep_mapping[op.op_str] = inner_op.op_str
 
@@ -109,10 +113,19 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     inner_idx = target_idx + 1
                     num_splits += 1
                 else:
+                    assert isinstance(op, Compute)
                     dep_mapping[op.op_str] = op.op_str
                     op.dependencies = inner_deps
                     op.loop_level = inner_loop_level
                     inner_op = op
+                    for s in op.sources:
+                        s.update_op_accesses(cdlt, inner_op, dep_mapping)
+                        s.compute_tile(op, "source")
+
+                    for d in op.dests:
+                        d.update_op_accesses(cdlt, inner_op, dep_mapping)
+                        d.compute_tile(op, "dest")
+
                     inner_idx = target_idx
                     num_splits += 1
                 cdlt.insert_op(inner_op, inner_idx)
