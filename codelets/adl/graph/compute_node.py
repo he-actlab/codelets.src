@@ -32,6 +32,9 @@ class ComputeNode(ArchitectureNode):
                 else:
                     cdlt = p
                 self.add_codelet(cdlt)
+    @property
+    def attribute_names(self):
+        return ["dimensions", "codelets", "primitives"]
 
     @property
     def node_type(self):

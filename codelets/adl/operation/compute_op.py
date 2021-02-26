@@ -40,6 +40,8 @@ class Compute(Operation):
             d.dependencies.append(self.op_str)
             self._dests.append(d)
 
+
+
     @property
     def sources(self):
         return self._sources
