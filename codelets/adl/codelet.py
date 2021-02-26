@@ -297,7 +297,7 @@ class Codelet(object):
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
             op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
-            op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
+            # op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
         elif output_type not in ["decimal", "binary"]:
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
             for o in self.ops:

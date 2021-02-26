@@ -493,6 +493,7 @@ class OperandTemplate:
             blob = {"name": self.name,
                     "dtype": str(self.dtype),
                     "shape_symbols": [[k, v] for k, v in self.shape_symbols.items()],
+                    "data_path": self.data_path,
                     "tiling": [v for _, v in self.tiling.items()],
                     }
         else:
