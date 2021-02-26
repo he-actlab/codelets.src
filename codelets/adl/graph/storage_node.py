@@ -30,6 +30,11 @@ class StorageNode(ArchitectureNode):
         self.on_chip = on_chip
 
     @property
+    def attribute_names(self):
+        return ["access_type", "size", "width", "input_ports", "output_ports", "buffering_scheme",
+                "indirection", "latency", "on_chip"]
+
+    @property
     def viz_color(self):
         return "#7FFFFF"
 

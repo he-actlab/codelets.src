@@ -28,6 +28,10 @@ class Edge:
     bandwidth: int = field(default=0)
     attributes: Dict[str, int] = field(default_factory=dict)
 
+    @property
+    def attribute_names(self):
+        return ["src", "src_id", "dst", "dst_id", "bandwidth", "attributes"]
+    
 class UtilFuncs(object):
 
     def __init__(self):
@@ -104,6 +108,10 @@ class ArchitectureNode(Node):
             ArchitectureNode.sub_graph_ctx_nodes[-1].append(self)
 
         self._node_levels = {}
+
+    @property
+    def attribute_names(self):
+        raise NotImplementedError
 
     def __enter__(self):
         ArchitectureNode.graph_stack.append(self)
