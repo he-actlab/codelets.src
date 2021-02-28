@@ -10,4 +10,3 @@ def initialize_program(program_graph, hag: ArchitectureNode):
     program = CodeletProgram(program_graph, hag)
     return program
 
-

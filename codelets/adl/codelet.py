@@ -269,6 +269,19 @@ class Codelet(object):
         raise KeyError(f"Unable to find global op id {global_op_id}")
 
 
+    def get_loop_order(self):
+        operand_dim_map = self.operand_dim_mapping()
+
+        loop_order = []
+        for loop_name in self.domain_loop_map[0].keys():
+            loop = self.op_map[str(loop_name)]
+            rpl = loop.required_params
+            for rp in rpl:
+                if rp in operand_dim_map:
+                    loop_order.append((rp, loop.loop_level))
+                    break
+        loop_order = [k[0] for k in sorted(loop_order, key=lambda x: x[1])]
+        return loop_order
 
     def emit(self, output_type):
         if output_type == "operations":
@@ -292,12 +305,32 @@ class Codelet(object):
                     op_params[k] = v.value
 
             op_str = {}
+            loop_order = self.get_loop_order()
+
             op_str['operation'] = self.op_name
-            op_str['iterable_dimensions'] = [[k, v] for k, v in operand_dim_map.items()]
+            op_str['iterable_dimensions'] = [[k, operand_dim_map[k]] for k in loop_order]
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
             op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
-            # op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
+            op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
+        elif output_type == "json_no_ops":
+            op_params = {}
+            operand_dim_map = self.operand_dim_mapping()
+
+            loop_order = self.get_loop_order()
+
+            for k, v in self.required_params.items():
+                if k not in operand_dim_map:
+                    assert isinstance(v, FlexParam)
+                    op_params[k] = v.value
+
+            op_str = {}
+            op_str['operation'] = self.op_name
+            op_str['iterable_dimensions'] = [[k, operand_dim_map[k]] for k in loop_order]
+            op_str['operation_parameters'] = op_params
+            op_str['inputs'] = [i.emit("json") for i in self.inputs]
+            op_str['outputs'] = [o.emit("json") for o in self.outputs]
+
         elif output_type not in ["decimal", "binary"]:
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
             for o in self.ops:

@@ -31,7 +31,7 @@ class Edge:
     @property
     def attribute_names(self):
         return ["src", "src_id", "dst", "dst_id", "bandwidth", "attributes"]
-    
+
 class UtilFuncs(object):
 
     def __init__(self):

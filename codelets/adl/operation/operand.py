@@ -121,11 +121,28 @@ class DataMovement:
 
                 size = self.resolve_offset(o, max_vals) + 1
                 # TODO: Add logic here to check for zero values
-
-
             else:
                 size = o
+            sizes[name] = size
 
+        return sizes
+
+    def get_size_from_loops(self, cdlt, loops):
+        sizes = {}
+        for name, o in self.offset_map.items():
+            if isinstance(o, Basic):
+                indices = list(o.atoms(Idx))
+                others = [i for i in list(o.free_symbols) if i not in indices]
+                max_vals = {}
+                for idx, i in enumerate(indices):
+                    assert str(i) in loops
+                    max_vals[str(i)] = loops[str(i)] - 1
+
+                max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})
+                size = self.resolve_offset(o, max_vals) + 1
+                # TODO: Add logic here to check for zero values
+            else:
+                size = o
             sizes[name] = size
 
         return sizes
@@ -233,6 +250,7 @@ class OperandTemplate:
         else:
             # TODO: Check if already set
             pass
+
 
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":

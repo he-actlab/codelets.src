@@ -29,11 +29,12 @@ def test_genesys_resnet18():
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
+    res = program.emit("json_no_ops")
+    with open("compiled_resnet18.json", "w") as f:
+        json.dump(res, f, cls=CodeletJSONEncoder)
 
-    # res = program.emit("operations_idx")
-    # print(res)
-    res = program.emit("json")
-    pprint(res)
+    # print(type(res))
+
 
 def test_genesys_serialization():
     genesys_cfg = parse_cfg()

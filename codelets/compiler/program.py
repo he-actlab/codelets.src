@@ -11,7 +11,7 @@ import numpy as np
 import polymath as pm
 from .relocation_table import RelocationTable
 
-EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "decimal", "binary"]
+EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "binary"]
 
 @dataclass
 class CompilationStage:
@@ -155,7 +155,7 @@ class CodeletProgram(object):
         codelet_strings = []
         for c in self.codelets:
             codelet_strings.append(c.emit(output_type))
-        if output_type != "json":
+        if output_type not in ["json", "json_no_ops"]:
             return "\n".join(codelet_strings)
         else:
             return codelet_strings
