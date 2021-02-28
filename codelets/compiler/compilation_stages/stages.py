@@ -54,6 +54,8 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             cdlt.insert_op(op, target_idx)
                         op.operand.update_op_accesses(cdlt, op, dep_mapping)
+                        op.operand.update_transfer_access(op)
+
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                         inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
@@ -130,8 +132,16 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     num_splits += 1
                 cdlt.insert_op(inner_op, inner_idx)
 
-    return cdlt
+    cdlt = program.codelets[0]
+    for o in cdlt.operands:
+        if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
+            last_move = o.data_moves[-1]
+            dest_name = last_move.dst_node
+            level = cdlt.get_tile_level(dest_name)
+            level_sizes = cdlt.domain_loop_map[level]
+            o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
 
+    return cdlt
 
 
 def hoist(program, node: pm.Node, cdlt: Codelet) -> Codelet:
