@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from .instruction import Instruction
 from codelets.adl.flex_param import FlexParam
 from types import LambdaType, FunctionType
-from mako.template import Template
 
 @dataclass
 class FlexTemplate:

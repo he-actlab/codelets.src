@@ -301,7 +301,8 @@ class Loop(Operation):
                       "start": self.start,
                       "end": self.end,
                       "offset": self.offset,
-                      "stride": self.stride}
+                      "stride": self.stride
+                      }
         else:
             op_str = []
             for ft in self.instructions:

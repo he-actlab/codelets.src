@@ -19,8 +19,8 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
-        with Loop(0, "N") as n:
-            with Loop(0, "P") as p:
+        with Loop(0, "P") as p:
+            with Loop(0, "N") as n:
                 with Loop(0, "M") as m:
 
                     # cdlt.transfer(weight[n, p], ["DRAM", "WBUF", "pe_array"])
@@ -115,6 +115,7 @@ def conv2d_bias_nchw(hag: ArchitectureNode):
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
                                     cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    # cdlt.compute("MVMUL", [data[n, ic, y*"stride" + kh, x*"stride" + kw], weight[oc, ic, kh, kw], bias[oc]], [out[n, oc, y, x]], target="pe_array")
                                     cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
 
         # TODO: Add store off chip

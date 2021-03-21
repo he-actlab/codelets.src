@@ -308,7 +308,8 @@ class Codelet(object):
             loop_order = self.get_loop_order()
 
             op_str['operation'] = self.op_name
-            op_str['iterable_dimensions'] = [[k, operand_dim_map[k]] for k in loop_order]
+            op_str['instance_id'] = self.instance_id
+            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
             op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
@@ -326,7 +327,8 @@ class Codelet(object):
 
             op_str = {}
             op_str['operation'] = self.op_name
-            op_str['iterable_dimensions'] = [[k, operand_dim_map[k]] for k in loop_order]
+            op_str['instance_id'] = self.instance_id
+            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in self.inputs]
             op_str['outputs'] = [o.emit("json") for o in self.outputs]
