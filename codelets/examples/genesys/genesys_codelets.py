@@ -8,7 +8,7 @@ from . import OP_DTYPES
 def gemm(hag: ArchitectureNode):
     data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
     weight = OperandTemplate("weight", OP_DTYPES, ["P", "N"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[1])
+    bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
     out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
 
@@ -84,7 +84,7 @@ def conv2d_bias_nchw(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
     weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[1])
+    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
     out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
