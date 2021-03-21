@@ -166,7 +166,7 @@ class Transfer(Operation):
                 text_key = f"{move.src_node}->{move.dst_node}"
                 transfer_info[text_key] = {}
                 transfer_info[text_key]['size'] = move.size()
-                transfer_info[text_key]['offset'] = move.domain_offsets()
+                transfer_info[text_key]['offset'] = [str(o) for o in move.domain_offsets()]
 
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,

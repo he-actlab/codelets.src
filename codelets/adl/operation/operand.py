@@ -129,6 +129,7 @@ class DataMovement:
 
     def get_size_from_loops(self, cdlt, loops):
         sizes = {}
+
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
@@ -235,6 +236,9 @@ class OperandTemplate:
     data_moves: List[DataMovement] = field(default_factory=list)
     required_params: List[str] = field(default_factory=list)
     current_codelet: ClassVar = field(default=None)
+    compute_pad_dim: int = field(default=-1)
+    # added_padding: field(default_factory=dict)
+
 
     @property
     def current_location(self):
@@ -243,6 +247,9 @@ class OperandTemplate:
         else:
             return self.data_path[-1]
 
+    def is_tiled(self):
+        return len(self.tiling.keys()) == len(self.unique_data_locations())
+
     def transfer_tile(self, transfer_op):
         if transfer_op.path[0] not in self.tiling:
             movement = transfer_op.get_src_movement(transfer_op.path[0], transfer_op.path[1])
@@ -250,7 +257,6 @@ class OperandTemplate:
         else:
             # TODO: Check if already set
             pass
-
 
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":
@@ -290,7 +296,9 @@ class OperandTemplate:
         return IndexedOperandTemplate(self, offsets)
 
     def get_access_offsets(self, offsets):
-        if len(offsets) == 0:
+        if len(offsets) == 0 and len(self.data_moves) > 0:
+            offsets = {self.shape_list[i]: list(self.data_moves[-1].offset_map.values())[i].copy() for i in range(len(self.shape_list))}
+        elif len(offsets) == 0:
             offsets = {self.shape_list[i]: 0 for i in range(len(self.shape_list))}
         else:
             offsets = {self.shape_list[i]: offsets[i] for i in range(len(self.shape_list))}
@@ -333,6 +341,7 @@ class OperandTemplate:
 
         assert operand_type in ["source", "dest"]
         offsets = offsets or []
+
         offsets = self.get_access_offsets(offsets)
         self.add_dependency(op_name)
         shape = self.get_shape_map([0] * len(self.shape_list))
@@ -342,6 +351,7 @@ class OperandTemplate:
         else:
             src = target
             dst = None
+
         movement = DataMovement(src, dst, self.name, self.shape_list.copy(), op_name, shape, offsets)
         self.data_moves.append(movement)
 
@@ -415,6 +425,9 @@ class OperandTemplate:
     @property
     def unset_tiling(self):
         return [k for k, v in self.tiling.items() if len(v) == 0]
+
+    def unique_data_locations(self):
+        return list(set(self.data_path))
 
     def is_tiling_set(self, path_key):
         if path_key in self.tiling:
@@ -507,12 +520,14 @@ class OperandTemplate:
         return op_temp
 
     def emit(self, output_type):
+
         if output_type == "json":
+
             blob = {"name": self.name,
                     "dtype": str(self.dtype),
-                    "shape_symbols": [[k, v] for k, v in self.shape_symbols.items()],
+                    "shape_symbols": {k: v for k, v in self.shape_symbols.items()},
                     "data_path": self.data_path,
-                    "tiling": [v for _, v in self.tiling.items()],
+                    "tiling": {k: v for k, v in self.tiling.items()}
                     }
         else:
             raise TypeError(f"Unable to support output type for operand: {output_type}")
@@ -540,6 +555,9 @@ class Offset:
     stride: int
     dim_size: int
     offset: int
+
+    def __str__(self):
+        return f"DIM:{self.dim},LOOPID:{self.loop_id},OFFSET:{self.offset}"
 
 
 

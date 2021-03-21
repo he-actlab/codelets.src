@@ -30,13 +30,14 @@ class CompilationStage:
 
 class CodeletProgram(object):
 
-    def __init__(self, graph: pm.Node, hag: ArchitectureNode ):
+    def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference"):
         self._name = graph.name
         self._hag = hag
         self._graph = graph
         self._codelets = []
         self._relocatables = RelocationTable()
         self._compilation_pipeline = defaultdict(list)
+        self._program_mode = program_mode
 
     @property
     def name(self) -> str:
@@ -45,6 +46,10 @@ class CodeletProgram(object):
     @property
     def hag(self) -> ArchitectureNode:
         return self._hag
+
+    @property
+    def program_mode(self):
+        return self._program_mode
 
     @property
     def graph(self):
@@ -158,7 +163,7 @@ class CodeletProgram(object):
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(codelet_strings)
         else:
-            return codelet_strings
+            return {"mode" : self.program_mode, "program": codelet_strings}
 
 
     def instantiate_instructions_templates(self, node, cdlt):

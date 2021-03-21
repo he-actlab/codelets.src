@@ -3,6 +3,7 @@ from codelets.adl import Codelet
 from codelets.adl.operation import Transfer, Loop, Compute
 from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
+import json
 
 
 def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
@@ -132,7 +133,6 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     num_splits += 1
                 cdlt.insert_op(inner_op, inner_idx)
 
-    cdlt = program.codelets[0]
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
             last_move = o.data_moves[-1]
@@ -140,7 +140,17 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
             level = cdlt.get_tile_level(dest_name)
             level_sizes = cdlt.domain_loop_map[level]
             o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
-
+            # print(f"Tiling {o.name}\n"
+            #       f"Dest: {dest_name}\n"
+            #       f"Level: {level}\n"
+            #       f"Level sizes: {level_sizes}\n"
+            #       f"All level sizes: {json.dumps(cdlt.domain_loop_map, indent=2)}")
+            # print(level_sizes)
+        if not o.is_tiled():
+            raise RuntimeError(f"Number of tilings does not match the data path size for {o.name}:\n"
+                               f"Tiling keys: {list(o.tiling.keys())}\n"
+                               f"Unique data path locations: {o.unique_data_locations()}\n"
+                               f"Data path: {o.data_path}")
     return cdlt
 
 

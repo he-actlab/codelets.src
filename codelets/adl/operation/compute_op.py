@@ -129,12 +129,15 @@ class Compute(Operation):
             dst_names = [d.name for d in self.dests]
             op_str = f"{self.op_str}: {self.target}-{self.op_name}({source_names})->{dst_names}"
         elif output_type == "json":
+            sources = [s.name for s in self.sources]
+            dests = [d.name for d in self.dests]
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,
                       "operation_name": self.op_name,
                       "target": self.target,
-                      "sources": self.sources,
-                      "destinations": self.dests}
+                      "sources": sources,
+                      "destinations": dests
+                      }
         else:
             op_str = []
             for ft in self.instructions:
