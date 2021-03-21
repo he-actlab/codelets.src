@@ -250,8 +250,11 @@ class OperandTemplate:
     def is_tiled(self):
         return len(self.tiling.keys()) == len(self.unique_data_locations())
 
-    def transfer_tile(self, transfer_op):
-        if transfer_op.path[0] not in self.tiling:
+    def transfer_tile(self, transfer_op, outgoing):
+
+        key = transfer_op.path[0]
+
+        if key not in self.tiling:
             movement = transfer_op.get_src_movement(transfer_op.path[0], transfer_op.path[1])
             self.tiling[transfer_op.path[0]] = movement.shape_map
         else:
@@ -261,14 +264,20 @@ class OperandTemplate:
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":
             movement = compute_op.get_src_movement(self.name)
+            if movement.src_node not in self.tiling:
+                self.tiling[movement.src_node] = movement.shape_map
         elif operand_type == "dest":
             movement = compute_op.get_dest_movement(self.name)
+            if movement.dst_node not in self.tiling:
+                self.tiling[movement.dst_node] = movement.shape_map
         else:
             raise RuntimeError(f"Invalid operand type {operand_type} for tiling computation.\n"
                                f"Possible values: 'source', 'dest'")
 
-        if movement.src_node not in self.tiling:
-            self.tiling[movement.src_node] = movement.shape_map
+
+
+
+        return movement
 
     def __getitem__(self, item):
         if not isinstance(item, tuple):
@@ -301,7 +310,7 @@ class OperandTemplate:
         elif len(offsets) == 0:
             offsets = {self.shape_list[i]: 0 for i in range(len(self.shape_list))}
         else:
-            offsets = {self.shape_list[i]: offsets[i] for i in range(len(self.shape_list))}
+            offsets = {self.shape_list[i]: offsets[i].copy() for i in range(len(self.shape_list))}
         return offsets
 
     def add_dependency(self, op_name):
@@ -360,13 +369,13 @@ class OperandTemplate:
 
         return self
 
-    def update_transfer_access(self, new_op):
+    def update_transfer_access(self, new_op, outgoing=False):
         pairs = list(pairwise(new_op.path))
         for a in self.data_moves:
             key = (a.src_node, a.dst_node)
             if key in pairs:
                 a.op_name = new_op.op_str
-        self.transfer_tile(new_op)
+        self.transfer_tile(new_op, outgoing)
 
     def update_offset_maps(self, op, dep_map):
         if op.op_type == "compute":

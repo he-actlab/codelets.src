@@ -125,11 +125,11 @@ def define_genesys(conv_selection="nchw"):
 
             systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0]*GENESYS_CFG['DATA_WIDTH'])
             systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*GENESYS_CFG['DATA_WIDTH'])
-            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['BIAS_WIDTH'])
-            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
             systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=GENESYS_CFG['OBUF_CAPACITY'])
             # TODO: Add OBUF TO DRAM EDGE
-            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
             for p in GENESYS_INSTRUCTIONS['systolic_array']:
                 systolic_array.add_primitive(p)
         simd = ComputeNode("SIMD", dimensions=[32])

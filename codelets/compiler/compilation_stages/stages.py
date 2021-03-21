@@ -24,6 +24,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
 
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, heuristic_fn)
+
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -52,13 +53,15 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         offset -= 1
+                        outgoing = False
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+                            outgoing = True
                             cdlt.insert_op(op, target_idx)
                         op.operand.update_op_accesses(cdlt, op, dep_mapping)
-                        op.operand.update_transfer_access(op)
-
+                        op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+                        outgoing = True
                         inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
                         op._path = outer_path
                         extra_kwargs["path"] = inner_path
@@ -69,7 +72,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                                                     dependencies=inner_deps, **extra_kwargs)
                         assert id(op.operand) == id(inner_op.operand)
                         op.operand.update_op_accesses(cdlt, inner_op, dep_mapping)
-                        op.operand.update_transfer_access(inner_op)
+                        op.operand.update_transfer_access(inner_op, outgoing=outgoing)
 
                         inner_idx = target_idx
                         dep_mapping[op.op_str] = inner_op.op_str
@@ -78,7 +81,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         op._dependencies.append(inner_op.op_str)
                         cdlt.insert_op(op, target_idx)
                     else:
-
+                        outgoing = False
                         outer_path, inner_path = op.path[split: split + 2], op.path[split + 1:]
                         op._path = outer_path
                         extra_kwargs["path"] = inner_path
@@ -91,7 +94,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         assert id(op.operand) == id(inner_op.operand)
                         op.operand.update_op_accesses(cdlt, op, dep_mapping)
 
-                        op.operand.update_transfer_access(inner_op)
+                        op.operand.update_transfer_access(inner_op, outgoing)
 
                         inner_idx = target_idx + 1
                         dep_mapping[op.op_str] = inner_op.op_str
@@ -121,31 +124,39 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     op.dependencies = inner_deps
                     op.loop_level = inner_loop_level
                     inner_op = op
+
                     for s in op.sources:
                         s.update_op_accesses(cdlt, inner_op, dep_mapping)
                         s.compute_tile(op, "source")
-
                     for d in op.dests:
                         d.update_op_accesses(cdlt, inner_op, dep_mapping)
                         d.compute_tile(op, "dest")
 
                     inner_idx = target_idx
                     num_splits += 1
+
                 cdlt.insert_op(inner_op, inner_idx)
 
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
+
             last_move = o.data_moves[-1]
             dest_name = last_move.dst_node
             level = cdlt.get_tile_level(dest_name)
             level_sizes = cdlt.domain_loop_map[level]
             o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
-            # print(f"Tiling {o.name}\n"
-            #       f"Dest: {dest_name}\n"
-            #       f"Level: {level}\n"
-            #       f"Level sizes: {level_sizes}\n"
-            #       f"All level sizes: {json.dumps(cdlt.domain_loop_map, indent=2)}")
-            # print(level_sizes)
+        elif o in cdlt.outputs and not o.is_tiled():
+            missing_tiles = [l for l in o.unique_data_locations() if l not in list(o.tiling.keys())]
+            for m in missing_tiles:
+                level = cdlt.get_tile_level(m)
+                level_sizes = cdlt.domain_loop_map[level]
+                mmove = None
+                for a in o.data_moves:
+                    if a.src_node == m:
+                        mmove = a
+                        break
+                o.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
+
         if not o.is_tiled():
             raise RuntimeError(f"Number of tilings does not match the data path size for {o.name}:\n"
                                f"Tiling keys: {list(o.tiling.keys())}\n"

@@ -40,6 +40,7 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         for i, access in enumerate(o.data_moves):
             if access.src_node != access.dst_node:
                 level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
+
         loop_dependencies += [dp for dp in o.dependencies if dp not in loop_dependencies and "loop" in dp]
 
     # Find all starting loop factors
@@ -70,13 +71,7 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
             total_size = np.prod(list(size.values()))*dtype_size
             key = (level_access.src_node, level_access.dst_node)
-            # if key == ("IBUF", "pe_array"):
-            #     print(f"Total size: {total_size}\n"
-            #           f"Constraint: {tile_constraints[key].fn_body_str}\n"
-            #           f"Dtype size: {dtype_size}\n"
-            #           f"Size values: {size.values()}\n,"
-            #           f"Perm map: {perm_map}\n"
-            #           f"Access offmap: {level_access.offset_map}\n")
+
             constraint_sat = tile_constraints[key].evaluate_fn(total_size)
             if key in tile_pad_constraints:
                 pad_info = tile_pad_constraints[key]
@@ -127,9 +122,12 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
                 a.offset_map = o.data_moves[idx - 1].offset_map.copy()
+                if o.name == "out" and cdlt.instance_id == 1:
+                    print(f"Here: {a.offset_map}")
 
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, selected_splits)
+
             a.set_offset_map(cdlt, shapes)
 
     # TODO: Store all information int he codelet
@@ -162,6 +160,7 @@ def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
                 if isinstance(src_node, ComputeNode):
                     constraint = f"size <= {edge.bandwidth} and size >= 0"
                     pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
+
                 else:
                     assert isinstance(src_node, StorageNode)
                     constraint = f"size <= {dst_node.size} and size >= 0"
