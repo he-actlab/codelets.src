@@ -302,6 +302,20 @@ def buffer_sa_template(buffer_name, hag):
 
     return instructions
 
+def buffer_sa_template_compute(operand_name, buffer_name, hag):
+    instructions = []
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_iterable('offset', f'op.get_offset("{operand_name}")')
+    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    instr.set_field_by_name("ACCESS_TYPE", "RD")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
+    instr.set_field_flex_param("STRIDE", "offset.stride")
+    instructions.append(instr)
+
+
+    return instructions
+
 def sa_buffer_template(buffer_name, hag):
     instructions = []
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -377,31 +391,11 @@ def simd_dram_template(mem_name, hag):
 
 def sa_mvmul_template(hag):
     instructions = []
+    buffers = [('weight', 'WBUF'), ('data','IBUF'), ('bias', 'BBUF'), ('out','OBUF')]
+    for b in buffers:
+        instructions += buffer_sa_template_compute(*b, hag)
 
-    # # WBUF
-    # instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    # instr.add_iterable('operand', f'op.operands')
-    # instr.add_iterable('offset', f'op.transfers[(, "pe_array")].src_offset')
-    # instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    # instr.set_field_by_name("ACCESS_TYPE", "RD")
-    # instr.set_field_by_name("BUFFER", f"WBUF")
-    # instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    # instructions.append(instr)
-    #
-    # # IBUF
-    # instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    # instr.add_iterable('offset', f'op.transfers[("IBUF", "pe_array")].src_offset')
-    # instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    # instr.set_field_by_name("ACCESS_TYPE", "RD")
-    # instr.set_field_by_name("BUFFER", f"IBUF")
-    # instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    # instructions.append(instr)
-
-
-    # return instructions
-    return []
+    return instructions
 
 GENESYS_TEMPLATES = {
     "config": {

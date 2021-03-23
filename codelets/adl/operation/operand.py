@@ -127,6 +127,7 @@ class DataMovement:
 
         return sizes
 
+
     def get_size_from_loops(self, cdlt, loops):
         sizes = {}
 
@@ -237,7 +238,44 @@ class OperandTemplate:
     required_params: List[str] = field(default_factory=list)
     current_codelet: ClassVar = field(default=None)
     compute_pad_dim: int = field(default=-1)
-    # added_padding: field(default_factory=dict)
+    static_padding: Dict[str, int] = field(default_factory=dict)
+    dynamic_padding: Dict[str, int] = field(default_factory=dict)
+    dim_order: List[int] = field(default=None)
+
+    def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
+        if isinstance(dimension, str):
+            assert dimension in self.shape_symbols
+            key = dimension
+        else:
+            assert isinstance(dimension, int) and dimension < len(self.shape_list)
+            key = self.shape_list[dimension]
+
+        if symmetric:
+            pad_val = 2*pad_size
+        else:
+            pad_val = pad_size
+
+        if dynamic:
+            self.dynamic_padding[key] = pad_val
+        else:
+            self.static_padding[key] = pad_val
+            self.shape_symbols[key] += pad_size
+
+    def set_dim_order(self, dims):
+
+        if len(self.shape_symbols) > 0:
+            for d in dims:
+                assert d in self.shape_symbols
+                val = self.shape_symbols.pop(d)
+                self.shape_symbols[d] = val
+        self.shape_list = dims
+
+        for dm in self.data_moves:
+            dm.shape_symbols = self.shape_list
+            for dim in dm.shape_symbols:
+                val = dm.offset_map.pop(dim)
+                dm.offset_map[dim] = val
+
 
 
     @property
@@ -273,9 +311,6 @@ class OperandTemplate:
         else:
             raise RuntimeError(f"Invalid operand type {operand_type} for tiling computation.\n"
                                f"Possible values: 'source', 'dest'")
-
-
-
 
         return movement
 

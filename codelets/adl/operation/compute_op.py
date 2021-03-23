@@ -40,7 +40,11 @@ class Compute(Operation):
             d.dependencies.append(self.op_str)
             self._dests.append(d)
 
+    def source_names(self):
+        return [s.name for s in self.sources]
 
+    def dest_names(self):
+        return [d.name for d in self.dests]
 
     @property
     def sources(self):
@@ -66,12 +70,12 @@ class Compute(Operation):
                 break
         # TODO: Add message
         if source is None:
-            raise KeyError
+            raise KeyError(f"Cannot find source for {src_name}")
         accesses = source.get_op_accesses(self.op_str)
         for a in accesses:
             if a.dst_node == self.target:
                 return a
-        raise KeyError
+        raise KeyError(f"Cannot find access for {self.target}")
 
     def get_dest_movement(self, dest_name):
         dest = None
@@ -88,10 +92,16 @@ class Compute(Operation):
                 return a
         raise KeyError
 
-    def get_dest_offset(self, dst_name):
+    def get_offset(self, op_name):
+        if op_name in self.dest_names():
+            return self.get_dst_offset(op_name)
+        else:
+            return self.get_src_offset(op_name)
+
+    def get_dst_offset(self, dst_name, placeholder=None):
         return self.get_dest_movement(dst_name).domain_offsets()
 
-    def get_source_offset(self, src_name):
+    def get_src_offset(self, src_name, placeholder=None):
         return self.get_src_movement(src_name).domain_offsets()
 
     def op_type_params(self):
