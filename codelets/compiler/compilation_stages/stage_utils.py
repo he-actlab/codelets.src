@@ -49,7 +49,6 @@ def find_tiling(cdlt, level, perm_stack):
     perms = perm_stack[prev_level]
     assert perms is not None
     valid_splits = None
-    padded_info = None
 
 
 def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
@@ -97,9 +96,8 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
     level_counter = defaultdict(int)
 
     @memoize
-    def find_valid_splits(p, lvl):
+    def find_valid_splits(p, lvl, pperm):
         valid_splits = p
-        pad_info = None
 
         perm_map = {l: p[i]*accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
         size_map = {}
@@ -108,27 +106,32 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         for level_access in level_accesses[lvl]:
 
             size = level_access.get_size_from_splits(cdlt, perm_map)
+            key = (level_access.src_node, level_access.dst_node)
+
             for k, v in size.items():
-                if k in size_map:
-                    assert v == size_map[k]
+                if k in size_map and v != size_map[k]:
+                    raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
+                                       f"Size from splits: {size}\n"
+                                       f"Size map: {size_map}\n"
+                                       f"Level: {lvl}\n"
+                                       f"Key: {key}\n")
+
                 else:
                     size_map[k] = v
 
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
             total_size = np.prod(list(size.values()))*dtype_size
-            key = (level_access.src_node, level_access.dst_node)
 
             constraint_sat = tile_constraints[key].evaluate_fn(total_size)
-
-            if key in tile_pad_constraints:
-                pad_info = tile_pad_constraints[key]
-
 
             if not constraint_sat:
                 valid_splits = None
                 break
-        return valid_splits, pad_info
+        return valid_splits
 
+    parent_perms = deque()
+    prev_perm = None
+    parent_perms.append(prev_perm)
     while level <= list(cdlt.tile_levels.keys())[-1] and level > 0:
         if level > max_level:
             max_level = level
@@ -136,17 +139,18 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         perms = perm_stack[prev_level]
         assert perms is not None
         valid_splits = None
-        padded_info = None
 
         for p in perms:
             level_counter[level] += 1
-            valid_splits, padded_info = find_valid_splits(p, level)
+            valid_splits = find_valid_splits(p, level, prev_perm)
 
             if valid_splits:
+                prev_perm = p
                 valid_splits = {list(level_factors[level - 1].keys())[i]: v for i, v in enumerate(valid_splits)}
                 break
 
         if not valid_splits:
+            prev_perm = parent_perms.pop()
             perm_stack.pop()
             shapes.pop(prev_level)
             level_factors.pop(prev_level)
@@ -154,6 +158,7 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             accumulated_splits = {k: v//prev_splits[k] for k, v in accumulated_splits.items()}
             level -= 1
         else:
+            parent_perms.append(prev_perm)
             selected_splits[level] = valid_splits.copy()
             accumulated_splits = {k: v*selected_splits[level][k] for k, v in accumulated_splits.items()}
             shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits)

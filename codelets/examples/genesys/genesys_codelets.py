@@ -7,7 +7,7 @@ from . import OP_DTYPES
 
 def gemm(hag: ArchitectureNode):
     data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["P", "N"], dtype=OP_DTYPES[0])
+    weight = OperandTemplate("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
     bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
     out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
@@ -29,13 +29,12 @@ def gemm(hag: ArchitectureNode):
                     # cdlt.transfer(out[n, p], ["DRAM", "OBUF", "pe_array"])
                     # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
                     # cdlt.transfer(out[n, p], ["pe_array", "OBUF", "DRAM"])
-
-                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
-                    cdlt.transfer(bias[p], ["DRAM", "IBUF"])
-                    cdlt.transfer(out[n, p], ["DRAM", "OBUF"])
+                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
+                    cdlt.transfer(bias[p], ["DRAM", "BBUF"])
+                    cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
                     cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                    cdlt.transfer(out[n, p], ["OBUF", "DRAM"])
+                    cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")

@@ -5,39 +5,99 @@ from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
 import json
 
-def pad_operands(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
+def pad_operands(program, node: pm.Node, cdlt: Codelet, shaped_nodes=None) -> Codelet:
     if cdlt.op_name == "conv_bias":
+        assert isinstance(shaped_nodes, list)
         activation = node.inputs[0]
         weight = node.inputs[1]
         bias = node.inputs[2]
         out = node.outputs[0]
         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-        if activation.shape[1] % sys_array_dims[0] != 0:
-            ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
+
+
+
+        if out.name not in shaped_nodes:
+            if out.shape[1] % sys_array_dims[1] != 0:
+                oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
+            else:
+                oc_shape = out.shape[1]
+            out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
+            shaped_nodes.append(out.name)
         else:
-            ic_shape = activation.shape[1]
+            oc_shape = out.shape[-1]
 
+        if bias.name not in shaped_nodes:
+            bias.shape = tuple([oc_shape])
+            shaped_nodes.append(bias.name)
 
-        if out.shape[1] % sys_array_dims[1] != 0:
-            oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
+        if activation.name not in shaped_nodes:
+            if activation.shape[1] % sys_array_dims[0] != 0:
+                ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
+            else:
+                ic_shape = activation.shape[1]
+            # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
+            activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
+            shaped_nodes.append(activation.name)
         else:
-            oc_shape = out.shape[1]
+            ic_shape = activation.shape[-1]
 
-        bias.shape = tuple([oc_shape])
-        # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
-        activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
-        out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
 
-        weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
 
+        if weight.name not in shaped_nodes:
+            weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
+            shaped_nodes.append(weight.name)
 
         # assert 'pad' in node.kwargs.keys()
 
         cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
-        activation.add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-        activation.add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
         cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
+
+
+    elif cdlt.op_name == "gemm":
+        sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
+
+        activation = node.inputs[0]
+        weight = node.inputs[1]
+        bias = node.inputs[2]
+        out = node.outputs[0]
+
+        if 'transB' in node.kwargs and node.kwargs['transB'] == 1:
+            weight.shape = (weight.shape[1], weight.shape[0])
+
+        if 'transA' in node.kwargs and node.kwargs['transA'] == 1:
+            activation.shape = (activation.shape[1], activation.shape[0])
+
+        if activation.name not in shaped_nodes:
+            if activation.shape[1] % sys_array_dims[0] != 0:
+                ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
+            else:
+                ic_shape = activation.shape[1]
+            # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
+            activation.shape = tuple([activation.shape[0], ic_shape])
+            shaped_nodes.append(activation.name)
+        else:
+            ic_shape = activation.shape[-1]
+
+        if weight.name not in shaped_nodes:
+            if weight.shape[1] % sys_array_dims[0] != 0:
+                oc_shape = weight.shape[1] + (sys_array_dims[0] - (weight.shape[1] % sys_array_dims[0]))
+            else:
+                oc_shape = weight.shape[1]
+            weight.shape = tuple([ic_shape, oc_shape])
+            shaped_nodes.append(weight.name)
+        else:
+            oc_shape = weight.shape[1]
+
+        if out.name not in shaped_nodes:
+            out.shape = tuple([out.shape[0], oc_shape])
+            shaped_nodes.append(out.name)
+
+        if bias.name not in shaped_nodes:
+            bias.shape = tuple([oc_shape])
+            shaped_nodes.append(bias.name)
 
     return cdlt
 

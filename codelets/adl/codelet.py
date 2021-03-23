@@ -46,6 +46,7 @@ class Codelet(object):
         self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
+        self._size_map = {}
 
         if required_params is not None:
             self._required_params = {}
@@ -131,6 +132,10 @@ class Codelet(object):
     @property
     def global_op_map(self) -> Dict[int, Union[Loop, Compute, Transfer, Configure]]:
         return self._global_op_map
+
+    @property
+    def size_map(self):
+        return self._size_map
 
     # TODO: Memoize this method
     @property
@@ -323,7 +328,6 @@ class Codelet(object):
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
             op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
             op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
-            op_str['tiling_factors'] = self.domain_tiling
         elif output_type == "json_no_ops":
             op_params = {}
             operand_dim_map = self.operand_dim_mapping()
@@ -342,7 +346,6 @@ class Codelet(object):
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in self.inputs]
             op_str['outputs'] = [o.emit("json") for o in self.outputs]
-            op_str['tiling_factors'] = self.domain_tiling
 
         elif output_type not in ["decimal", "binary"]:
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
@@ -381,6 +384,7 @@ class Codelet(object):
 
 
     def add_required_param(self, key, value=None, check_key=True):
+
         if key in self.required_params:
             if check_key:
                 raise KeyError(f"Key {key} already exists in params:\n"
@@ -397,6 +401,7 @@ class Codelet(object):
 
             self.required_params[key] = flex_param
         elif isinstance(value, int):
+
             flex_param = FlexParam(key)
             flex_param.value = value
             self.required_params[key] = flex_param
@@ -410,6 +415,7 @@ class Codelet(object):
                             f"Value: {value}")
 
     def set_required_param(self, key: str, value: int):
+
         value = value.value if isinstance(value, FlexParam) else value
         if key not in self.required_params:
             raise KeyError(f"Key {key} for updating param does not exist:\n"
@@ -464,14 +470,24 @@ class Codelet(object):
         self._tile_levels = {i: self._tile_levels[i] for i in sorted(list(self._tile_levels.keys()))}
 
     def set_dim_values(self, node: pm.Node, operand: OperandTemplate):
+
         if not operand.is_instantiated():
             for j, s in enumerate(node.shape):
                 key = operand.shape_list[j]
                 operand.update_shape_symbols(key, s)
+
                 if key not in self.required_params:
                     self.add_required_param(key, s)
-                elif key in self.required_params and not self.required_params[key].is_set():
-                    self.set_required_param(key, s)
+                elif key in self.required_params:
+                    if not self.required_params[key].is_set():
+                        self.set_required_param(key, s)
+                    elif self.required_params[key].value != s:
+                        raise RuntimeError(f"Inconsistent dimension sizes for operation {self.op_name}{self.instance_id}\n"
+                                           f"Key: {key}\n"
+                                           f"Size: {self.required_params[key].value}\n"
+                                           f"Node shape: {node.shape}\n"
+                                           f"Node name: {operand.name}\n"
+                                           f"Shape list: {operand.shape_list}")
 
             if len(operand.shape_list) != len(list(operand.shape_symbols.keys())):
                 raise RuntimeError(f"All shape values were not set for node {node.name}, operand {operand.name}:\n"
@@ -519,6 +535,7 @@ class Codelet(object):
     def instantiate_operands(self, node: pm.Node):
         all_cdlt_ops = self.inputs + self.outputs
         all_node_ops = node.inputs + node.outputs
+
         for i, n in enumerate(all_node_ops):
             operand = all_cdlt_ops[i]
             for rp_key in operand.required_params:

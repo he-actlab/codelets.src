@@ -221,6 +221,7 @@ class CodeletProgram(object):
 
         for n in node_sequence:
             cdlt = self.instantiate_codelet(n)
+            assert n.name not in codelets
             codelets[n.name] = cdlt
 
         for level, fns in self.preproc_steps.items():
@@ -228,6 +229,8 @@ class CodeletProgram(object):
                 cdlt = codelets[n.name]
                 for fn in fns:
                     cdlt = fn.run(self, n, cdlt)
+
+                assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
                 codelets[n.name] = cdlt
 
         for n in node_sequence:
