@@ -244,7 +244,7 @@ class OperandTemplate:
 
     def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
         if isinstance(dimension, str):
-            assert dimension in self.shape_symbols
+            assert dimension in self.shape_list
             key = dimension
         else:
             assert isinstance(dimension, int) and dimension < len(self.shape_list)
@@ -259,7 +259,8 @@ class OperandTemplate:
             self.dynamic_padding[key] = pad_val
         else:
             self.static_padding[key] = pad_val
-            self.shape_symbols[key] += pad_size
+            if len(self.shape_symbols) > 0:
+                self.shape_symbols[key] += pad_size
 
     def set_dim_order(self, dims):
 

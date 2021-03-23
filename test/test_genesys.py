@@ -26,18 +26,18 @@ def test_genesys_resnet18():
     graph = pm.pb_load(f"{BENCH_DIR}/resnet18.srdfg")
     genesys = define_genesys("transformation")
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
-    res = program.emit("operations_idx")
-    print(res)
-    # res = program.emit("json_no_ops")
-    # pprint(res)
+    # res = program.emit("operations_idx")
+    # print(res)
+    res = program.emit("json_no_ops")
+    pprint(res)
 
 
-    # with open("compiled_resnet18.json", "w") as f:
-    #     json.dump(res, f, cls=CodeletJSONEncoder, indent=2)
+    with open("compiled_resnet18.json", "w") as f:
+        json.dump(res, f, cls=CodeletJSONEncoder, indent=2)
 
 def test_genesys_serialization():
     genesys_cfg = parse_cfg()
