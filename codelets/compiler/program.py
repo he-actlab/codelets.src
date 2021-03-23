@@ -37,6 +37,7 @@ class CodeletProgram(object):
         self._codelets = []
         self._relocatables = RelocationTable()
         self._compilation_pipeline = defaultdict(list)
+        self._preproc_steps = defaultdict(list)
         self._program_mode = program_mode
 
     @property
@@ -66,6 +67,10 @@ class CodeletProgram(object):
     @property
     def compilation_pipeline(self) -> Dict[int, List]:
         return self._compilation_pipeline
+
+    @property
+    def preproc_steps(self) -> Dict[int, List]:
+        return self._preproc_steps
 
     def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)
@@ -105,7 +110,8 @@ class CodeletProgram(object):
                              level=0,
                              dependencies=None,
                              stage_kwargs=None,
-                             insert_idx=-1
+                             insert_idx=-1,
+                             preproc=False
                              ):
         if not callable(compilation_fn):
             raise TypeError(f"Compilation step must be a callable function:\n"
@@ -121,10 +127,16 @@ class CodeletProgram(object):
             assert d in level_names
 
         fn_obj = CompilationStage(name, level, compilation_fn, dependencies, stage_kwargs)
-        if insert_idx >= 0:
-            self._compilation_pipeline[level].insert(insert_idx, fn_obj)
+        if preproc:
+            if insert_idx >= 0:
+                self._preproc_steps[level].insert(insert_idx, fn_obj)
+            else:
+                self._preproc_steps[level].append(fn_obj)
         else:
-            self._compilation_pipeline[level].append(fn_obj)
+            if insert_idx >= 0:
+                self._compilation_pipeline[level].insert(insert_idx, fn_obj)
+            else:
+                self._compilation_pipeline[level].append(fn_obj)
 
     INSTR_FN_TEMPLATE = """def param_fn{FN_ID}(hag, op, cdlt, relocation_table, program, fixed_val=None): return {FN_BODY}"""
 
@@ -210,6 +222,13 @@ class CodeletProgram(object):
         for n in node_sequence:
             cdlt = self.instantiate_codelet(n)
             codelets[n.name] = cdlt
+
+        for level, fns in self.preproc_steps.items():
+            for n in node_sequence:
+                cdlt = codelets[n.name]
+                for fn in fns:
+                    cdlt = fn.run(self, n, cdlt)
+                codelets[n.name] = cdlt
 
         for n in node_sequence:
             cdlt = codelets[n.name]

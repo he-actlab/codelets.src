@@ -45,6 +45,7 @@ class Codelet(object):
         self._id_counter = 0
         self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
+        self._compilation_params = {}
 
         if required_params is not None:
             self._required_params = {}
@@ -86,6 +87,10 @@ class Codelet(object):
     @property
     def is_instance(self):
         return self._is_instance
+
+    @property
+    def compilation_params(self):
+        return self._compilation_params
 
     @property
     def instance_id(self):
@@ -180,6 +185,9 @@ class Codelet(object):
             operand_dims.update(o.shape_symbols)
         return operand_dims
 
+    def add_compilation_param(self, key, value):
+        self._compilation_params[key] = value
+
     def unset_params(self):
         unset_params = []
         for k, v in self.required_params.items():
@@ -245,6 +253,7 @@ class Codelet(object):
         obj._op_id_counters = deepcopy(self._op_id_counters)
         obj._id_counter = self._id_counter
         obj._loop_ctxt_level = self._loop_ctxt_level
+        obj._compilation_params = deepcopy(self._compilation_params)
         for o in self.ops:
             obj.add_op(o.copy(obj))
         return obj

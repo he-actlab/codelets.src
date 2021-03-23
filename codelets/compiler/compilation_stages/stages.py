@@ -5,11 +5,47 @@ from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
 import json
 
+def pad_operands(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
+    if cdlt.op_name == "conv_bias":
+        activation = node.inputs[0]
+        weight = node.inputs[1]
+        bias = node.inputs[2]
+        out = node.outputs[0]
+        sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
+        if activation.shape[1] % sys_array_dims[0] != 0:
+            ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
+        else:
+            ic_shape = activation.shape[1]
+
+
+        if out.shape[1] % sys_array_dims[1] != 0:
+            oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
+        else:
+            oc_shape = out.shape[1]
+
+        bias.shape = tuple([oc_shape])
+        # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
+        activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
+        out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
+
+        weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
+
+
+        # assert 'pad' in node.kwargs.keys()
+
+        cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
+        activation.add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
+        activation.add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
+        cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
+
+    return cdlt
 
 def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
+
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
     for i, o in enumerate(cdlt.operands):

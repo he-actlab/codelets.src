@@ -11,15 +11,27 @@ from codelets.compiler.transformations import split_operation, factors
 import numpy as np
 import polymath as pm
 
-def get_level_tiling(loop_dependencies, shapes, splits):
+def get_level_tiling(cdlt, loop_dependencies, shapes, splits):
     out_shapes = {}
     out_factors = {}
+
+    if 'fixed_tile_dims' in cdlt.compilation_params:
+        fixed_dims = cdlt.compilation_params['fixed_tile_dims']
+    else:
+        fixed_dims = []
+
+
     for l in loop_dependencies:
         out_shapes[l] = shapes[l] // splits[l]
-        out_factors[l] = factors(out_shapes[l])
+
+        if cdlt.domain_loop_map[l] in fixed_dims:
+            out_factors[l] = [1]
+        else:
+            out_factors[l] = factors(out_shapes[l])
+
     perms = product(*tuple(out_factors.values()))
     # Need to skip past the first tiling because its all 1's
-    next(perms)
+    # next(perms)
     return out_shapes, out_factors, perms
 
 def default_tile_heuristic(hag: ArchitectureNode, cdlt: Codelet, tiling_splits):
@@ -28,6 +40,17 @@ def default_tile_heuristic(hag: ArchitectureNode, cdlt: Codelet, tiling_splits):
         for _, s in splits.items():
             total_accesses += s
     return total_accesses
+
+def find_tiling(cdlt, level, perm_stack):
+    if level > list(cdlt.tile_levels.keys())[-1] or level <= 0:
+        return level
+
+    prev_level = level - 1
+    perms = perm_stack[prev_level]
+    assert perms is not None
+    valid_splits = None
+    padded_info = None
+
 
 def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
     # TODO: Try to look ahead and see if all paths lead to node, in which case
@@ -48,16 +71,30 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
     level_factors = defaultdict(dict)
     selected_splits = defaultdict(dict)
     accumulated_splits = {}
+
+    if 'fixed_tile_dims' in cdlt.compilation_params:
+        fixed_dims = cdlt.compilation_params['fixed_tile_dims']
+    else:
+        fixed_dims = []
+
     for l in loop_dependencies:
         loop = cdlt.op_map[l]
-        level_factors[0][loop.op_str] = factors(loop.iter_count)
+        if cdlt.domain_loop_map[l] in fixed_dims:
+            level_factors[0][loop.op_str] = [1]
+        else:
+            level_factors[0][loop.op_str] = factors(loop.iter_count)
+
         shapes[0][loop.op_str] = loop.iter_count
         selected_splits[0][loop.op_str] = 1
         accumulated_splits[loop.op_str] = 1
 
     perm_stack = deque()
-    perm_stack.append(product(*tuple(level_factors[0].values())))
+    perm_order = list(level_factors[0].keys())
+    first_perm = product(*tuple(level_factors[0].values()))
+    perm_stack.append(first_perm)
+    max_level = 1
     level = 1
+    level_counter = defaultdict(int)
 
     @memoize
     def find_valid_splits(p, lvl):
@@ -65,18 +102,27 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         pad_info = None
 
         perm_map = {l: p[i]*accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
+        size_map = {}
+
+
         for level_access in level_accesses[lvl]:
+
             size = level_access.get_size_from_splits(cdlt, perm_map)
+            for k, v in size.items():
+                if k in size_map:
+                    assert v == size_map[k]
+                else:
+                    size_map[k] = v
 
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
             total_size = np.prod(list(size.values()))*dtype_size
             key = (level_access.src_node, level_access.dst_node)
 
             constraint_sat = tile_constraints[key].evaluate_fn(total_size)
+
             if key in tile_pad_constraints:
                 pad_info = tile_pad_constraints[key]
 
-            # min_size, max_size = tile_constraints[(level_access.src_node, level_access.dst_node)]
 
             if not constraint_sat:
                 valid_splits = None
@@ -84,6 +130,8 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         return valid_splits, pad_info
 
     while level <= list(cdlt.tile_levels.keys())[-1] and level > 0:
+        if level > max_level:
+            max_level = level
         prev_level = level - 1
         perms = perm_stack[prev_level]
         assert perms is not None
@@ -91,7 +139,9 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         padded_info = None
 
         for p in perms:
+            level_counter[level] += 1
             valid_splits, padded_info = find_valid_splits(p, level)
+
             if valid_splits:
                 valid_splits = {list(level_factors[level - 1].keys())[i]: v for i, v in enumerate(valid_splits)}
                 break
@@ -106,15 +156,17 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
         else:
             selected_splits[level] = valid_splits.copy()
             accumulated_splits = {k: v*selected_splits[level][k] for k, v in accumulated_splits.items()}
-            shapes[level], level_factors[level], new_perms = get_level_tiling(loop_dependencies, shapes[prev_level], valid_splits)
+            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits)
             perm_stack.append(new_perms)
             level += 1
 
     if level == 0:
         raise RuntimeError(f"Unable to find adequate tiling for Codelet:"
-                           f"Codelet Dimensions: {cdlt.operand_dim_mapping()}\n"
-                           f"Op: {cdlt.op_name}"
-                           f"constraints:{tile_constraints}\n")
+                       f"Codelet Dimensions: {cdlt.operand_dim_mapping()}\n"
+                       f"Max level reached: {max_level}\n"
+                           f"Times per level: {level_counter}\n"
+                       f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
+                       f"constraints:{[(k, t.fn_body_str) for k, t in tile_constraints.items()]}\n")
     # Lastly, update operands
     for o in cdlt.operands:
 
@@ -150,7 +202,8 @@ def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
             dst_node = hag.get_subgraph_node(access.dst_node)
             edge = hag.get_subgraph_edge(access.src_node, access.dst_node)
             if isinstance(dst_node, ComputeNode):
-                constraint = f"size <= {edge.bandwidth} and size >= 0"
+                # constraint = f"size <= {edge.bandwidth} and size >= 0"
+                constraint = f"size == {edge.bandwidth}"
 
                 # print(f"Bandwidht is {src_node.name} -> {dst_node.name}: {edge.bandwidth}")
                 pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
@@ -158,7 +211,8 @@ def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
                 # TODO: Need to add something which adds padding function here and uses a function constraint
             elif isinstance(dst_node, StorageNode):
                 if isinstance(src_node, ComputeNode):
-                    constraint = f"size <= {edge.bandwidth} and size >= 0"
+                    # constraint = f"size <= {edge.bandwidth} and size >= 0"
+                    constraint = f"size == {edge.bandwidth}"
                     pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
 
                 else:

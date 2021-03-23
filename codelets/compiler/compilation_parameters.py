@@ -72,8 +72,7 @@ def get_tiling_options(hag: ArchitectureNode, cdlt: Codelet):
     looped_dimensions = {s: tiling_dims[s] for s in cdlt.loop_order}
     dim_factors = {k: factors(v) for k, v in looped_dimensions.items()}
     filter_tile_factors = filter_tiling(hag, cdlt, looped_dimensions, dim_factors)
-    if cdlt.codelet_id == "conv1":
-        print(filter_tile_factors)
+
     return looped_dimensions
 
 

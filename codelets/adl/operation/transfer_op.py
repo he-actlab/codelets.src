@@ -75,8 +75,12 @@ class Transfer(Operation):
 
     @property
     def sizes(self) -> List[List[Union[str, Integral]]]:
-        accesses = self.operand.get_op_accesses(self.op_str)
-        return [a.dim_sizes() for a in accesses]
+        # accesses = self.operand.get_op_accesses(self.op_str)
+        # return [list(a.evaluated_offsets.values()) for a in accesses]
+        # TODO: Fix the data movement shapes, they are incorrect
+        sizes = [list(v.values()) for k, v in self.operand.tiling.items() if k in self.path]
+        return sizes
+
 
     @property
     def data_transfer_sizes(self) -> List[Union[str, Integral]]:
