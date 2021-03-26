@@ -127,8 +127,8 @@ def elem_add(hag: ArchitectureNode):
     return cdlt
 
 def relu(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"])
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("relu", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
@@ -185,5 +185,6 @@ GENESYS_CODELETS = {
     "conv_bias": conv2d_bias,
     "conv": conv2d,
     "gemm": gemm,
-    "elem_add": elem_add
+    "elem_add": elem_add,
+    "relu": relu
 }

@@ -1,12 +1,14 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
-from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CASE_NAMES, \
+from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CAST_NAMES, \
     CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES
+
 
 from functools import partial
 BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
                  'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7},
                  }
+SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES
 
 def buffer_sa_template(buffer_name, hag):
     instructions = []
@@ -467,9 +469,12 @@ def simd_alu_template(op_name, hag):
 
     instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
     instr.set_field_value("SRC1_INDEX_ID", 0)
-
-    instr.set_field_flex_param("SRC2_NS_ID", "op.get_operand_location(op.sources[1].name)")
-    instr.set_field_value("SRC2_INDEX_ID", 0)
+    if op_name not in (DTYPE_CAST_NAMES + CALC_OP_NAMES):
+        instr.set_field_flex_param("SRC2_NS_ID", "op.get_operand_location(op.sources[1].name)")
+        instr.set_field_value("SRC2_INDEX_ID", 0)
+    elif op_name in CALC_OP_NAMES:
+        instr.set_field_by_name("SRC2_NS_ID", "IMM")
+        instr.set_field_value("SRC2_INDEX_ID", 0)
     instructions.append(instr)
 
     return instructions
@@ -591,6 +596,6 @@ GENESYS_TEMPLATES = {
     "loop": loop_template,
     "compute": {
         ("pe_array", "MVMUL"): sa_mvmul_template,
-        **{("SIMD", op_name): partial(simd_alu_template, op_name) for op_name in ALU_OP_NAMES}
+        **{("SIMD", op_name): partial(simd_alu_template, op_name) for op_name in SIMD_OP_NAMES}
     }
 }

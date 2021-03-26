@@ -187,7 +187,7 @@ class Instruction(object):
 
     def set_field_flex_param(self, field_name: str, param_fn: str):
         if field_name not in self.field_names:
-            raise ValueError(f"{field_name} is not a field for this capability:\n"
+            raise ValueError(f"{field_name} is not a field for instruction  {self.name}:\n"
                              f"Fields: {self.fields}")
         field = self.get_field(field_name)
         if field.param_fn is not None:
