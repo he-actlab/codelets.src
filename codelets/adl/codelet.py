@@ -80,9 +80,9 @@ class Codelet(object):
         Operation.current_codelet = None
         OperandTemplate.current_codelet = None
         last_id = Operation.loop_stack.pop()
-        self._id_counter = Operation.id_counter
-        self._loop_ctxt_level = Operation.loop_ctxt_level
-        self._op_id_counters = Operation.op_id_counters
+        self._id_counter = deepcopy(Operation.id_counter)
+        self._loop_ctxt_level = deepcopy(Operation.loop_ctxt_level)
+        self._op_id_counters = deepcopy(Operation.op_id_counters)
         assert last_id == -1
 
     @property
@@ -222,6 +222,7 @@ class Codelet(object):
         start_idx = None
         prev_loop_level = -1
         found_band = False
+
         for i, o in enumerate(self.ops):
             if o.op_type == "loop":
                 if not found_band:
@@ -235,6 +236,11 @@ class Codelet(object):
                 prev_loop_level = -1
                 bands.append((start_idx, i-1))
                 found_band = False
+
+        if found_band:
+            assert start_idx >= 0
+            bands.append((start_idx, len(self.ops) - 1))
+
         return bands
 
     def copy(self):
@@ -351,10 +357,11 @@ class Codelet(object):
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
             for o in self.ops:
                 instr_list = o.emit(output_type)
-                ostr = f"\t" * (o.loop_level + 1)
-                instr_list = f"\n{ostr}".join(instr_list)
-                ostr += f"{instr_list}\n"
-                op_str += ostr
+                if len(instr_list) > 0:
+                    ostr = f"\t" * (o.loop_level + 1)
+                    instr_list = f"\n{ostr}".join(instr_list)
+                    ostr += f"{instr_list}\n"
+                    op_str += ostr
         else:
             op_str = []
             for o in self.ops:
@@ -439,6 +446,14 @@ class Codelet(object):
         cfg = Configure(start_end, target_name,
                         add_codelet=False, **kwargs)
         self.add_op(cfg)
+
+    def is_loop_node_target(self, loop, hag_node):
+        for o in self.ops:
+            if o.op_type == 'compute' and o.target == hag_node and loop.loop_level <= o.loop_level:
+                return True
+            elif o.op_type == 'transfer' and hag_node in o.path and loop.loop_level <= o.loop_level:
+                return True
+        return False
 
 
     def compute(self, op_name, sources, dests, **kwargs):
@@ -570,7 +585,7 @@ class Codelet(object):
         global_id = self.id_counter
         op_id = self.op_id_counters[op.op_type]
         self.id_counter = self.id_counter + 1
-        self.op_id_counters[op.op_type] += 1
+        self._op_id_counters[op.op_type] += 1
         return op_id, global_id
 
     def instantiate_operations(self, node: pm.Node, hag):

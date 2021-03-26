@@ -22,13 +22,6 @@ def gemm(hag: ArchitectureNode):
         with Loop(0, "P") as p:
             with Loop(0, "N") as n:
                 with Loop(0, "M") as m:
-
-                    # cdlt.transfer(weight[n, p], ["DRAM", "WBUF", "pe_array"])
-                    # cdlt.transfer(data[m, n], ["DRAM", "IBUF", "pe_array"])
-                    # cdlt.transfer(bias[p], ["DRAM", "IBUF", "pe_array"])
-                    # cdlt.transfer(out[n, p], ["DRAM", "OBUF", "pe_array"])
-                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                    # cdlt.transfer(out[n, p], ["pe_array", "OBUF", "DRAM"])
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(bias[p], ["DRAM", "BBUF"])
@@ -46,7 +39,7 @@ def gemm(hag: ArchitectureNode):
 
 
 
-def conv2d_nchw(hag: ArchitectureNode):
+def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
     weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
@@ -66,11 +59,11 @@ def conv2d_nchw(hag: ArchitectureNode):
                         with Loop(0, "KW") as kw:
                             with Loop(0, "OH") as y:
                                 with Loop(0, "OW") as x:
-                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
-                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
-                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
+                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
+                                    cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
+                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
                                     cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                                    cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
+                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -79,7 +72,7 @@ def conv2d_nchw(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
     return cdlt
 
-def conv2d_bias_nchw(hag: ArchitectureNode):
+def conv2d_bias(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
     weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
@@ -101,14 +94,6 @@ def conv2d_bias_nchw(hag: ArchitectureNode):
                         with Loop(0, "KW") as kw:
                             with Loop(0, "OH") as y:
                                 with Loop(0, "OW") as x:
-                                    # cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF", "pe_array"])
-                                    # cdlt.transfer(bias[oc], ["DRAM", "BBUF", "pe_array"])
-                                    # cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF", "pe_array"])
-                                    # cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF", "pe_array"])
-                                    # cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                                    # cdlt.transfer(out[n, oc, y, x], ["pe_array", "OBUF", "DRAM"])
-
-                                    #
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
@@ -126,13 +111,11 @@ def conv2d_bias_nchw(hag: ArchitectureNode):
     return cdlt
 
 def elem_add(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"])
-    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"])
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("add_out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_add", [op1, op2], [out], hag) as cdlt:
-        # out.set_start_location("VMEM1")
         cdlt.configure("start", "SIMD")
-        # cdlt.configure("start", "VMEM")
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
                 with Loop(0, "H") as h:
@@ -199,7 +182,8 @@ def maxpool2d_nchw(hag: ArchitectureNode):
 #
 GENESYS_CODELETS = {
     # "conv": conv2d_nchw,
-    "conv_bias": conv2d_bias_nchw,
-    "gemm": gemm
-    # "elem_add": elem_add
+    "conv_bias": conv2d_bias,
+    "conv": conv2d,
+    "gemm": gemm,
+    "elem_add": elem_add
 }

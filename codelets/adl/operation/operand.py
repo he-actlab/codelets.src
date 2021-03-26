@@ -66,6 +66,10 @@ class DataMovement:
     def shape_list(self):
         return list(self.shape_map.values())
 
+    @property
+    def unset_offsets(self):
+        return all([v == 0 for v in self.offset_map.values()])
+
     def size(self):
         return np.prod(self.dim_sizes())
 
@@ -105,7 +109,7 @@ class DataMovement:
                 new_offset_map[name] = 0
         self.offset_map = new_offset_map
         self.set_size_from_splits(cdlt, cdlt.domain_tiling)
-        self.set_offset_map(cdlt, cdlt.domain_loop_map)
+        self.set_offset_map(cdlt, cdlt.domain_loop_map, dep_map)
 
     def get_size_from_splits(self, cdlt, splits):
         sizes = {}
@@ -162,23 +166,25 @@ class DataMovement:
                 splits[key] *= loop
         self.shape_map = self.get_size_from_splits(cdlt, splits)
 
-    def set_offset_map(self, cdlt, loop_shapes):
-        self.resolve_domain_offsets(cdlt, loop_shapes)
+    def set_offset_map(self, cdlt, loop_shapes, dep_map=None):
+        dep_map = dep_map or {}
+        self.resolve_domain_offsets(cdlt, loop_shapes, dep_map)
 
     def resolve_shape_map(self, sizes):
         self.shape_map = {self.shape_symbols[i]: sizes[i] for i in range(len(sizes))}
 
-    def resolve_domain_offsets(self, cdlt, loop_shapes):
+    def resolve_domain_offsets(self, cdlt, loop_shapes, dep_map):
+
         for idx, (name, o) in enumerate(self.offset_map.items()):
             idx_offset = int(np.prod(self.shape_list[idx + 1:]))
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
-                dom_offsets = self.resolve_domain_offset(cdlt, o, indices, idx, loop_shapes)
+                dom_offsets = self.resolve_domain_offset(cdlt, o, indices, idx, loop_shapes, dep_map)
             else:
                 dom_offsets = [Offset(idx, -1, idx_offset, int(self.shape_list[idx]), o)]
             self.evaluated_domain_offsets[name] = dom_offsets
 
-    def resolve_domain_offset(self, cdlt, expr, indices, dim, loop_shapes):
+    def resolve_domain_offset(self, cdlt, expr, indices, dim, loop_shapes, dep_map):
         offsets = []
         for f_sym in list(expr.free_symbols):
             if str(f_sym) in cdlt.required_params:
@@ -193,7 +199,11 @@ class DataMovement:
             if not isinstance(coeff, (Integer, Integral)) or not isinstance(dim_size, (Integer, Integral)):
                 raise TypeError(f"Unable to compute domain offsets because coefficient is not an intenger:"
                                 f"Coeff: {coeff}\tType: {type(coeff)}")
-            o_info = Offset(dim, cdlt.op_map[str(idx)].loop_id, int(coeff), int(dim_size), offset)
+            if str(idx) in dep_map:
+                str_idx = dep_map[str(idx)]
+            else:
+                str_idx = str(idx)
+            o_info = Offset(dim, cdlt.op_map[str_idx].loop_id, int(coeff), int(dim_size), offset)
             offsets.append(o_info)
         return offsets
 
@@ -277,8 +287,6 @@ class OperandTemplate:
                 val = dm.offset_map.pop(dim)
                 dm.offset_map[dim] = val
 
-
-
     @property
     def current_location(self):
         if len(self.data_path) == 0:
@@ -353,10 +361,15 @@ class OperandTemplate:
         if op_name not in self.dependencies:
             self.dependencies.append(op_name)
 
+    def movement_keys(self):
+        return [(dm.src_node, dm.dst_node) for dm in self.data_moves]
+
     def add_transfer_access(self, path, op_name, sizes, offsets=None):
         offsets = offsets or []
         self.add_dependency(op_name)
         pairs = pairwise(path)
+
+
         for i, (src, dst) in enumerate(pairs):
             if self.current_location != src:
                 self.data_path.append(src)
@@ -365,16 +378,16 @@ class OperandTemplate:
                 self.data_path.append(dst)
 
             if src == path[0]:
-                if len(self.data_moves) > 1 and self.data_moves[-1].dst_node is None:
+                if len(self.data_moves) >= 1 and self.data_moves[-1].dst_node is None:
                     if self.data_moves[-1].src_node == src:
                         self.data_moves[-1].dst_node = dst
-                        # continue
                     else:
                         self.data_moves[-1].dst_node = src
-                # dm_offsets = self.get_access_offsets(domain_offsets)
 
-            # else:
-                # dm_offsets = self.get_access_offsets([0] * len(self.shape_list))
+                    if self.data_moves[-1].unset_offsets:
+                        self.data_moves[-1].offset_map = self.get_access_offsets(offsets)
+
+
             dm_offsets = self.get_access_offsets(offsets)
             shape = self.get_shape_map(sizes[i])
             movement = DataMovement(src, dst, self.name, self.shape_list.copy(), op_name, shape, dm_offsets)
@@ -389,6 +402,7 @@ class OperandTemplate:
 
         offsets = self.get_access_offsets(offsets)
         self.add_dependency(op_name)
+
         shape = self.get_shape_map([0] * len(self.shape_list))
         if operand_type == "source":
             src = self.current_location

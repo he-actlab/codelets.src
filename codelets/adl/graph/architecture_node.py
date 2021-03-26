@@ -305,10 +305,15 @@ class ArchitectureNode(Node):
             template = self.operation_mappings['config'][op.target_name][op.start_or_finish].instructions
         elif isinstance(op, Compute):
             template = self.operation_mappings['compute'][op.target][op.op_name].instructions
+
+            if not isinstance(template, list):
+                raise RuntimeError(f"Unable to find template for {op.op_str}, target: {op.target}, Op: {op.op_name}")
         elif isinstance(op, Loop):
             template = [self.operation_mappings['loop'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
+
+
         return template
 
     def add_template(self, template, template_type, template_subtype=None, target=None, template_fns=None):
@@ -407,7 +412,6 @@ class ArchitectureNode(Node):
 
     def get_node_depth(self, node_name: str):
         node = self.get_subgraph_node(node_name)
-
 
     def get_type(self):
         return self._anode_type
@@ -522,6 +526,12 @@ class ArchitectureNode(Node):
         for n in self.get_subgraph_nodes():
             count += n.get_graph_edge_count()
         return count
+
+    def print_isa(self):
+        for name, node in self.all_subgraph_nodes.items():
+            for op, instr in node.primitives.items():
+                print(f"{name}{op}: {instr}")
+
 
     def print_subgraph_edges(self, tabs=""):
         edge_pairs = [f"SRC: {self.subgraph.get_node_by_index(e.src).name}\t" \

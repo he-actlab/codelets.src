@@ -52,7 +52,8 @@ class Configure(Operation):
         else:
             op_str = []
             for ft in self.instructions:
-                op_str += ft.emit(output_type)
+                ft_out = ft.emit(output_type)
+                op_str += ft_out
         return op_str
 
     def copy(self, cdlt, target=None, start_or_finish=None, **kwargs):

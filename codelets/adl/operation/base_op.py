@@ -31,9 +31,9 @@ class Operation(object):
                  dependencies=None):
 
         self._loop_id = Operation.current_loop_id()
-        self._loop_level = Operation.loop_ctxt_level
+        self._loop_level = copy(Operation.loop_ctxt_level)
         self._global_op_id = Operation.id_counter
-        self._op_id = Operation.op_id_counters[operation_type]
+        self._op_id = copy(Operation.op_id_counters[operation_type])
         if operation_type == "loop":
             self._loop_id = self._op_id
 

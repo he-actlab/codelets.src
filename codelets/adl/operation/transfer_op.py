@@ -52,8 +52,6 @@ class Transfer(Operation):
         self._dependencies += [d for d in self._operand.dependencies if d not in self.dependencies]
         self._required_params += [r for r in self.operand.required_params if r not in self.required_params]
 
-
-
     @property
     def path(self):
         return self._path
@@ -80,7 +78,6 @@ class Transfer(Operation):
         # TODO: Fix the data movement shapes, they are incorrect
         sizes = [list(v.values()) for k, v in self.operand.tiling.items() if k in self.path]
         return sizes
-
 
     @property
     def data_transfer_sizes(self) -> List[Union[str, Integral]]:
@@ -187,7 +184,10 @@ class Transfer(Operation):
         else:
             op_str = []
             for ft in self.instructions:
-                op_str += ft.emit(output_type)
+                ft_out = ft.emit(output_type)
+                if len(ft_out) == 0:
+                    continue
+                op_str += ft_out
         return op_str
 
 

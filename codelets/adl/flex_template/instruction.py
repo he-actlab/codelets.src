@@ -149,11 +149,19 @@ class Instruction(object):
         if name not in self.field_names:
             raise ValueError(f"{name} is not a field for this capability:\n"
                              f"Fields: {self.fields}")
-        elif self.field_values[name].value is None:
+        elif self.field_map[name].value is None:
             raise KeyError(f"{name} is not currently set for this capability:\n"
                              f"Set fields: {self.set_fields}")
+        return self.field_map[name].value
 
-        return self.field_values[name].value
+    def get_field_value_str(self, name: str) -> str:
+        if name not in self.field_names:
+            raise ValueError(f"{name} is not a field for this capability:\n"
+                             f"Fields: {self.fields}")
+        elif self.field_map[name].value_str is None:
+            raise KeyError(f"{name} is not currently set for this capability:\n"
+                             f"Set fields: {self.set_fields}")
+        return self.field_map[name].value_str
 
     def get_field(self, name: str) -> Field:
         if name not in self.field_names:
@@ -188,6 +196,18 @@ class Instruction(object):
                              f"New param fn: {param_fn}")
         flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS, param_fn)
         field.set_param_fn(flex_param)
+
+    def set_field_flex_param_str(self, field_name: str, param_fn: str):
+        if field_name not in self.field_names:
+            raise ValueError(f"{field_name} is not a field for this capability:\n"
+                             f"Fields: {self.fields}")
+        field = self.get_field(field_name)
+        if field.param_fn is not None:
+            raise ValueError(f"Param function for {field_name} is already set:\n"
+                             f"Set param fn: {field.param_fn}\n"
+                             f"New param fn: {param_fn}")
+        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS, param_fn)
+        field.set_param_fn(flex_param, eval_type="string")
 
 
     def evaluate_fields(self, fn_args: tuple, iter_args: dict):
