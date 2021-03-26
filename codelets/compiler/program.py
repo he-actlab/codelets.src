@@ -65,7 +65,7 @@ class CodeletProgram(object):
         return self._relocatables
 
     @property
-    def compilation_pipeline(self) -> Dict[int, List]:
+    def compilation_pipeline(self) -> Dict[int, List[CompilationStage]]:
         return self._compilation_pipeline
 
     @property
@@ -142,8 +142,10 @@ class CodeletProgram(object):
 
     def set_instruction_templates(self, cdlt: Codelet):
         for o in cdlt.ops:
+
             template = self.hag.get_operation_template(o)
             template_copy = [ft.template_copy() for ft in template]
+
             o.set_template(template_copy)
 
     def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
@@ -175,7 +177,7 @@ class CodeletProgram(object):
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(codelet_strings)
         else:
-            return {"mode" : self.program_mode, "program": codelet_strings}
+            return {"mode": self.program_mode, "program": codelet_strings}
 
 
     def instantiate_instructions_templates(self, node, cdlt):

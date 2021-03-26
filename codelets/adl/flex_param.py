@@ -3,10 +3,16 @@ from sympy.utilities.lambdify import lambdastr
 from typing import Union, List, Dict
 from itertools import count
 import re
+
 from types import FunctionType, LambdaType, CodeType
 import inspect
 from numbers import Integral
 from dataclasses import dataclass, field
+
+# IMPORTANT: The following modules are imported here to enable use in runtime compilation using globals()
+import numpy as np
+# END Module imports
+
 IMPORT_VALS = ["import numpy as np"]
 flex_param_cnt = count()
 
@@ -47,6 +53,7 @@ class FlexParam:
     def create_function_from_str(self, arg_names, fn_body):
         self.fn_code_str = f"lambda {','.join(arg_names)}: {fn_body}"
         self.fn_code = compile(self.fn_code_str, "<string>", "exec")
+        assert 'np' in globals()
         self.fn = LambdaType(self.fn_code.co_consts[0], globals())
 
     @property
@@ -65,7 +72,7 @@ class FlexParam:
         self.create_function_from_str(self.fn_args, self.fn_body_str)
 
 
-    def evaluate_fn(self, *fn_args):
+    def evaluate_fn(self, *fn_args, force_evaluate=False):
         assert len(fn_args) == len(self.fn_args)
 
         # TODO: Important--> this assumes that iter_args are iterated over in the correct order
@@ -77,13 +84,16 @@ class FlexParam:
                                f"Func: {self.name}: {self.fn_body_str}\n"
                                f"Arg names: {self.fn_args}\n"
                                f"Args: {fn_args}\n"
-                               f"Error: {e}")
+                               f"Error: {e}\n"
+                               f"")
 
         if isinstance(result, (int, np.float)):
-            assert (result - int(result)) == 0
+            assert (result - int(result)) == 0, f"Invalid conversion between float and integer: " \
+                                                f"Func: {self.name}: {self.fn_body_str}\n Arg names: {self.fn_args}\n " \
+                                                f"Args: {fn_args}\n"
             result = int(result)
 
-        if not self.is_set():
+        if not self.is_set() or force_evaluate:
             self.value = result
 
         return result

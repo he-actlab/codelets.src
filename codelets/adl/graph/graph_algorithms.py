@@ -143,6 +143,7 @@ def compute_node_levels(nodes: dict, use_tarjan=True):
             graph.add_edge(name, v.name)
 
     for target in target_names:
+
         lengths = list(nx.single_target_shortest_path_length(graph, target))
         for name, length in lengths:
             if name == target or name in target_names:

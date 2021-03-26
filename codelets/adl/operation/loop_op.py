@@ -294,7 +294,7 @@ class Loop(Operation):
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
-            op_str = f"{self.op_str}: START={self.start}; STOP={self.end}; STRIDE={self.stride}; OFFSET:{self.offset}"
+            op_str = f"{self.op_str}[{self.loop_level}]: START={self.start}; STOP={self.end}; STRIDE={self.stride}; OFFSET:{self.offset}"
         elif output_type == "json":
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,
@@ -306,7 +306,10 @@ class Loop(Operation):
         else:
             op_str = []
             for ft in self.instructions:
-                op_str += ft.emit(output_type)
+                ft_out = ft.emit(output_type)
+                if len(ft_out) == 0:
+                    continue
+                op_str += ft_out
         return op_str
 
 

@@ -8,20 +8,23 @@ class StorageNode(ArchitectureNode):
                     "quadruple": 4}
     def __init__(self, name,
                  access_type=None,
-                 size=-1,
+                 banks=-1,
                  buffering_scheme=None,
                  latency=0,
                  input_ports=1,
                  output_ports=1,
                  width=-1,
+                 depth=-1,
                  indirection=False,
                  on_chip=True,
                  index=None):
         super(StorageNode, self).__init__(name=name, index=index)
         self.set_attr("node_color", self.viz_color)
         self.access_type = access_type
-        self.size = size
+        self.banks = banks
+        # self.size = size
         self.width = width
+        self.depth = depth
         self.input_ports = input_ports
         self.output_ports = output_ports
         self.buffering_scheme = buffering_scheme or "single"
@@ -55,6 +58,14 @@ class StorageNode(ArchitectureNode):
         return self._width
 
     @property
+    def depth(self):
+        return self._depth
+
+    @property
+    def banks(self):
+        return self._banks
+
+    @property
     def latency(self):
         return self._latency
 
@@ -76,19 +87,27 @@ class StorageNode(ArchitectureNode):
 
     @property
     def size(self):
-        return self._size
+        return self.depth*self.width*self.banks
 
     @property
     def size_bytes(self):
-        return self._size * 1000
+        return self._size
 
     @property
     def indirection(self):
         return self._indirection
 
+    @banks.setter
+    def banks(self, banks):
+        self._banks = banks
+
     @width.setter
     def width(self, width):
         self._width = width
+
+    @depth.setter
+    def depth(self, depth):
+        self._depth = depth
 
     @latency.setter
     def latency(self, latency):

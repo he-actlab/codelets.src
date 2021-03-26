@@ -61,6 +61,28 @@ class Compute(Operation):
     @property
     def op_name(self):
         return self._op_name
+    def get_operand(self, name):
+        op = None
+        for o in self.operands:
+            if o.name == name:
+                op = o
+                break
+        assert op is not None
+        return op
+
+    def get_operand_location(self, operand_name):
+        op = self.get_operand(operand_name)
+        location = None
+        for a in op.data_moves:
+            if a.op_name == self.op_str:
+                if a.src_node == self.target:
+                    location = a.dst_node
+                else:
+                    assert a.dst_node == self.target
+                    location = a.src_node
+                break
+        assert location is not None
+        return location
 
     def get_src_movement(self, src_name):
         source = None
@@ -97,6 +119,13 @@ class Compute(Operation):
             return self.get_dst_offset(op_name)
         else:
             return self.get_src_offset(op_name)
+
+    def get_offset_loops(self, op_name):
+        offsets = self.get_offset(op_name)
+        names = []
+        for o in offsets:
+            names.append(f'loop{o.loop_id}')
+        return names
 
     def get_dst_offset(self, dst_name, placeholder=None):
         return self.get_dest_movement(dst_name).domain_offsets()
@@ -151,7 +180,8 @@ class Compute(Operation):
         else:
             op_str = []
             for ft in self.instructions:
-                op_str += ft.emit(output_type)
+                ft_out = ft.emit(output_type)
+                op_str += ft_out
         return op_str
 
     def copy(self, cdlt, op_name=None, sources=None, dests=None, **kwargs):

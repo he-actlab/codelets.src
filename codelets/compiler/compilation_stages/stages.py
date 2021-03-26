@@ -14,8 +14,6 @@ def pad_operands(program, node: pm.Node, cdlt: Codelet, shaped_nodes=None) -> Co
         out = node.outputs[0]
         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
 
-
-
         if out.name not in shaped_nodes:
             if out.shape[1] % sys_array_dims[1] != 0:
                 oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
@@ -105,7 +103,6 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
-
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
     for i, o in enumerate(cdlt.operands):
@@ -119,6 +116,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
 
 
     bands = cdlt.extract_bands()
+
     cdlt = set_codelet_tiling(cdlt, hag, heuristic_fn)
 
     for start, end in bands:
@@ -204,12 +202,14 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
 
                     inner_op = op.copy(cdlt, loop_level=inner_loop_level,
                                                     op_id=new_op_id,
+                                                    loop_id=new_op_id,
                                                     global_op_id=new_global_id,
                                                     dependencies=inner_deps, **extra_kwargs)
-
+                    cdlt._domain_loop_map[split+1][inner_op.op_str] = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.start = 0
                     op.stride = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.end = cdlt.domain_loop_map[split][op.op_str]
+                    cdlt._domain_loop_map[split+1].pop(op.op_str)
 
                     dep_mapping[op.op_str] = inner_op.op_str
                     inner_idx = target_idx + 1
@@ -233,6 +233,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
 
                 cdlt.insert_op(inner_op, inner_idx)
 
+
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
 
@@ -241,8 +242,10 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
             level = cdlt.get_tile_level(dest_name)
             level_sizes = cdlt.domain_loop_map[level]
             o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
-        elif o in cdlt.outputs and not o.is_tiled():
+
+        if o in cdlt.outputs and not o.is_tiled():
             missing_tiles = [l for l in o.unique_data_locations() if l not in list(o.tiling.keys())]
+            prev_level = cdlt.get_tile_level(missing_tiles[0])
             for m in missing_tiles:
                 level = cdlt.get_tile_level(m)
                 level_sizes = cdlt.domain_loop_map[level]
@@ -251,6 +254,10 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     if a.src_node == m:
                         mmove = a
                         break
+                prev_level = level
+                if mmove is None:
+                    raise RuntimeError(f"UNable to find movement for missing tile {m}\n"
+                                       f"Moves: {o.movement_keys()}")
                 o.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
 
         if not o.is_tiled():
@@ -262,11 +269,13 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
 
 
 def hoist(program, node: pm.Node, cdlt: Codelet) -> Codelet:
+
     for o in cdlt.ops:
         i = cdlt.ops.index(o)
         i_loop_level = o.loop_level
         idx = -1
         loop_level = -1
+
         for dep in o.dependencies:
 
             dep_idx = cdlt.ops.index(cdlt.op_map[dep])

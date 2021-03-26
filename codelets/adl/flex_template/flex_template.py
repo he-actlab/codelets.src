@@ -33,7 +33,8 @@ class FlexTemplate:
 
     def evaluate(self, program, hag, op_idx, cdlt_id):
         fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
-        instructions = self.evaluate_iterable_instruction(fn_args, [], 0, {})
+        # instructions = self.evaluate_iterable_instruction(fn_args, [], 0, {})
+        instructions = self.evaluate_iterable_instructions(fn_args, 0, {})
         self.set_instructions(instructions)
 
     def set_field_by_name(self, field_name, field_value):
@@ -58,16 +59,17 @@ class FlexTemplate:
 
         if self.conditional is not None:
             fn_args = fn_args + tuple(iter_args.values())
-            condition = self.conditional.evaluate_fn(*fn_args)
+            condition = self.conditional.evaluate_fn(*fn_args, force_evaluate=True)
+
         else:
             condition = True
         return condition
 
     # TODO: Add
     def evaluate_iterable_instruction(self, fn_args: tuple, instructions: List[Instruction], iter_idx: int, iter_args: dict):
-        instruction = self.base_instruction.instruction_copy()
 
         if iter_idx >= len(self.iterables):
+            instruction = self.base_instruction.instruction_copy()
             condition = self.evaluate_conditional(fn_args, iter_args)
             if condition:
                 instruction.evaluate_fields(fn_args, iter_args)
@@ -78,9 +80,32 @@ class FlexTemplate:
             # TODO: Add checks for validation here
             iterable = iterable_fnc.evaluate_fn(*fn_args)
             iter_idx += 1
+
             for i in iterable:
                 iter_args[iter_arg_name] = i
                 instructions = self.evaluate_iterable_instruction(fn_args, instructions, iter_idx, iter_args)
+        return instructions
+
+    def evaluate_iterable_instructions(self, fn_args: tuple, iter_idx: int, iter_args: dict):
+        instructions = []
+
+        if iter_idx >= len(self.iterables):
+            instruction = self.base_instruction.instruction_copy()
+            condition = self.evaluate_conditional(fn_args, iter_args)
+            if condition:
+                instruction.evaluate_fields(fn_args, iter_args)
+                instructions.append(instruction)
+        else:
+            iter_arg_name = self.iter_args[iter_idx]
+            iterable_fnc = self.iterables[iter_idx]
+            # TODO: Add checks for validation here
+            iterable = iterable_fnc.evaluate_fn(*fn_args)
+            iter_idx += 1
+
+            for i in iterable:
+                iter_args[iter_arg_name] = i
+                instructions += self.evaluate_iterable_instructions(fn_args, iter_idx, iter_args)
+
         return instructions
 
     def template_copy(self):
@@ -98,13 +123,14 @@ class FlexTemplate:
         return tuple(args)
 
     def emit(self, output_type="string_final"):
-        if self.conditional and not self.conditional.value:
-            return []
+
         if len(self.instructions) == 0:
-            print(self.base_instruction)
+            return []
 
         assert len(self.instructions) > 0
         instr_strings = []
         for i in self.instructions:
-            instr_strings.append(i.emit(output_type))
+            instr = i.emit(output_type)
+            instr_strings.append(instr)
+
         return instr_strings

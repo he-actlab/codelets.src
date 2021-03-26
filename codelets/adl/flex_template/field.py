@@ -29,6 +29,7 @@ class Field:
     value_names: Dict[str, int] = field(default_factory=dict)
     value_str: str = field(default=None)
     param_fn: FlexParam = field(default=None, init=False)
+    param_fn_type: str = field(default="int")
 
 
     @property
@@ -39,9 +40,11 @@ class Field:
     def value_name_list(self) -> List[str]:
         return list(self.value_names.keys())
 
-    def set_param_fn(self, fn: FlexParam):
+    def set_param_fn(self, fn: FlexParam, eval_type="int"):
         assert isinstance(fn, FlexParam)
         self.param_fn = fn
+        assert eval_type in ['string', 'int']
+        self.param_fn_type = eval_type
 
     def set_value(self, value):
         if self.value is not None:
@@ -72,14 +75,15 @@ class Field:
                 param_fn_args.append(v)
         param_fn_args = tuple(param_fn_args)
         result = self.param_fn.evaluate_fn(*param_fn_args)
+
         if isinstance(result, str) and result in self.value_names:
             self.value = self.value_names[result]
             self.value_str = result
         elif not isinstance(result, Integral):
-            print(f"Result: {result}, Type: {type(result)}\n"
+            raise RuntimeError(f"Non-integer result value which is not found in value names:\n"
+                               f"Value: {result}, Type: {type(result)}\n"
+                               f"Possible string values: {list(self.value_names.keys())}"
                   f"Arg name: {self.field_name}")
-
-            self.value = result
         else:
             self.value = result
 
