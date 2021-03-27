@@ -61,6 +61,15 @@ class Compute(Operation):
     @property
     def op_name(self):
         return self._op_name
+
+    @property
+    def num_loop_dependencies(self):
+        count = 0
+        for d in self.dependencies:
+            if 'loop' in d:
+                count += 1
+        return count
+
     def get_operand(self, name):
         op = None
         for o in self.operands:

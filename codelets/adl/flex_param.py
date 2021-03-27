@@ -71,7 +71,6 @@ class FlexParam:
         self.fn_args.append(arg)
         self.create_function_from_str(self.fn_args, self.fn_body_str)
 
-
     def evaluate_fn(self, *fn_args, force_evaluate=False):
         assert len(fn_args) == len(self.fn_args)
 

@@ -310,7 +310,10 @@ class ArchitectureNode(Node):
                 raise RuntimeError(f"Unable to find template for {op.op_str}, target: {op.target}, Op: {op.op_name}")
         elif isinstance(op, Loop):
             # TODO: Check why this is showing up as a warning
-            template = [self.operation_mappings['loop'].instructions]
+            if isinstance(self.operation_mappings['loop'].instructions, list):
+                template = self.operation_mappings['loop'].instructions
+            else:
+                template = [self.operation_mappings['loop'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
 
