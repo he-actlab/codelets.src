@@ -151,7 +151,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             outgoing = True
                             cdlt.insert_op(op, target_idx)
-                        op.operand.update_op_accesses(cdlt, op, dep_mapping)
+                        # op.operand.update_op_accesses(cdlt, op, dep_mapping)
                         op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):

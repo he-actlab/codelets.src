@@ -86,6 +86,10 @@ class Codelet(object):
         assert last_id == -1
 
     @property
+    def num_loop_levels(self):
+        return max([k for k in self.tile_levels.keys()])
+
+    @property
     def is_instance(self):
         return self._is_instance
 
@@ -209,6 +213,13 @@ class Codelet(object):
             if o.name == op_name:
                 return o
         raise KeyError(f"Unable to find operand {op_name}: {self.inputs + self.outputs}")
+
+    def get_ops_by_type(self, op_type):
+        ops = []
+        for o in self.ops:
+            if o.op_type == op_type:
+                ops.append(o)
+        return ops
 
     def get_max_loop_level(self):
         max_level = -1
@@ -455,6 +466,27 @@ class Codelet(object):
                 return True
         return False
 
+    def is_direct_loop_dep(self, loop, hag_node):
+        for o in self.ops:
+            if o.op_type == 'compute' and o.target == hag_node and loop.op_str in o.dependencies:
+                return True
+            elif o.op_type == 'transfer' and hag_node in o.path and loop.op_str in o.dependencies:
+                return True
+        return False
+
+    def ordered_loop_ops(self):
+        ops = []
+        for o in self.ops:
+            if o.op_type == 'loop':
+                ops.append(o)
+        return ops
+
+    def num_op_type(self, op_type):
+        count = 0
+        for i in self.ops:
+            if i.op_type == op_type:
+                count += 1
+        return count
 
     def compute(self, op_name, sources, dests, **kwargs):
         comp = Compute(op_name, sources, dests,

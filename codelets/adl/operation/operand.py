@@ -438,6 +438,7 @@ class OperandTemplate:
             movement = op.get_src_movement(op.path[0], op.path[1])
 
     def update_op_accesses(self, cdlt, op, dep_map: Dict[str, str]):
+
         accesses = self.get_op_accesses(op.op_str)
         for a in accesses:
             a.substitute_offset_symbols(cdlt, dep_map, op.dependencies)
@@ -473,6 +474,16 @@ class OperandTemplate:
                            f"Names: {[dm.op_name for dm in self.data_moves]}")
         return all_accesses
 
+    # TODO: This needs to support multiple computations
+    def get_compute_access_location(self, compute_node):
+        for dm in self.data_moves:
+            if dm.src_node == compute_node:
+                return dm.dst_node
+            elif dm.dst_node == compute_node:
+                return dm.src_node
+
+        raise KeyError(f"Unable to find Data Movement for operand {self.name}, "
+                       f"Compute node: {compute_node}")
 
     @property
     def shape(self):
@@ -614,6 +625,10 @@ class Offset:
     stride: int
     dim_size: int
     offset: int
+
+    @property
+    def loop_name(self):
+        return f"loop{self.loop_id}"
 
     def __str__(self):
         return f"DIM:{self.dim},LOOPID:{self.loop_id},OFFSET:{self.offset}"

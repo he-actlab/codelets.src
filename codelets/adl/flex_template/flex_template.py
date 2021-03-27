@@ -24,6 +24,8 @@ class FlexTemplate:
         iterable_param = FlexParam(arg_name, Instruction.DEFAULT_FN_ARGS, iterable)
         self.iter_args.append(arg_name)
         self.iterables.append(iterable_param)
+        if self.conditional is not None:
+            self.conditional.add_fn_arg(arg_name)
 
     def set_instructions(self, instruction_list: List[Instruction]):
         if len(self.instructions) > 0:
@@ -34,6 +36,7 @@ class FlexTemplate:
     def evaluate(self, program, hag, op_idx, cdlt_id):
         fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
         # instructions = self.evaluate_iterable_instruction(fn_args, [], 0, {})
+
         instructions = self.evaluate_iterable_instructions(fn_args, 0, {})
         self.set_instructions(instructions)
 
@@ -46,45 +49,36 @@ class FlexTemplate:
     def set_field_value(self, field_name, value, value_str=None):
         self.base_instruction.set_field_value(field_name, value, value_str=value_str)
 
+    def evaluate_instr_len(self, idx, fn_args, instr_size):
+        if len(self.iterables) < idx:
+            iterable = self.iterables[idx].evaluate_fn(*fn_args)
+            for i in iterable:
+                fn_args_i = fn_args + (i,)
+                instr_size += self.evaluate_instr_len(idx + 1, fn_args_i, instr_size)
+        else:
+            instr_size += 1
+
+        return instr_size
+
     def set_instruction_length(self, program, hag, op_idx, cdlt_id):
-        instr_size = 1
+        instr_size = 0
         fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
 
         for idx in range(len(self.iterables)):
             iterable = self.iterables[idx].evaluate_fn(*fn_args)
             instr_size *= len(iterable)
         self.num_instructions = instr_size
+        # self.num_instructions = self.evaluate_instr_len(0, fn_args, instr_size)
 
     def evaluate_conditional(self, fn_args, iter_args):
 
         if self.conditional is not None:
             fn_args = fn_args + tuple(iter_args.values())
             condition = self.conditional.evaluate_fn(*fn_args, force_evaluate=True)
-
         else:
             condition = True
         return condition
 
-    # TODO: Add
-    def evaluate_iterable_instruction(self, fn_args: tuple, instructions: List[Instruction], iter_idx: int, iter_args: dict):
-
-        if iter_idx >= len(self.iterables):
-            instruction = self.base_instruction.instruction_copy()
-            condition = self.evaluate_conditional(fn_args, iter_args)
-            if condition:
-                instruction.evaluate_fields(fn_args, iter_args)
-                instructions.append(instruction)
-        else:
-            iter_arg_name = self.iter_args[iter_idx]
-            iterable_fnc = self.iterables[iter_idx]
-            # TODO: Add checks for validation here
-            iterable = iterable_fnc.evaluate_fn(*fn_args)
-            iter_idx += 1
-
-            for i in iterable:
-                iter_args[iter_arg_name] = i
-                instructions = self.evaluate_iterable_instruction(fn_args, instructions, iter_idx, iter_args)
-        return instructions
 
     def evaluate_iterable_instructions(self, fn_args: tuple, iter_idx: int, iter_args: dict):
         instructions = []

@@ -179,8 +179,6 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
                 a.offset_map = o.data_moves[idx - 1].offset_map.copy()
-                if o.name == "out" and cdlt.instance_id == 1:
-                    print(f"Here: {a.offset_map}")
 
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, selected_splits)

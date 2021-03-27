@@ -52,7 +52,6 @@ def store_unique_model_layers(model_name, store_as_polymath=False):
     layers = {}
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
-    print(onnx.__version__)
     for n in model.graph.node:
         if n.op_type not in layers:
             inputs = n.input

@@ -344,7 +344,7 @@ def create_simd_ops():
         op_fnctions = op_type_list[1]
         op_type = op_type_list[2]
         for fn_code, op_fn in enumerate(op_fnctions):
-            ns_id = Field("NS_ID", 3)
+            ns_id = Field("NS_ID", 3, value_names=NS_OP_CODES)
             ns_index_id = Field("NS_INDEX_ID", 5)
             imm = Field("IMM", 16)
 

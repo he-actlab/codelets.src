@@ -93,7 +93,7 @@ class Transfer(Operation):
 
     def get_src_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)
-        for a in accesses:
+        for i, a in enumerate(accesses):
             if a.src_node == src and a.dst_node == dst:
                 return a
         raise KeyError
