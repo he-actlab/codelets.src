@@ -1,21 +1,21 @@
 from types import FunctionType
 from codelets.graph import Node, Graph
 from .graph_algorithms import compute_node_levels
-from codelets.adl.graph.architecture_graph import ArchitectureGraph
+from . import ArchitectureGraph
 from typing import List, Dict, Union, TYPE_CHECKING
-from codelets.adl.flex_template import FlexTemplate, Instruction
-from codelets.adl import Codelet
 from pygraphviz import AGraph
 from collections import namedtuple, deque
 from dataclasses import dataclass, field
 import itertools
+from codelets.adl.flex_template import Instruction, FlexTemplate
 
-from codelets.adl.operation import Loop, Compute, Configure, Transfer
 
 if TYPE_CHECKING:
     from .compute_node import ComputeNode
     from .storage_node import StorageNode
     from .communication_node import CommunicationNode
+    from codelets.codelet_impl import Codelet
+
 # Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
 OpTemplate = namedtuple('OpTemplate', ['instructions', 'functions'])
 
@@ -174,11 +174,11 @@ class ArchitectureNode(Node):
         return self._out_edges
 
     @property
-    def primitives(self) -> Dict[str, Instruction]:
+    def primitives(self) -> Dict[str, 'Instruction']:
         return self._primitives
 
     @property
-    def codelets(self) -> Dict[str, Codelet]:
+    def codelets(self) -> Dict[str, 'Codelet']:
         return self._codelets
 
     @property
@@ -295,20 +295,20 @@ class ArchitectureNode(Node):
 
     def get_operation_template(self, op):
 
-        if isinstance(op, Transfer):
+        if op.op_type == 'transfer':
             template = []
             a, b = itertools.tee(op.path)
             next(b, None)
             for key in zip(a,b):
                 template += self.operation_mappings['transfer'][key].instructions
-        elif isinstance(op, Configure):
+        elif op.op_type == 'config':
             template = self.operation_mappings['config'][op.target_name][op.start_or_finish].instructions
-        elif isinstance(op, Compute):
+        elif op.op_type == 'compute':
             template = self.operation_mappings['compute'][op.target][op.op_name].instructions
 
             if not isinstance(template, list):
                 raise RuntimeError(f"Unable to find template for {op.op_str}, target: {op.target}, Op: {op.op_name}")
-        elif isinstance(op, Loop):
+        elif op.op_type == 'loop':
             # TODO: Check why this is showing up as a warning
             if isinstance(self.operation_mappings['loop'].instructions, list):
                 template = self.operation_mappings['loop'].instructions
@@ -429,15 +429,16 @@ class ArchitectureNode(Node):
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
-    def add_primitive(self, primitive: Instruction):
+    def add_primitive(self, primitive: 'Instruction'):
         if primitive.target is None:
             primitive.target = self.name
         self._primitives[primitive.name] = primitive
 
-    def get_primitive_template(self, name) -> FlexTemplate:
+    def get_primitive_template(self, name) -> 'FlexTemplate':
 
         if name in self.primitives:
             return FlexTemplate(self.primitives[name].instruction_copy())
+            # return FlexTemplate()
         elif self.parent_graph == self:
             for n in self.parent_ctx_nodes:
                 if n.has_primitive(name):
@@ -448,19 +449,19 @@ class ArchitectureNode(Node):
                     return n.get_primitive_template(name)
         raise KeyError(f"Primitive {name} not found!")
 
-    def get_primitives(self) -> List[Instruction]:
+    def get_primitives(self) -> List['Instruction']:
         return list(self._primitives.keys())
 
-    def add_codelet(self, codelet: Codelet):
+    def add_codelet(self, codelet: 'Codelet'):
         # TODO: Validate memory paths
         if codelet.op_name in self._codelets:
             raise KeyError(f"Duplicate codelets for {codelet.op_name}")
         self._codelets[codelet.op_name] = codelet.copy()
 
-    def get_codelet_template(self, name) -> Codelet:
+    def get_codelet_template(self, name) -> 'Codelet':
         if name in self.codelets:
-            Codelet.codelet_instance_id += 1
-            return self.codelets[name].copy()
+            # Codelet.codelet_instance_id += 1
+            return self.codelets[name].copy(pre_increment=True)
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_codelet(name):

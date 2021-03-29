@@ -1,15 +1,16 @@
+from typing import TYPE_CHECKING
 from collections import defaultdict, deque
-from itertools import chain, combinations, product
-from typing import List
-from pytools import memoize, memoize_on_first_arg
+from itertools import product
+from pytools import memoize
+if TYPE_CHECKING:
+    from codelets.adl import ArchitectureNode, StorageNode, ComputeNode
+    from codelets.codelet_impl import Codelet
 from codelets.adl.flex_param import FlexParam
-from codelets.adl.graph import ArchitectureNode, StorageNode
-from codelets.adl import Codelet, ComputeNode
 
-from codelets.adl.operation import Compute, OperandTemplate, Operation, Transfer, Loop
-from codelets.compiler.transformations import split_operation, factors
+
+from codelets.compiler.transformations import factors
 import numpy as np
-import polymath as pm
+
 
 def get_level_tiling(cdlt, loop_dependencies, shapes, splits):
     out_shapes = {}
@@ -34,7 +35,7 @@ def get_level_tiling(cdlt, loop_dependencies, shapes, splits):
     # next(perms)
     return out_shapes, out_factors, perms
 
-def default_tile_heuristic(hag: ArchitectureNode, cdlt: Codelet, tiling_splits):
+def default_tile_heuristic(hag: 'ArchitectureNode', cdlt: 'Codelet', tiling_splits):
     total_accesses = 0
     for l, splits in tiling_splits.items():
         for _, s in splits.items():
@@ -51,7 +52,7 @@ def find_tiling(cdlt, level, perm_stack):
     valid_splits = None
 
 
-def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
+def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level
     tile_constraints, tile_pad_constraints = get_tile_constraints(cdlt, hag)
@@ -194,7 +195,7 @@ def set_codelet_tiling(cdlt: Codelet, hag: ArchitectureNode, heuristic_fn):
 
 
 # TODO: THis needs to return a list of functions with the same function signature
-def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
+def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode'):
     path_constraints = {}
     pad_constraints = {}
     for o in cdlt.operands:
@@ -204,22 +205,25 @@ def get_tile_constraints(cdlt: Codelet, hag: ArchitectureNode):
             src_node = hag.get_subgraph_node(access.src_node)
             dst_node = hag.get_subgraph_node(access.dst_node)
             edge = hag.get_subgraph_edge(access.src_node, access.dst_node)
-            if isinstance(dst_node, ComputeNode):
+            # if isinstance(dst_node, ComputeNode):
+            if dst_node.node_type == 'compute':
                 # constraint = f"size <= {edge.bandwidth} and size >= 0"
                 constraint = f"size == {edge.bandwidth}"
 
                 # print(f"Bandwidht is {src_node.name} -> {dst_node.name}: {edge.bandwidth}")
                 pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
-                assert isinstance(src_node, StorageNode)
+                assert src_node.node_type == 'storage'
                 # TODO: Need to add something which adds padding function here and uses a function constraint
-            elif isinstance(dst_node, StorageNode):
-                if isinstance(src_node, ComputeNode):
+            # elif isinstance(dst_node, StorageNode):
+            elif dst_node.node_type == 'storage':
+                # if isinstance(src_node, ComputeNode):
+                if src_node.node_type == 'compute':
                     # constraint = f"size <= {edge.bandwidth} and size >= 0"
                     constraint = f"size == {edge.bandwidth}"
                     pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
 
                 else:
-                    assert isinstance(src_node, StorageNode)
+                    assert src_node.node_type == 'storage'
                     constraint = f"size <= {dst_node.size} and size >= 0"
 
                     max_size = dst_node.size

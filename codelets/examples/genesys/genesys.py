@@ -69,70 +69,70 @@ def generate_genesys(genesys_cfg):
     genesys.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
     return genesys
 
-def define_genesys(conv_selection="nchw"):
+def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
-    GENESYS_CFG = {}
-    GENESYS_CFG['ARRAY_N'] = 32
-    GENESYS_CFG['ARRAY_M'] = 32
-    GENESYS_CFG['DATA_WIDTH'] = 8 // 8
-    GENESYS_CFG['WGT_WIDTH'] = 8 // 8
-    GENESYS_CFG['BIAS_WIDTH'] = 32 // 8
-    GENESYS_CFG['ACC_WIDTH'] = 32 // 8
-    GENESYS_CFG['SIMD_WIDTH'] = 32
-    GENESYS_CFG['CHANNEL_BW'] = 512 // 8
-
-    GENESYS_CFG['IBUF_DEPTH'] = 2048
-    GENESYS_CFG['WBUF_DEPTH'] = 512
-    GENESYS_CFG['OBUF_DEPTH'] = 2048
-    GENESYS_CFG['BBUF_DEPTH'] = 2048
-    GENESYS_CFG['VMEM_DEPTH'] = GENESYS_CFG['OBUF_DEPTH']
-
-    GENESYS_CFG['IBUF_CAPACITY'] = GENESYS_CFG['ARRAY_N']*GENESYS_CFG['DATA_WIDTH']*2048
-
-    GENESYS_CFG['WBUF_BANKS'] = GENESYS_CFG['ARRAY_M']*GENESYS_CFG['ARRAY_N']
-    GENESYS_CFG['OBUF_BANKS'] = GENESYS_CFG['ARRAY_M']
-    GENESYS_CFG['BBUF_BANKS'] = GENESYS_CFG['ARRAY_M']
-    GENESYS_CFG['VMEM_BANKS'] = GENESYS_CFG['SIMD_WIDTH']
-    GENESYS_CFG['IMM_CAPACITY'] = 32 * GENESYS_CFG['ACC_WIDTH']
-    GENESYS_CFG['DRAM_CAPACITY'] = 1000000
+    # cfg = {}
+    # cfg['ARRAY_N'] = 32
+    # cfg['ARRAY_M'] = 32
+    # cfg['DATA_WIDTH'] = 8 // 8
+    # cfg['WGT_WIDTH'] = 8 // 8
+    # cfg['BIAS_WIDTH'] = 32 // 8
+    # cfg['ACC_WIDTH'] = 32 // 8
+    # cfg['SIMD_WIDTH'] = 32
+    # cfg['CHANNEL_BW'] = 512 // 8
+    #
+    # cfg['IBUF_DEPTH'] = 2048
+    # cfg['WBUF_DEPTH'] = 512
+    # cfg['OBUF_DEPTH'] = 2048
+    # cfg['BBUF_DEPTH'] = 2048
+    # cfg['VMEM_DEPTH'] = cfg['OBUF_DEPTH']
+    #
+    # cfg['IBUF_CAPACITY'] = cfg['ARRAY_N']*cfg['DATA_WIDTH']*2048
+    #
+    # cfg['WBUF_BANKS'] = cfg['ARRAY_M']*cfg['ARRAY_N']
+    # cfg['OBUF_BANKS'] = cfg['ARRAY_M']
+    # cfg['BBUF_BANKS'] = cfg['ARRAY_M']
+    # cfg['VMEM_BANKS'] = cfg['SIMD_WIDTH']
+    # cfg['IMM_CAPACITY'] = 32 * cfg['ACC_WIDTH']
+    # cfg['DRAM_CAPACITY'] = 1000000
 
     with ComputeNode("Genesys") as hag:
-        vmem1 = StorageNode("VMEM1", access_type='RAM', banks=GENESYS_CFG['SIMD_WIDTH'],
-                            width=GENESYS_CFG['ACC_WIDTH'], depth=GENESYS_CFG['VMEM_DEPTH'],
+        vmem1 = StorageNode("VMEM1", access_type='RAM', banks=cfg['SIMD_WIDTH'],
+                            width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
                             latency=1, input_ports=2, output_ports=2)
 
-        vmem2 = StorageNode("VMEM2", access_type='RAM', banks=GENESYS_CFG['SIMD_WIDTH'],
-                            width=GENESYS_CFG['ACC_WIDTH'], depth=GENESYS_CFG['VMEM_DEPTH'],
+        vmem2 = StorageNode("VMEM2", access_type='RAM', banks=cfg['SIMD_WIDTH'],
+                            width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
                            latency=1, input_ports=2, output_ports=2)
 
-        imm = StorageNode("IMM", access_type='RAM', banks=GENESYS_CFG['SIMD_WIDTH'],
-                            width=GENESYS_CFG['ACC_WIDTH'], depth=1,
+        imm = StorageNode("IMM", access_type='RAM', banks=cfg['SIMD_WIDTH'],
+                            width=cfg['ACC_WIDTH'], depth=cfg['IMM_DEPTH'],
                           latency=1, input_ports=2, output_ports=2)
 
         # TODO: Does this need to be added?
         # instr_mem = StorageNode("INSTR_MEM",access_type='RAM', size=16,
         #                         latency=1, input_ports=2, output_ports=2)
 
-        dram = StorageNode("DRAM", access_type='RAM', banks=1,
-                            width=GENESYS_CFG['ACC_WIDTH'], depth=100000,
+        dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
+                            width=cfg['ACC_WIDTH'], depth=cfg['DRAM_DEPTH'],
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
 
         with ComputeNode("systolic_array") as systolic_array:
-            pe_array = ComputeNode("pe_array", dimensions=[GENESYS_CFG['ARRAY_N'], GENESYS_CFG['ARRAY_M']])
+            pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])
             # TODO: Need to formalize the storage node sizes by # elements, width, and datatype
             ibuf = StorageNode("IBUF",
-                               access_type='RAM', banks=GENESYS_CFG['ARRAY_N'],
-                                width=GENESYS_CFG['DATA_WIDTH'], depth=GENESYS_CFG['IBUF_DEPTH'],
+                               access_type='RAM', banks=cfg['ARRAY_N'],
+                                width=cfg['DATA_WIDTH'], depth=cfg['IBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
-            wbuf = StorageNode("WBUF", access_type='RAM', banks=GENESYS_CFG['ARRAY_N']*GENESYS_CFG['ARRAY_M'],
-                                width=GENESYS_CFG['DATA_WIDTH'], depth=GENESYS_CFG['WBUF_DEPTH'],
+            wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N']*cfg['ARRAY_M'],
+                                width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
-            bbuf = StorageNode("BBUF", access_type='RAM', banks=GENESYS_CFG['ARRAY_M'],
-                                width=GENESYS_CFG['DATA_WIDTH'], depth=GENESYS_CFG['BBUF_DEPTH'],
+            bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'],
+                                width=cfg['DATA_WIDTH'], depth=cfg['BBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
-            obuf = StorageNode("OBUF", access_type='RAM', banks=GENESYS_CFG['ARRAY_M'],
-                                width=GENESYS_CFG['DATA_WIDTH'], depth=GENESYS_CFG['OBUF_DEPTH'],
+            obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'],
+                                width=cfg['DATA_WIDTH'], depth=cfg['OBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
             # TODO: BW for DRAM is 64bits/cycle
             # Channel bandwidth = axi bandwidth
@@ -140,34 +140,34 @@ def define_genesys(conv_selection="nchw"):
             # Request size * data width * banks
             # iters = tile_size / (Request size * data width * banks)
 
-            systolic_array.add_subgraph_edge('DRAM', 'IBUF', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'WBUF', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'BBUF', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'OBUF', bandwidth=GENESYS_CFG['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'IBUF', bandwidth=cfg['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'WBUF', bandwidth=cfg['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'BBUF', bandwidth=cfg['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'OBUF', bandwidth=cfg['CHANNEL_BW'])
 
-            systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0]*GENESYS_CFG['DATA_WIDTH'])
-            systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*GENESYS_CFG['DATA_WIDTH'])
-            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
-            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
-            systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=GENESYS_CFG['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0]*cfg['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*cfg['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
             # TODO: Add OBUF TO DRAM EDGE
-            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*GENESYS_CFG['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
             for p in GENESYS_INSTRUCTIONS['systolic_array']:
                 systolic_array.add_primitive(p)
-        simd = ComputeNode("SIMD", dimensions=[32])
-        hag.add_subgraph_edge('VMEM1', 'SIMD', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'VMEM1', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('VMEM2', 'SIMD', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'VMEM2', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
+        simd = ComputeNode("SIMD", dimensions=[cfg['SIMD_WIDTH']])
+        hag.add_subgraph_edge('VMEM1', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'VMEM1', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('VMEM2', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'VMEM2', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         # hag.add_subgraph_edge('SIMD', 'DRAM', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-        hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=GENESYS_CFG['CHANNEL_BW'])
+        hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=cfg['CHANNEL_BW'])
+        hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
 
-        hag.add_subgraph_edge('DRAM', 'VMEM2', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-        hag.add_subgraph_edge('VMEM2', 'DRAM', bandwidth=GENESYS_CFG['CHANNEL_BW'])
-        hag.add_subgraph_edge('OBUF', 'SIMD', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
+        hag.add_subgraph_edge('DRAM', 'VMEM2', bandwidth=cfg['CHANNEL_BW'])
+        hag.add_subgraph_edge('VMEM2', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
+        hag.add_subgraph_edge('OBUF', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         for p in GENESYS_INSTRUCTIONS['SIMD']:
             simd.add_primitive(p)
 

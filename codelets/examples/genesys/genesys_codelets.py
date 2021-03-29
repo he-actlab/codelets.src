@@ -1,8 +1,7 @@
 from codelets.adl.operation import OperandTemplate, Loop
-from codelets.adl.codelet import Codelet
+from codelets.codelet_impl.codelet import Codelet
 
 from codelets.adl.graph import ArchitectureNode
-import numpy as np
 from . import OP_DTYPES
 
 def gemm(hag: ArchitectureNode):

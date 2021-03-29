@@ -1,7 +1,9 @@
-from codelets.adl.graph import ArchitectureNode
-from codelets.adl.operation import Operation, Loop, Compute, Configure, Transfer
-from codelets.adl.codelet import Codelet
-from typing import List, Union, Dict, Tuple
+from typing import List, Union, Dict, Tuple, TYPE_CHECKING
+if TYPE_CHECKING:
+    from codelets.adl.operation import Operation, Loop, Compute, Configure, Transfer
+    from codelets.codelet_impl.codelet import Codelet
+
+
 from sympy import Basic, Idx
 
 TileConstraint = Dict[Tuple[str, str], Tuple[int, int]]
@@ -16,7 +18,7 @@ def fuse(loops):
 def reorder(loops, loop_permutation):
     pass
 
-def find_minimum_idx(op: Operation, op_idx_map, op_list):
+def find_minimum_idx(op: 'Operation', op_idx_map, op_list):
     dep_indices = [op_idx_map[o] for o in op.dependencies]
     if len(dep_indices) > 0:
         min_idx = max(dep_indices)
@@ -25,7 +27,7 @@ def find_minimum_idx(op: Operation, op_idx_map, op_list):
 
     return min_idx + 1
 
-def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_level: int):
+def split_loop(cdlt: 'Codelet', outer_loop: 'Loop', inner_loop: 'Loop', inner_tile_level: int):
     loop_domain_key = cdlt.domain_loop_map[outer_loop.op_str]
     cdlt.domain_loop_map[inner_loop.op_str] = loop_domain_key
     split_factor = cdlt.domain_tiling[inner_tile_level][loop_domain_key]
@@ -51,7 +53,7 @@ def split_loop(cdlt: Codelet, outer_loop: Loop, inner_loop: Loop, inner_tile_lev
     return inner_loop
 
 # TODO: THis function needs to be fixed, too complicated and not generalizeable
-def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
+def split_transfer(cdlt: 'Codelet', outer_xfer: 'Transfer', inner_xfer: 'Transfer'):
     full_path = outer_xfer.path.copy()
     all_transfers = outer_xfer.transfers.copy()
 
@@ -120,8 +122,9 @@ def split_transfer(cdlt: Codelet, outer_xfer: Transfer, inner_xfer: Transfer):
     return inner_xfer
 
 
-def split_operation(cdlt: Codelet, op: Operation, loop_level: int, tile_level: int):
-    if isinstance(op, Compute):
+def split_operation(cdlt: 'Codelet', op: 'Operation', loop_level: int, tile_level: int):
+    # if isinstance(op, Compute):
+    if op.op_type == 'compute':
         inner_op = op
         inner_op.loop_level = loop_level
     else:
@@ -133,22 +136,24 @@ def split_operation(cdlt: Codelet, op: Operation, loop_level: int, tile_level: i
         cdlt.op_id_counters[op.op_type] += 1
         cdlt.id_counter = cdlt.id_counter + 1
 
-        if isinstance(op, Transfer):
+        # if isinstance(op, Transfer):
+        if op.op_type == 'transfer':
             inner_op = split_transfer(cdlt, op, inner_op)
-        elif isinstance(op, Loop):
+        # elif isinstance(op, Loop):
+        elif op.op_type == 'loop':
             inner_op = split_loop(cdlt, op, inner_op, tile_level)
 
     return inner_op
 
 
-def lift_op(new_index, old_index, op_list: List[Union[Compute, Loop, Transfer, Configure, Operation]]):
+def lift_op(new_index, old_index, op_list: List[Union['Compute', 'Loop', 'Transfer', 'Configure', 'Operation']]):
     op = op_list[old_index]
     op._loop_id = op_list[new_index-1].loop_id
     op._loop_level = op_list[new_index-1].loop_level if op_list[new_index-1].op_type != "loop" else op_list[new_index-1].loop_level + 1
     op_list.insert(new_index, op_list.pop(old_index))
 
 # TODO: The ordering relative to other operations needs to consider the loop level
-def lift_operations(cdlt: Codelet):
+def lift_operations(cdlt: 'Codelet'):
     dep_indices = {l.op_str: i
                     for i, l in enumerate(cdlt.ops)}
     lifted_ops = cdlt.ops.copy()

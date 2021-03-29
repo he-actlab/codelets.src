@@ -2,7 +2,7 @@ from typing import Dict, Union
 from dataclasses import dataclass, field
 import polymath as pm
 import numpy as np
-from codelets.adl.codelet import Codelet
+from codelets.codelet_impl.codelet import Codelet
 
 @dataclass
 class Fragment:

@@ -106,6 +106,26 @@ class FlexParam:
         flex_param.fn_code = self.fn_code
         return flex_param
 
+    def err_str(self) -> str:
+        out_str = f"Func: {self.name}({self.fn_args}):\n"
+        out_str += f"\n{self.fn_body_str}\n"
+        return out_str
+
+    def validate_equal(self, fp):
+        if fp.name != self.name:
+            raise RuntimeError(f"Unequal names for flexparams:\n"
+                               f"FP1: {self.err_str()}\n"
+                               f"FP2: {fp.err_str()}")
+        elif tuple(fp.fn_args) != tuple(self.fn_args):
+            raise RuntimeError(f"Unequal args for flexparams:\n"
+                               f"FP1: {self.err_str()}\n"
+                               f"FP2: {fp.err_str()}")
+        elif fp.fn_body_str != self.fn_body_str:
+            raise RuntimeError(f"Unequal function body for flexparams:\n"
+                               f"FP1: {self.err_str()}\n"
+                               f"FP2: {fp.err_str()}")
+        return True
+
     __copy__ = copy
 
 

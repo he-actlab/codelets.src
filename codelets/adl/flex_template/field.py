@@ -1,14 +1,10 @@
 import numpy as np
-from collections import namedtuple
-from typing import Callable, List, Dict, Optional, Union
+from typing import List, Dict, Union
 from codelets.adl.flex_param import FlexParam
 from itertools import count
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from numbers import Integral
-from types import FunctionType
-import sys
-import inspect
-import traceback
+
 field_cnt = count()
 INSTR_FN_NAME_TEMPLATE = """param_fn{FN_ID}"""
 INSTR_FN_TEMPLATE = """def param_fn{FN_ID}(program, hag, relocation_table, cdlt, op{ITER_ARGS}):\n\treturn {FN_BODY}"""

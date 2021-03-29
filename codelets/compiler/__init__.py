@@ -1,3 +1,2 @@
-from .serialization import CodeletJSONEncoder
-from .compilation_stages import tile, hoist, pad_operands
+from . import compilation_stages
 from .compiler import initialize_program

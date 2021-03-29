@@ -1,11 +1,6 @@
 from . import Operation
-from functools import partial
-from codelets.adl.flex_param import FlexParam
-from typing import List, Dict, Union
-from dataclasses import field, dataclass
-from collections import deque, defaultdict
 from copy import copy
-from sympy import symbols, IndexedBase, Idx, Expr
+from sympy import symbols, Idx, Expr
 
 ARITHMETIC_LOOP_EVAL = """
 """

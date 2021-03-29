@@ -1,9 +1,6 @@
-from . import Operation, OperandTemplate, get_transfer_dim_sizes, IndexedOperandTemplate
-from typing import List, Dict, Union, Callable
-from itertools import chain
-from codelets.adl.flex_param import FlexParam
-from dataclasses import field, dataclass
-from collections import deque, defaultdict
+from . import Operation, OperandTemplate, IndexedOperandTemplate
+from typing import List, Union
+
 
 class Compute(Operation):
 

@@ -1,11 +1,13 @@
+from typing import TYPE_CHECKING
 
-from codelets.adl import Codelet
-from codelets.adl.operation import Transfer, Loop, Compute
+if TYPE_CHECKING:
+    from codelets.codelet_impl import Codelet
+
 from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
 import json
 
-def pad_operands(program, node: pm.Node, cdlt: Codelet, shaped_nodes=None) -> Codelet:
+def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     if cdlt.op_name == "conv_bias":
         assert isinstance(shaped_nodes, list)
         activation = node.inputs[0]
@@ -99,7 +101,7 @@ def pad_operands(program, node: pm.Node, cdlt: Codelet, shaped_nodes=None) -> Co
 
     return cdlt
 
-def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
+def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None) -> 'Codelet':
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
@@ -131,7 +133,8 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                 i = cdlt.ops.index(op)
                 target_idx = offset + i
 
-                if isinstance(cdlt.ops[target_idx], Loop):
+                # if isinstance(cdlt.ops[target_idx], Loop):
+                if cdlt.ops[target_idx].op_type == 'loop':
                     inner_loop_level = cdlt.ops[target_idx].loop_level + 1
                 else:
                     inner_loop_level = cdlt.ops[target_idx].loop_level
@@ -143,7 +146,8 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
 
-                if isinstance(op, Transfer):
+                # if isinstance(op, Transfer):
+                if op.op_type == 'transfer':
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         offset -= 1
@@ -194,7 +198,8 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                         dep_mapping[op.op_str] = inner_op.op_str
 
                     num_splits += 1
-                elif isinstance(op, Loop):
+                # elif isinstance(op, Loop):
+                elif op.op_type == 'loop':
 
                     extra_kwargs['start'] = 0
                     extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
@@ -215,7 +220,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
                     inner_idx = target_idx + 1
                     num_splits += 1
                 else:
-                    assert isinstance(op, Compute)
+                    assert op.op_type == 'compute'
                     dep_mapping[op.op_str] = op.op_str
                     op.dependencies = inner_deps
                     op.loop_level = inner_loop_level
@@ -268,7 +273,7 @@ def tile(program, node: pm.Node, cdlt: Codelet, heuristic_fn=None) -> Codelet:
     return cdlt
 
 
-def hoist(program, node: pm.Node, cdlt: Codelet) -> Codelet:
+def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
     for o in cdlt.ops:
         i = cdlt.ops.index(o)
