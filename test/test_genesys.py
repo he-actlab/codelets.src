@@ -1,13 +1,9 @@
-from codelets.compiler.serialization import serialize_graph
-from codelets.examples.genesys import generate_genesys,\
-    genesys_instructions, define_genesys
+from codelets.examples.genesys import genesys_instructions, define_genesys, GENESYS_CFG
 import polymath as pm
-from codelets import deserialize_graph, initialize_program, tile, hoist, pad_operands
+from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
 import json
 from pathlib import Path
-import copy
-from codelets.compiler import CodeletJSONEncoder
 
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
@@ -25,9 +21,8 @@ def parse_cfg():
     return genesys
 
 def test_genesys_add():
-    from pprint import pprint
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_add.srdfg")
-    genesys = define_genesys("transformation")
+    genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
@@ -39,7 +34,7 @@ def test_genesys_add():
 def test_genesys_relu():
     from pprint import pprint
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_relu.srdfg")
-    genesys = define_genesys("transformation")
+    genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
@@ -49,9 +44,8 @@ def test_genesys_relu():
     pprint(res)
 
 def test_genesys_gemm():
-    from pprint import pprint
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
-    genesys = define_genesys("transformation")
+    genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
@@ -61,9 +55,8 @@ def test_genesys_gemm():
     print(res)
 
 def test_genesys_conv():
-    from pprint import pprint
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_conv.srdfg")
-    genesys = define_genesys("transformation")
+    genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
@@ -73,9 +66,8 @@ def test_genesys_conv():
     print(res)
 
 def test_genesys_resnet18():
-    from pprint import pprint
     graph = pm.pb_load(f"{MODEL_DIR}/resnet18.srdfg")
-    genesys = define_genesys("transformation")
+    genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
@@ -90,14 +82,6 @@ def test_genesys_resnet18():
     # with open("compiled_resnet18.json", "w") as f:
     #     json.dump(res, f, cls=CodeletJSONEncoder, indent=2)
 
-def test_genesys_serialization():
-    genesys_cfg = parse_cfg()
-    genesys = generate_genesys(genesys_cfg)
-    json_genesys = serialize_graph(genesys, f"{CWD}/genesys.json")
-    deser_genesys = deserialize_graph(f"{CWD}/genesys.json")
-    json_genesys_deser = serialize_graph(deser_genesys, f"{CWD}/deser_genesys.json")
-    assert json_genesys_deser == json_genesys
-
 def test_genesys_instr():
     t = genesys_instructions.loop_instr()
     t = genesys_instructions.loop_stride_instr()
@@ -105,10 +89,10 @@ def test_genesys_instr():
     t = genesys_instructions.block_instr()
 
 def test_generate_genesys():
-    genesys_def = define_genesys()
+    genesys_def = define_genesys(GENESYS_CFG)
 
 def test_flex_template():
-    genesys = define_genesys()
+    genesys = define_genesys(GENESYS_CFG)
     cdlt = genesys.get_codelet_template("conv", is_instance=True)
 
 

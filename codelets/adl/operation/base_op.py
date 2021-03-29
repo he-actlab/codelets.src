@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
+from codelets.adl.flex_param import FlexParam
 from codelets.adl.flex_template import Instruction, FlexTemplate
 from typing import List, Dict, Union, Optional
 from sympy import Basic, Idx, IndexedBase, Expr
-from codelets.adl.flex_param import FlexParam
 from copy import copy
 
 class Operation(object):

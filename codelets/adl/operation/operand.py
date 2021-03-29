@@ -485,6 +485,16 @@ class OperandTemplate:
         raise KeyError(f"Unable to find Data Movement for operand {self.name}, "
                        f"Compute node: {compute_node}")
 
+    def get_storage_access_location(self, storage_node):
+        for dm in self.data_moves:
+            if dm.src_node == storage_node:
+                return dm.dst_node
+            elif dm.dst_node == storage_node:
+                return dm.src_node
+
+        raise KeyError(f"Unable to find Data Movement for operand {self.name}, "
+                       f"Compute node: {storage_node}")
+
     @property
     def shape(self):
         s = []
@@ -532,6 +542,16 @@ class OperandTemplate:
         # assert path_key[0] == self.data_path[-1]
         if self.current_location != path_key[1]:
             self.data_path.append(path_key[1])
+
+    def get_ld_storage(self, cdlt, level):
+        prev_level = level - 1
+        assert prev_level >= 0
+        for dm in self.data_moves:
+            if cdlt.get_tile_level(dm.src_node) == prev_level:
+                assert cdlt.get_tile_level(dm.dst_node) == level
+                return dm.dst_node
+        raise RuntimeError(f"Unable to find storage node for level {level} in operand"
+                           f" {self.name}.")
 
 
     def set_start_location(self, location: str):

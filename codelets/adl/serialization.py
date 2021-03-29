@@ -1,19 +1,13 @@
 import json
 from typing import Union, Any
-from codelets.adl.graph.architecture_node import ArchitectureNode
-from codelets.adl.graph.communication_node import CommunicationNode
-from codelets.adl.graph.compute_node import ComputeNode
-from codelets.adl.graph.storage_node import StorageNode
-from codelets.adl.codelet import Codelet
-from codelets.adl.operation import OperandTemplate
-from codelets.adl.flex_template.instruction import Instruction
-from codelets.adl.operation import OperandTemplate, Datatype
+from . import ArchitectureNode, ComputeNode, CommunicationNode, StorageNode, \
+    OperandTemplate, Datatype, Instruction
+from codelets.codelet_impl import Codelet
 import linecache
 from typing import List, Dict
 from jsonschema import validate
 from pathlib import Path
 import numpy as np
-from numbers import Integral
 import sympy
 import math
 

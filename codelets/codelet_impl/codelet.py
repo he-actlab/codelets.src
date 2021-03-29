@@ -1,18 +1,12 @@
-from typing import List, Union, Dict, Tuple
+from typing import List, Union, Dict
+
 
 from codelets.adl.flex_param import FlexParam
-from codelets.adl.operation.operand import OperandTemplate, Datatype
-from .operation import Operation, Loop, Transfer, Compute, Configure
+from codelets.adl.operation import Operation, Loop, Transfer, Compute, Configure, OperandTemplate, Datatype
 from types import LambdaType
 from pytools import memoize_method
 from collections import defaultdict
-from dataclasses import replace
-from numbers import Integral
 from copy import deepcopy
-from sympy import symbols, Idx, Expr, Basic
-from itertools import chain
-import json
-import numpy as np
 
 import polymath as pm
 
@@ -128,6 +122,10 @@ class Codelet(object):
     @property
     def ops(self) -> List[Operation]:
         return self._ops
+
+    @property
+    def cdlt_uid(self):
+        return f"{self.op_name}{self.instance_id}"
 
     @property
     def op_map(self) -> Dict[str, Union[Loop, Compute, Transfer, Configure]]:
@@ -254,8 +252,9 @@ class Codelet(object):
 
         return bands
 
-    def copy(self):
-
+    def copy(self, pre_increment=False):
+        if pre_increment:
+            Codelet.codelet_instance_id += 1
         obj = type(self).__new__(self.__class__)
         obj._op_name = self.op_name
         obj._cdlt_id = self.cdlt_id

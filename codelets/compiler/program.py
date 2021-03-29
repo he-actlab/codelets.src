@@ -1,10 +1,10 @@
 import json
 from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
-from codelets.adl.flex_template import FlexTemplate
-from codelets.adl.graph import ArchitectureNode
+
 from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
-from codelets.adl import Codelet
+from codelets.adl.graph import ArchitectureNode
+from codelets.codelet_impl import Codelet
 from pathlib import Path
 from dataclasses import dataclass, field
 import numpy as np
@@ -39,6 +39,7 @@ class CodeletProgram(object):
         self._compilation_pipeline = defaultdict(list)
         self._preproc_steps = defaultdict(list)
         self._program_mode = program_mode
+        self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
 
     @property
     def name(self) -> str:
@@ -71,6 +72,28 @@ class CodeletProgram(object):
     @property
     def preproc_steps(self) -> Dict[int, List]:
         return self._preproc_steps
+
+    @property
+    def side_effect_params(self):
+        return self._side_effect_params
+
+    def add_side_effect_param(self, name, scope, init_val):
+        if scope == 'program':
+            self._side_effect_params[scope][name] = init_val
+        elif scope == 'codelet':
+            for c in self.codelets:
+                self._side_effect_params[scope][c.cdlt_uid][name] = init_val
+        else:
+            raise RuntimeError(f"Currently no other scopes are supported for side effects other than 'program'"
+                               f" and 'codelet'. Request side effect: {scope}")
+
+
+    def update_side_effect_param(self, name, scope, value, codelet_id=None, operation_id=None):
+        if scope == 'program':
+            self._side_effect_params[scope][name] = value
+        elif scope == 'codelet':
+            assert codelet_id in self.side_effect_params['codelet']
+            self._side_effect_params[scope][codelet_id][name] = value
 
     def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)

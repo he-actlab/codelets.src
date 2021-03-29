@@ -1,8 +1,10 @@
 from codelets.adl.graph.architecture_node import ArchitectureNode
 
-from codelets.adl.codelet import Codelet
 from codelets.adl.flex_template.instruction import Instruction
-from typing import Dict
+from typing import Dict, TYPE_CHECKING
+if TYPE_CHECKING:
+    from codelets.codelet_impl.codelet import Codelet
+
 
 # NOTE originally, there were implementations for occupancy. This has been 
 #      removed because this can be managed by the compiler during the scheduling
@@ -19,7 +21,8 @@ class ComputeNode(ArchitectureNode):
         if primitives:
             for p in primitives:
                 if isinstance(p, dict):
-                    prim = self.parse_capability_json(p)
+                    # prim = self.parse_capability_json(p)
+                    raise TypeError
                 else:
                     prim = p
                 self.add_primitive(prim)
@@ -28,7 +31,8 @@ class ComputeNode(ArchitectureNode):
         if codelets:
             for p in codelets:
                 if isinstance(p, dict):
-                    cdlt = self.parse_codelet_json(p)
+                    # cdlt = self.parse_codelet_json(p)
+                    raise TypeError
                 else:
                     cdlt = p
                 self.add_codelet(cdlt)
@@ -53,7 +57,7 @@ class ComputeNode(ArchitectureNode):
         return self._primitives
 
     @property
-    def codelets(self) -> Dict[str, Codelet]:
+    def codelets(self) -> Dict[str, 'Codelet']:
         return self._codelets
 
     @dimensions.setter
@@ -61,15 +65,15 @@ class ComputeNode(ArchitectureNode):
         assert isinstance(dimensions, list)
         self._dimensions = dimensions
 
-    def parse_capability_json(self, cap_dict):
-        name = cap_dict.pop("field_name")
-        cap = Codelet(name, **cap_dict)
-        return cap
-
-    def parse_codelet_json(self, cdlt_dict):
-        name = cdlt_dict.pop("field_name")
-        cap = Codelet(name, **cdlt_dict)
-        return cap
+    # def parse_capability_json(self, cap_dict):
+    #     name = cap_dict.pop("field_name")
+    #     cap = Codelet(name, **cap_dict)
+    #     return cap
+    #
+    # def parse_codelet_json(self, cdlt_dict):
+    #     name = cdlt_dict.pop("field_name")
+    #     cap = Codelet(name, **cdlt_dict)
+    #     return cap
 
     def get_viz_attr(self):
         caps = list(self.get_primitives())

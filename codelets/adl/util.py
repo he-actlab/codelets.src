@@ -40,6 +40,7 @@ class ParamFunc:
     def set_value_from_param_fn(self, *args):
         self.value = self.run_param_fnc(*args)
 
+
 def lambda_to_str(fn):
     fn_str = str(inspect.getsourcelines(fn)[0])
     fn_str = fn_str.strip("['\\n']").split(" = ")[1]

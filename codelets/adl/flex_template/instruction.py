@@ -3,8 +3,6 @@ from collections import namedtuple
 from typing import Callable, List, Dict, Optional, Union
 from . import Field
 from codelets.adl.flex_param import FlexParam
-from dataclasses import dataclass, asdict, field
-
 
 CodeletOperand = namedtuple('OperandTemplate', ['field_name', 'supported_dtypes'])
 

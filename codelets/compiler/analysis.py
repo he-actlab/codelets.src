@@ -1,6 +1,5 @@
-from collections import defaultdict
-from codelets.adl.operation import Operation, Transfer, Loop, OperandTemplate, Configure, Compute
-from codelets.adl.codelet import Codelet
+from codelets.adl.operation import Operation, OperandTemplate
+from codelets.codelet_impl.codelet import Codelet
 
 
 def collect_operation_dependencies(cdlt: Codelet, operation: Operation):
