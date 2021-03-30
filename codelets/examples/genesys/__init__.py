@@ -5,14 +5,34 @@ SIMD_OP_READ_NS = ["OBUF", "VMEM", "IMM"]
 SIMD_OP_WRITE_NS = ["IBUF", "VMEM", "IMM"]
 SIMD_NS = ["OBUF", "IBUF", "VMEM", "IMM"]
 
+OP_DTYPES = [Datatype(type='FXP', bitwidth=8), Datatype(type='FXP', bitwidth=16), Datatype(type='FXP', bitwidth=32),
+             Datatype(type='FP', bitwidth=16), Datatype(type='FP', bitwidth=32), Datatype(type='FXP', bitwidth=4)]
+
+DTYPE_MAP = {}
+DTYPE_MAP['FXP32'] = Datatype(type='FXP', bitwidth=32)
+DTYPE_MAP['FXP16'] = Datatype(type='FXP', bitwidth=16)
+DTYPE_MAP['FXP8'] = Datatype(type='FXP', bitwidth=8)
+DTYPE_MAP['FXP4'] = Datatype(type='FXP', bitwidth=4)
+DTYPE_MAP['FP32'] = Datatype(type='FXP', bitwidth=32)
+DTYPE_MAP['FP16'] = Datatype(type='FXP', bitwidth=16)
+
+GENESYS_DTYPES = {}
+GENESYS_DTYPES['SIMD'] = 'FXP32'
+GENESYS_DTYPES['SYSTOLIC_ARRAY'] = {}
+GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP8'
+GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
+
 GENESYS_CFG = {}
 GENESYS_CFG['ARRAY_N'] = 32
 GENESYS_CFG['ARRAY_M'] = 32
-GENESYS_CFG['DATA_WIDTH'] = 8 // 8
-GENESYS_CFG['WGT_WIDTH'] = 8 // 8
-GENESYS_CFG['BIAS_WIDTH'] = 32 // 8
-GENESYS_CFG['ACC_WIDTH'] = 32 // 8
+GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bytes()
+GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bytes()
+GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bytes()
+GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bytes()
 GENESYS_CFG['SIMD_WIDTH'] = 32
+GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512 // 8
+GENESYS_CFG['IBUF_CHANNEL_BW'] = 512 // 8
+GENESYS_CFG['OBUF_CHANNEL_BW'] = 512 // 8
 GENESYS_CFG['CHANNEL_BW'] = 512 // 8
 
 GENESYS_CFG['IBUF_DEPTH'] = 2048
@@ -30,9 +50,6 @@ GENESYS_CFG['BBUF_BANKS'] = GENESYS_CFG['ARRAY_M']
 GENESYS_CFG['VMEM_BANKS'] = GENESYS_CFG['SIMD_WIDTH']
 GENESYS_CFG['DRAM_BANKS'] = 1
 
-
-OP_DTYPES = [Datatype(type='FXP', bitwidth=8), Datatype(type='FXP', bitwidth=16), Datatype(type='FXP', bitwidth=32),
-             Datatype(type='FP', bitwidth=16), Datatype(type='FP', bitwidth=32)]
 
 SIMD_OPCODE_BITWIDTH = 4
 SIMD_FNCODE_BITWIDTH = 4

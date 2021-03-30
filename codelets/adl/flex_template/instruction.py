@@ -213,7 +213,6 @@ class Instruction(object):
             if not f.isset:
                 f.set_value_from_param_fn(*fn_args, **iter_args)
 
-
     # TODO: perform check for evaluated params
     def emit(self, output_type):
         instruction = []

@@ -19,6 +19,11 @@ class Configure(Operation):
             else:
                 resolved_params[k] = FlexParam(k)
                 resolved_params[k].value = v
+
+        for k in list(kwargs.keys()):
+            if k not in Operation.BASE_KWARG_NAMES:
+                kwargs.pop(k)
+
         super(Configure, self).__init__('config', required_params,
                                         target=target,
                                         resolved_params=resolved_params,
@@ -30,6 +35,12 @@ class Configure(Operation):
     @property
     def start_or_finish(self):
         return self._start_or_finish
+
+    def get_config_param_value(self, param_name):
+        if param_name not in self.resolved_params:
+            raise RuntimeError(f"Unable to get value for {param_name} in config op. Possible params:\n"
+                               f"{list(self.resolved_params.keys())}")
+        return self.resolved_params[param_name].value
 
     def op_type_params(self):
         op_params = [f"{self.start_or_finish}"]

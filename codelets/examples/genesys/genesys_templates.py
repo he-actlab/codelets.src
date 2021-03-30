@@ -11,6 +11,9 @@ BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
 VMEM_ID_MAP = {'LD': {'VMEM1': 0, 'VMEM2': 1},
                  'ST': {'VMEM1': 2, 'VMEM2': 3},
             }
+
+LOOPS_PER_LEVEL = 7
+
 SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES
 
 def simd_alu_template(op_name, hag):
@@ -237,21 +240,12 @@ def wbuf_start_template(hag: ComputeNode):
 
 def imm_start_template(hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 0)")
+    instr = hag.get_primitive_template("IMM_SIGN_EXT")
+    instr.set_field_by_name("NS_ID", "IMM")
+    instr.set_field_value("NS_INDEX_ID", 0)
+    instr.set_field_flex_param("IMM", f"op.get_config_param_value('immediate_value')")
     instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 16)")
-    instructions.append(instr)
     return instructions
 
 def imm_end_template(hag: ComputeNode):
@@ -332,49 +326,11 @@ def obuf_start_template(hag: ComputeNode):
 
 def dram_buffer_template(buffer_name, hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{buffer_name}")')
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits(offset.stride, 16, 0)")
-
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{buffer_name}")')
-    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits(offset.stride, 16, 16)")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    instructions.append(instr)
-
-    macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    macro_instr.add_iterable('loop_dep', f'cdlt.domain_loop_map[0].keys()')
-    macro_instr.add_condition(f'loop_dep not in op.operand.dependencies and "loop" in loop_dep')
-    macro_instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    macro_instr.set_field_by_name("ACCESS_TYPE", "LD")
-    macro_instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    macro_instr.set_field_flex_param("LOOP_ID", "cdlt.op_map[loop_dep].loop_id")
-    macro_instr.set_field_flex_param("STRIDE", "0")
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_condition(f'loop_dep not in op.operand.dependencies and "loop" in loop_dep')
-    instr.add_iterable('loop_dep', f'cdlt.domain_loop_map[0].keys()')
-    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "cdlt.op_map[loop_dep].loop_id")
-    instr.set_field_flex_param("STRIDE", "0")
-    macro_instr.add_base_instruction(instr)
-    instructions.append(macro_instr)
 
     ### Updates to load in data
-    loop_id_str = f"cdlt.op_id_counters['loop'] + {BUFFER_ID_MAP['LD'][buffer_name]}"
+    # loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * 2"
+    loop_id_str = f"hag.util_fns.get_loop_level_id('{buffer_name}', op.loop_id, 2, 'LD')"
+
     # TODO: Change this back to non-integer
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth / " \
                    f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{buffer_name}').banks)))"
@@ -383,6 +339,22 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
     instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
     instr.set_field_flex_param("LOOP_ID", loop_id_str)
     instr.set_field_flex_param("NUM_ITERATIONS", n_iter_str)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    instr.set_field_by_name("ACCESS_TYPE", "LD")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", loop_id_str)
+    instr.set_field_flex_param("STRIDE", req_size_str)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    instr.set_field_by_name("ACCESS_TYPE", "LD")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", loop_id_str)
+    instr.set_field_flex_param("STRIDE", "0")
     instructions.append(instr)
     ####
     # ITERS = tile_size / request_size / num_banks
@@ -397,49 +369,12 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
 
 def buffer_dram_template(buffer_name, hag):
     instructions = []
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_dst_offset("{buffer_name}", "DRAM")')
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits(offset.stride, 16, 0)")
-    instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_dst_offset("{buffer_name}", "DRAM")')
-    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # instr.set_field_flex_param("STRIDE", "offset.stride")
-    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits(offset.stride, 16, 16)")
-    instructions.append(instr)
-
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('loop_dep', f'cdlt.domain_loop_map[0].keys()')
-    instr.add_condition(f'loop_dep not in op.operand.dependencies and "loop" in loop_dep')
-    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "cdlt.op_map[loop_dep].loop_id")
-    instr.set_field_flex_param("STRIDE", "0")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    instr.add_iterable('loop_dep', f'cdlt.domain_loop_map[0].keys()')
-    instr.add_condition(f'loop_dep not in op.operand.dependencies and "loop" in loop_dep')
-    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
-    instr.set_field_by_name("ACCESS_TYPE", "ST")
-    instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    instr.set_field_flex_param("LOOP_ID", "cdlt.op_map[loop_dep].loop_id")
-    instr.set_field_flex_param("STRIDE", "0")
-    instructions.append(instr)
 
     ### Loading tile data iteratively
-    loop_id_str = f"cdlt.op_id_counters['loop'] + {BUFFER_ID_MAP['ST'][buffer_name]}"
+    # loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * 2"
+    loop_id_str = f"hag.util_fns.get_loop_level_id('{buffer_name}', op.loop_id, 2, 'ST')"
+
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{buffer_name}', 'DRAM').bandwidth / " \
                    f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{buffer_name}').banks)))"
     # TODO: Change this back to non-integer
@@ -448,6 +383,22 @@ def buffer_dram_template(buffer_name, hag):
     instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
     instr.set_field_flex_param("LOOP_ID", loop_id_str)
     instr.set_field_flex_param("NUM_ITERATIONS", n_iter_str)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    instr.set_field_by_name("ACCESS_TYPE", "ST")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", loop_id_str)
+    instr.set_field_flex_param("STRIDE", req_size_str)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    instr.set_field_by_name("ACCESS_TYPE", "ST")
+    instr.set_field_by_name("BUFFER", f"{buffer_name}")
+    instr.set_field_flex_param("LOOP_ID", loop_id_str)
+    instr.set_field_flex_param("STRIDE", "0")
     instructions.append(instr)
 
     # TODO: Fix loop id for this to be the minimum
@@ -545,36 +496,84 @@ def sa_buffer_template_compute(operand_name, buffer_name, hag):
 
     return instructions
 
-def loop_template(hag):
+def outer_simd_loops(hag):
     instructions = []
-    instr = hag.get_primitive_template("SA_LOOP")
-    instr.add_condition(f'cdlt.is_loop_node_target(op, "pe_array")')
-    instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
-    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
-    instr.set_field_flex_param("NUM_ITERATIONS", "op.iter_count")
-    instructions.append(instr)
+    macro_instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_ITER")
+    macro_instr.add_iterable('operand', f'cdlt.inputs')
+    macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    macro_instr.set_field_flex_param("NUM_ITERS", f"op.iter_count")
 
-    # macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    # macro_instr.add_iterable('operand', f'cdlt.operands')
-    # macro_instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
-    # macro_instr.set_field_by_name("ACCESS_TYPE", "LD")
-    # # macro_instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    # macro_instr.set_field_flex_param("LOOP_ID", "offset.loop_id")
-    # # instr.set_field_flex_param("STRIDE", "offset.stride")
-    # macro_instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits(offset.stride, 16, 0)")
-    # instructions.append(macro_instr)
-    #
-    # instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-    # instr.add_condition(f'loop_dep not in op.operand.dependencies and "loop" in loop_dep')
-    # instr.add_iterable('loop_dep', f'cdlt.domain_loop_map[0].keys()')
-    # instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
-    # instr.set_field_by_name("ACCESS_TYPE", "LD")
-    # instr.set_field_by_name("BUFFER", f"{buffer_name}")
-    # instr.set_field_flex_param("LOOP_ID", "cdlt.op_map[loop_dep].loop_id")
-    # instr.set_field_flex_param("STRIDE", "0")
-    # macro_instr.add_base_instruction(instr)
-    # instructions.append(macro_instr)
+    micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_STRIDE")
+    micro_instr.add_iterable('operand', f'cdlt.inputs')
+    micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
 
+    macro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
+    macro_instr.add_iterable('operand', f'cdlt.inputs')
+    macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    macro_instr.set_field_by_name("LSB_MSB", "LSB")
+    macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    macro_instr.set_field_flex_param("BASE_ADDR",
+                               f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 0)")
+
+    micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
+    micro_instr.add_iterable('operand', f'cdlt.inputs')
+    micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    micro_instr.set_field_by_name("LSB_MSB", "MSB")
+    micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    micro_instr.set_field_flex_param("BASE_ADDR",
+                               f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 16)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
+
+    macro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_ITER")
+    macro_instr.add_iterable('operand', f'cdlt.outputs')
+    macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    macro_instr.set_field_flex_param("NUM_ITERS", f"op.iter_count")
+
+    micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
+    micro_instr.add_iterable('operand', f'cdlt.outputs')
+    micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
+
+    macro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
+    macro_instr.add_iterable('operand', f'cdlt.outputs')
+    macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    macro_instr.set_field_by_name("LSB_MSB", "LSB")
+    macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    macro_instr.set_field_flex_param("BASE_ADDR",
+                                     f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 0)")
+
+    micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
+    micro_instr.add_iterable('operand', f'cdlt.outputs')
+    micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
+    micro_instr.set_field_by_name("LSB_MSB", "MSB")
+    micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
+    micro_instr.set_field_flex_param("BASE_ADDR",
+                                     f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 16)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
+
+    return instructions
+
+def inner_simd_loops(hag):
+    instructions = []
     instr = hag.get_primitive_template("BASE_SIGN_EXT")
     instr.add_iterable('operand', f'cdlt.operands')
     instr.add_condition(f'cdlt.is_direct_loop_dep(op, "SIMD")')
@@ -611,6 +610,135 @@ def loop_template(hag):
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instr.set_field_flex_param("NUM_ITER", "op.iter_count")
     instructions.append(instr)
+    return instructions
+
+def outer_sa_loops(hag):
+    instructions = []
+    instr = hag.get_primitive_template("SA_LOOP")
+    instr.add_condition(f'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("NUM_ITERATIONS", "op.iter_count")
+    instructions.append(instr)
+
+    macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    macro_instr.add_iterable('operand', f'cdlt.operands')
+    macro_instr.add_condition(
+        f'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")')
+    macro_instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    macro_instr.set_field_by_name("ACCESS_TYPE", "LD")
+    macro_instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    macro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("STRIDE",
+                                     "hag.util_fns.extract_bits(operand.get_offset(cdlt, 1, op.loop_id), 16, 0)")
+
+    micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    micro_instr.add_iterable('operand', f'cdlt.operands')
+    micro_instr.add_condition(
+        f'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")')
+    micro_instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    micro_instr.set_field_by_name("ACCESS_TYPE", "LD")
+    micro_instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    micro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("STRIDE",
+                                     "hag.util_fns.extract_bits(operand.get_offset(cdlt, 1, op.loop_id), 16, 16)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_condition(f'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    instr.set_field_by_name("ACCESS_TYPE", "ST")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
+    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits("
+                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id),"
+                                         "16, 0)")
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_condition(f'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    instr.set_field_by_name("ACCESS_TYPE", "ST")
+    instr.set_field_flex_param("LOOP_ID", "op.loop_id")
+    instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
+    instr.set_field_flex_param("STRIDE", "hag.util_fns.extract_bits("
+                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id),"
+                                         "16, 16)")
+    instructions.append(instr)
+    return instructions
+
+def inner_sa_loops(hag):
+    instructions = []
+    inner_loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL}"
+    # inner_loop_id_str = f"hag.util_fns.get_loop_level_id(operand.get_ld_storage_location(cdlt, 1), op.loop_id, 1)"
+    instr = hag.get_primitive_template("SA_LOOP")
+    instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
+    instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
+    instr.set_field_flex_param("NUM_ITERATIONS", "op.iter_count")
+    instructions.append(instr)
+
+    macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    macro_instr.add_iterable('operand', f'cdlt.operands')
+    macro_instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+    macro_instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    macro_instr.set_field_by_name("ACCESS_TYPE", "RD")
+    macro_instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
+    macro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
+    macro_instr.set_field_flex_param("STRIDE",
+                                     "hag.util_fns.extract_bits(operand.get_offset(cdlt, 2, op.loop_id), 16, 0)")
+
+    micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    micro_instr.add_iterable('operand', f'cdlt.operands')
+    micro_instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+    micro_instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    micro_instr.set_field_by_name("ACCESS_TYPE", "RD")
+    micro_instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
+    micro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
+    micro_instr.set_field_flex_param("STRIDE",
+                                     "hag.util_fns.extract_bits(operand.get_offset(cdlt, 2, op.loop_id), 16, 16)")
+    macro_instr.add_base_instruction(micro_instr)
+    instructions.append(macro_instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
+    instr.set_field_by_name("ACCESS_TYPE", "WR")
+    instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
+    instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
+    instr.set_field_flex_param("STRIDE",
+                               "hag.util_fns.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id), 16, 0)")
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_LOOP_STRIDE")
+    instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+    instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
+    instr.set_field_by_name("ACCESS_TYPE", "WR")
+    instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
+    instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
+    instr.set_field_flex_param("STRIDE",
+                               "hag.util_fns.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id), 16, 16)")
+    instructions.append(instr)
+    return instructions
+
+def loop_template(hag):
+    instructions = []
+    # SYSTOLIC ARRAY LOOP INSTR
+
+    # OUTER LOOP
+    instructions += outer_sa_loops(hag)
+
+    # INNER LOOP
+    instructions += inner_sa_loops(hag)
+
+
+    # SIMD ARRAY LOOP INSTR
+
+    # OUTER LOOP
+    instructions += outer_simd_loops(hag)
+    # INNER LOOP INSTR
+    instructions += inner_simd_loops(hag)
 
 
     return instructions
@@ -624,35 +752,35 @@ def dram_simd_template(mem_name, hag):
     else:
         assert mem_name == "VMEM2"
         inp_idx = 1
-    instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_ITER")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("NUM_ITERS", f"cdlt.op_map[offset.loop_name].iter_count")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("STRIDE", f"offset.stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
-    instr.set_field_by_name("LSB_MSB", "LSB")
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[{inp_idx}].node_name].start, 16, 0)")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
-    instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
-    instr.set_field_by_name("LSB_MSB", "MSB")
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[{inp_idx}].node_name].start, 16, 16)")
-    instructions.append(instr)
+    # instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_ITER")
+    # instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("NUM_ITERS", f"cdlt.op_map[offset.loop_name].iter_count")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_STRIDE")
+    # instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("STRIDE", f"offset.stride")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
+    # instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
+    # instr.set_field_by_name("LSB_MSB", "LSB")
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[{inp_idx}].node_name].start, 16, 0)")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
+    # instr.add_iterable('offset', f'op.get_src_offset("DRAM", "{mem_name}")')
+    # instr.set_field_by_name("LSB_MSB", "MSB")
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[{inp_idx}].node_name].start, 16, 16)")
+    # instructions.append(instr)
 
     ### TILE LOOP
     loop_id_str = f"cdlt.op_id_counters['loop'] + {VMEM_ID_MAP['LD'][mem_name]}"
@@ -689,35 +817,35 @@ def dram_simd_template(mem_name, hag):
 
 def simd_dram_template(mem_name, hag):
     instructions = []
-    instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_ITER")
-    instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("NUM_ITERS", f"cdlt.op_map[offset.loop_name].iter_count")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
-    instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("STRIDE", f"offset.stride")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
-    instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
-    instr.set_field_by_name("LSB_MSB", "LSB")
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 0)")
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
-    instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
-    instr.set_field_by_name("LSB_MSB", "MSB")
-    instr.set_field_by_name("NS_ID", mem_name)
-    instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
-    instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 16)")
-    instructions.append(instr)
+    # instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_ITER")
+    # instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("NUM_ITERS", f"cdlt.op_map[offset.loop_name].iter_count")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
+    # instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("STRIDE", f"offset.stride")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
+    # instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
+    # instr.set_field_by_name("LSB_MSB", "LSB")
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 0)")
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
+    # instr.add_iterable('offset', f'op.get_dst_offset("{mem_name}", "DRAM")')
+    # instr.set_field_by_name("LSB_MSB", "MSB")
+    # instr.set_field_by_name("NS_ID", mem_name)
+    # instr.set_field_flex_param("LOOP_INDEX_ID", f"offset.loop_id")
+    # instr.set_field_flex_param("BASE_ADDR", f"hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 16)")
+    # instructions.append(instr)
 
     ### TILE LOOP
     loop_id_str = f"cdlt.op_id_counters['loop'] + {VMEM_ID_MAP['ST'][mem_name]}"
@@ -752,11 +880,11 @@ def simd_dram_template(mem_name, hag):
 
 def sa_mvmul_template(hag):
     instructions = []
-    buffers = [('weight', 'WBUF'), ('data','IBUF'), ('bias', 'BBUF'), ('out', 'OBUF')]
-    for b in buffers:
-        instructions += buffer_sa_template_compute(*b, hag)
-        if b[1] == 'OBUF':
-            instructions += sa_buffer_template_compute(*b, hag)
+    # buffers = [('weight', 'WBUF'), ('data','IBUF'), ('bias', 'BBUF'), ('out', 'OBUF')]
+    # for b in buffers:
+    #     instructions += buffer_sa_template_compute(*b, hag)
+    #     if b[1] == 'OBUF':
+    #         instructions += sa_buffer_template_compute(*b, hag)
 
     return instructions
 

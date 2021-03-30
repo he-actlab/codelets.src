@@ -625,6 +625,7 @@ class Codelet(object):
 
         # next, set the parameters supplied by the PolyMath node (e.g., stride, pad, etc)
         self.instantiate_node_params(node, hag)
+
         for o in self.ops:
             for rp in o.required_params:
                 if rp in self.required_params and rp in o.unset_params():

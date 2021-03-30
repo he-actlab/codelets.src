@@ -90,23 +90,6 @@ def load_store():
                              (access_type, mem_type, buffer, loop_id, req_size))
     return instr_temp
 
-def create_ld_st(ld_st, op_fn, op_code, function):
-    opcode = ''
-    if ld_st == "LD":
-        opcode += '0'
-    else:
-        opcode += '1'
-    if function == "START":
-        opcode += '101'
-        access_type = Field("ACCESS_TYPE", 1, value_names={"LD": 0, "ST": 1})
-        mem_type = Field("MEM_TYPE", 1, value_names={"BUFFER": 0, "IMEM": 1})
-        buffer = Field("BUFFER", 4, value_names={"WBUF": 0, "IBUF": 1, "OBUF": 2, "BBUF": 3})
-        loop_id = Field("LOOP_ID", 6)
-        req_size = Field("REQUEST_SIZE", 16)
-        instr_temp = Instruction("LD_ST", 14, OPCODE_WIDTH,
-                                 (access_type, mem_type, buffer, loop_id, req_size))
-
-
 
 def create_simd_alu_ops(op_name, function_code):
     NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
@@ -161,22 +144,6 @@ def create_simd_op(op_name, opcode, function_code):
                              (dest_ns, dest_ns_idx, src1_ns, src1_ns_idx, src2_ns, src2_ns_idx))
     return instr_temp
 
-def create_bin_ops():
-
-
-
-    instructions = []
-    # for op_type_list in [DTYPE_CAST_OPS, CALC_OPS, ALU_OPS, CMP_OPS, LD_ST_OPS]:
-    for op_type_list in [DTYPE_CAST_OPS, CALC_OPS, ALU_OPS, CMP_OPS]:
-        op_code = op_type_list[0]
-        op_fnctions = op_type_list[1]
-        for fn_code, op_fn in enumerate(op_fnctions):
-            if op_code == LD_ST_OPS[0]:
-                instructions.append(create_ld_st('LD', op_fn, op_code, fn_code))
-                instructions.append(create_ld_st('ST', op_fn, op_code, fn_code))
-            else:
-                instructions.append(create_simd_op(op_fn, op_code, fn_code))
-    return instructions
 
 def create_dtype_cfg_ops():
     instructions = []
