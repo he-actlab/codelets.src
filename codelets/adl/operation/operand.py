@@ -12,6 +12,20 @@ from sympy import Basic, Idx, symbols, Integer
 from codelets.adl import util
 from dataclasses import dataclass, field
 
+@dataclass(frozen=True)
+class Offset:
+    dim: int
+    loop_id: int
+    stride: int
+    dim_size: int
+    offset: int
+
+    @property
+    def loop_name(self):
+        return f"loop{self.loop_id}"
+
+    def __str__(self):
+        return f"DIM:{self.dim},LOOPID:{self.loop_id},OFFSET:{self.offset}"
 
 @dataclass(frozen=True)
 class Datatype:
@@ -54,7 +68,7 @@ class DataMovement:
     shape_map: Dict[str, Integral]
     offset_map: Dict[str, List[Union[int, str, Basic]]] = field(default_factory=dict)
     evaluated_offsets: Dict[str, List[Union[int, str, Basic]]] = field(default_factory=dict)
-    evaluated_domain_offsets: Dict[str, List[Union[int, str, Basic]]] = field(default_factory=dict)
+    evaluated_domain_offsets: Dict[str, List[Union[int, str, Basic, Offset]]] = field(default_factory=dict)
 
     def __str__(self):
         path = f"PATH: {self.src_node}->{self.dst_node}"
@@ -251,6 +265,7 @@ class OperandTemplate:
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
+    operand_type: str = field(default='variable')
 
     def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
         if isinstance(dimension, str):
@@ -307,6 +322,47 @@ class OperandTemplate:
         else:
             # TODO: Check if already set
             pass
+
+    # 'up' -> dram -> compute unit
+    # 'down' -> compute unit -> dram
+    def get_offset(self, cdlt, level, loop_id, movement_type='up', zero_not_found=True):
+        if movement_type == 'up':
+            prev_level = level - 1
+        else:
+            prev_level = level + 1
+        assert prev_level >= 0
+        target_movement = None
+        for dm in self.data_moves:
+
+            if cdlt.get_tile_level(dm.dst_node) == level:
+                # assert cdlt.get_tile_level(dm.src_node) == prev_level, f"{self.name}: {dm.src_node}({cdlt.get_tile_level(dm.src_node)})" \
+                #                                                        f"-> {dm.dst_node}({cdlt.get_tile_level(dm.dst_node)})\n" \
+                #                                                        f"Levels: {cdlt.tile_levels}"
+                target_movement = dm
+                break
+            elif cdlt.get_tile_level(dm.src_node) == level:
+                assert cdlt.get_tile_level(dm.dst_node) == prev_level, f"{self.name}: {dm.src_node} -> {dm.dst_node}"
+                target_movement = dm
+                break
+
+        if target_movement is None:
+            raise RuntimeError(f"Could not find data movement for level {level} in operand "
+                               f"{self.name}")
+
+        offset_val = None
+        for o in target_movement.domain_offsets():
+            if o.loop_id == loop_id:
+                offset_val = o
+                break
+
+        if offset_val is None:
+            if zero_not_found:
+                return 0
+            else:
+                raise RuntimeError(f"Could not find offset movement {level} from "
+                                   f"{target_movement.src_node}->{target_movement.dst_node} "
+                                   f"in operand {self.name}")
+        return offset_val.stride
 
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":
@@ -446,6 +502,15 @@ class OperandTemplate:
     def is_dtype_supported(self, dtype_name) -> bool:
         return dtype_name in [str(dt) for dt in self.supported_dtypes]
 
+    def supported_dtype_str(self):
+        return [str(dt) for dt in self.supported_dtypes]
+
+    def get_dtype_from_str(self, dtype_str: str):
+        for dt in self.supported_dtypes:
+            if str(dt) == dtype_str:
+                return dt
+        raise RuntimeError(f"{dtype_str} is not a supported datatype for operand {self.name}")
+
     def update_shape_symbols(self, shape_key, value):
         if shape_key in self.shape_symbols and self.shape_symbols[shape_key] != value:
             raise KeyError(f"Value for shape_symbols {shape_key} has already been set:\n"
@@ -457,9 +522,18 @@ class OperandTemplate:
     def is_instantiated(self):
         return len(list(self.shape_symbols.keys())) == len(self.shape_list)
 
-    def set_dtype(self, dtype: Datatype):
-        assert self.is_dtype_supported(str(dtype))
-        self.dtype = dtype
+    def set_dtype(self, dtype: Union[Datatype, str]):
+        if isinstance(dtype, Datatype):
+            dtype_str = str(dtype)
+        else:
+            dtype_str = dtype
+
+        if not self.is_dtype_supported(dtype_str):
+            raise RuntimeError(f"{dtype_str} is not a supported datatype for operand {self.name}.\n"
+                               f"Possible datatype strings: {self.supported_dtype_str()}")
+
+        dtype_var = self.get_dtype_from_str(dtype_str)
+        self.dtype = dtype_var
 
     def set_node_name(self, name):
         self.node_name = name
@@ -543,13 +617,16 @@ class OperandTemplate:
         if self.current_location != path_key[1]:
             self.data_path.append(path_key[1])
 
-    def get_ld_storage(self, cdlt, level):
+    def get_ld_storage_location(self, cdlt, level):
         prev_level = level - 1
         assert prev_level >= 0
         for dm in self.data_moves:
             if cdlt.get_tile_level(dm.src_node) == prev_level:
                 assert cdlt.get_tile_level(dm.dst_node) == level
                 return dm.dst_node
+            elif cdlt.get_tile_level(dm.dst_node) == prev_level:
+                assert cdlt.get_tile_level(dm.src_node) == level
+                return dm.src_node
         raise RuntimeError(f"Unable to find storage node for level {level} in operand"
                            f" {self.name}.")
 
@@ -605,7 +682,8 @@ class OperandTemplate:
                                   data_path=self.data_path.copy(),
                                   dtype=self.dtype,
                                   node_name=self.node_name,
-                                  data_moves=deepcopy(self.data_moves))
+                                  data_moves=deepcopy(self.data_moves),
+                                  operand_type=self.operand_type)
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
         return op_temp
 
@@ -637,21 +715,6 @@ class IndexedOperandTemplate:
 
     def add_compute_access(self, target, op_name, operand_type):
         return self.operand_template.add_compute_access(target, op_name, operand_type, self.offsets)
-
-@dataclass(frozen=True)
-class Offset:
-    dim: int
-    loop_id: int
-    stride: int
-    dim_size: int
-    offset: int
-
-    @property
-    def loop_name(self):
-        return f"loop{self.loop_id}"
-
-    def __str__(self):
-        return f"DIM:{self.dim},LOOPID:{self.loop_id},OFFSET:{self.offset}"
 
 
 

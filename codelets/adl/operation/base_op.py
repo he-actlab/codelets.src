@@ -11,7 +11,8 @@ class Operation(object):
     BASE_ATTRS = ['loop_id', 'loop_level', 'op_id', 'global_op_id', 'target', 'operation_type',
                   'dependencies', 'param_symbols', 'target', 'operation_type', 'instructions',
                   'required_params', 'resolved_params', 'dependencies', 'split_map']
-
+    BASE_KWARG_NAMES = ['codelet', 'target', 'instructions', 'resolved_params', 'param_symbols',
+                        'add_codelet', 'dependencies']
     id_counter = 0
     op_id_counters = defaultdict(int)
     loop_ctx_dependencies = deque()

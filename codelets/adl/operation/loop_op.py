@@ -246,7 +246,9 @@ class Loop(Operation):
     def evaluate_parameters(self, node, hag, cdlt):
         domain_shape_map = cdlt.get_operand_shapes()
 
-        if not isinstance(self.start, str) and str(self.end) in domain_shape_map:
+
+        # if not isinstance(self.start, str) and str(self.end) in domain_shape_map:
+        if not isinstance(self.start, str):
             assert self.stride == 1
             cdlt.domain_loop_map[self.op_str] = str(self.end)
 

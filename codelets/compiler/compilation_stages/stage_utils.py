@@ -87,7 +87,6 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
         shapes[0][loop.op_str] = loop.iter_count
         selected_splits[0][loop.op_str] = 1
         accumulated_splits[loop.op_str] = 1
-
     perm_stack = deque()
     perm_order = list(level_factors[0].keys())
     first_perm = product(*tuple(level_factors[0].values()))

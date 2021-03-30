@@ -2,10 +2,15 @@ from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
-from .genesys_codelets import GENESYS_CODELETS
+from .genesys_inference_codelets import GENESYS_CODELETS
 import numpy as np
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
     OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
+
+LOOPS_PER_LEVEL = 7
+INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
+           "'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7}}"
+LD_ST_MAP = "{'LD': 0, 'ST': 1}"
 
 def generate_genesys(genesys_cfg):
     genesys = ComputeNode("Genesys1")
@@ -193,6 +198,7 @@ def define_genesys(cfg):
             hag.add_codelet(cdlt_instance)
 
         hag.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
+        hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"], f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
     return hag
 
 

@@ -1,11 +1,41 @@
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
+
 
 from .stage_utils import default_tile_heuristic, set_codelet_tiling
 import polymath as pm
 import json
+
+SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm']
+SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_average_pool', 'batch_normalization']
+POOL_OPS = ['max_pool', 'global_avg_pool']
+BINARY_SIMD = ['elem_add']
+UNARY_SIMD = ['relu']
+
+def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
+    if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
+        cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
+        cdlt.inputs[1].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
+        if len(cdlt.inputs) == 3:
+            cdlt.inputs[2].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
+        cdlt.outputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
+    else:
+        assert cdlt.op_name in SIMD_CDLTS
+        for o in cdlt.operands:
+            o.set_dtype(dtype_map['SIMD'])
+    return cdlt
+
+def add_backprop(program, node: pm.Node, cdlt: 'Codelet'):
+    pass
+
+def update_batch_size(program, node: pm.Node, cdlt: 'Codelet', batch_size=None) -> 'Codelet':
+    if cdlt.op_name == 'conv':
+        pass
+
+    return cdlt
 
 def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     if cdlt.op_name == "conv_bias":
@@ -35,8 +65,8 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
             else:
                 ic_shape = activation.shape[1]
-            # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
-            activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
+            activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
+            # activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
             shaped_nodes.append(activation.name)
         else:
             ic_shape = activation.shape[-1]
@@ -75,7 +105,6 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
             else:
                 ic_shape = activation.shape[1]
-            # activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
             activation.shape = tuple([activation.shape[0], ic_shape])
             shaped_nodes.append(activation.name)
         else:
@@ -98,6 +127,95 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         if bias.name not in shaped_nodes:
             bias.shape = tuple([oc_shape])
             shaped_nodes.append(bias.name)
+    elif cdlt.op_name == 'max_pool':
+        activation = node.inputs[0]
+        out = node.outputs[0]
+        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
+
+        if 'KH' not in node.kwargs:
+            assert len(node.args) == 4 and isinstance(node.args[2], int)
+            node.add_attribute('KH', node.args[2])
+
+        if 'KW' not in node.kwargs:
+            assert len(node.args) == 4 and isinstance(node.args[3], int)
+            node.add_attribute('KW', node.args[3])
+
+        if 'stride' in node.kwargs and isinstance(node.kwargs['stride'], list):
+            sy, sx = node.kwargs['stride'][0], node.kwargs['stride'][1]
+            assert isinstance(sy, int)
+            assert isinstance(sx, int)
+            node.add_attribute('sy', sy)
+            node.add_attribute('sx', sx)
+
+        if out.name not in shaped_nodes:
+            if out.shape[1] % simd_dims[0] != 0:
+                oc_shape = out.shape[1] + (simd_dims[1] - (out.shape[1] % simd_dims[0]))
+            else:
+                oc_shape = out.shape[1]
+            out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
+            shaped_nodes.append(out.name)
+        else:
+            oc_shape = out.shape[-1]
+
+        if activation.name not in shaped_nodes:
+            if activation.shape[1] % simd_dims[0] != 0:
+                ic_shape = activation.shape[1] + (simd_dims[0] - (activation.shape[1] % simd_dims[0]))
+            else:
+                ic_shape = activation.shape[1]
+            py, px = node.kwargs['pad'][0], node.kwargs['pad'][1]
+            activation.shape = tuple([activation.shape[0], activation.shape[2] + 2 * py,
+                                      activation.shape[3] + 2 * px, ic_shape])
+            shaped_nodes.append(activation.name)
+        else:
+            ic_shape = activation.shape[-1]
+
+        assert ic_shape == oc_shape
+
+        cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
+        cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
+    elif cdlt.op_name in ['elem_add', 'relu']:
+        activation = node.inputs[0]
+        out = node.outputs[0]
+        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
+        if out.name not in shaped_nodes:
+            if out.shape[1] % simd_dims[0] != 0:
+                oc_shape = out.shape[1] + (simd_dims[1] - (out.shape[1] % simd_dims[0]))
+            else:
+                oc_shape = out.shape[1]
+            out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
+            shaped_nodes.append(out.name)
+        else:
+            oc_shape = out.shape[-1]
+
+        if activation.name not in shaped_nodes:
+            if activation.shape[1] % simd_dims[0] != 0:
+                ic_shape = activation.shape[1] + (simd_dims[0] - (activation.shape[1] % simd_dims[0]))
+            else:
+                ic_shape = activation.shape[1]
+            activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
+            shaped_nodes.append(activation.name)
+        else:
+            ic_shape = activation.shape[-1]
+
+        if cdlt.op_name in BINARY_SIMD:
+            op2 = node.inputs[1]
+            if op2.name not in shaped_nodes:
+                if op2.shape[1] % simd_dims[0] != 0:
+                    ic_shape2 = op2.shape[1] + (simd_dims[0] - (op2.shape[1] % simd_dims[0]))
+                else:
+                    ic_shape2 = op2.shape[1]
+                op2.shape = tuple([op2.shape[0], op2.shape[2], op2.shape[3], ic_shape2])
+                shaped_nodes.append(op2.name)
+            else:
+                ic_shape2 = op2.shape[-1]
+
+            assert ic_shape2 == ic_shape
+            cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
+        assert ic_shape == oc_shape
+        cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+        cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
 
     return cdlt
 
@@ -304,7 +422,6 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
         if loop_level < i_loop_level and loop_level > 0:
             cdlt.ops[idx].loop_level = loop_level
-
     return cdlt
 
 
