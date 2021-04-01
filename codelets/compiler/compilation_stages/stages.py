@@ -10,7 +10,7 @@ import polymath as pm
 import json
 
 SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm']
-SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_average_pool', 'batch_normalization']
+SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization']
 POOL_OPS = ['max_pool', 'global_avg_pool']
 BINARY_SIMD = ['elem_add']
 UNARY_SIMD = ['relu']
@@ -175,7 +175,7 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
         cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
-    elif cdlt.op_name in ['elem_add', 'relu']:
+    elif cdlt.op_name in ['elem_add', 'relu', 'global_avg_pool']:
         activation = node.inputs[0]
         out = node.outputs[0]
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
@@ -214,8 +214,14 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
             assert ic_shape2 == ic_shape
             cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
         assert ic_shape == oc_shape
-        cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-        cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+        if cdlt.op_name == 'global_avg_pool':
+            print(node.inputs[0].shape)
+            print(node.outputs[0].shape)
+            cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
+            cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
+        else:
+            cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+            cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
 
     return cdlt
 

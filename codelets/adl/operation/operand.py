@@ -406,12 +406,17 @@ class OperandTemplate:
 
     def get_access_offsets(self, offsets):
         if len(offsets) == 0 and len(self.data_moves) > 0:
-            offsets = {self.shape_list[i]: list(self.data_moves[-1].offset_map.values())[i].copy() for i in range(len(self.shape_list))}
+            a_offsets = {self.shape_list[i]: list(self.data_moves[-1].offset_map.values())[i].copy() for i in range(len(self.shape_list))}
         elif len(offsets) == 0:
-            offsets = {self.shape_list[i]: 0 for i in range(len(self.shape_list))}
+            a_offsets = {self.shape_list[i]: 0 for i in range(len(self.shape_list))}
         else:
-            offsets = {self.shape_list[i]: offsets[i].copy() for i in range(len(self.shape_list))}
-        return offsets
+            a_offsets = {}
+            for i in range(len(self.shape_list)):
+                if isinstance(offsets[i], int):
+                    a_offsets[self.shape_list[i]] = 0
+                else:
+                    a_offsets[self.shape_list[i]] = offsets[i].copy()
+        return a_offsets
 
     def add_dependency(self, op_name):
         if op_name not in self.dependencies:

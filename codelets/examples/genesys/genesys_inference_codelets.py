@@ -140,7 +140,7 @@ def relu(hag: ArchitectureNode):
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
 
-
+# TODO: Implement valid operation sequence
 def maxpool2d(hag: ArchitectureNode):
     #
     data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
@@ -162,9 +162,33 @@ def maxpool2d(hag: ArchitectureNode):
                                 cdlt.compute("MAX", [data, data], [out], target="SIMD")
                                 cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
     return cdlt
-#
+
+# TODO: Implement valid operation sequence
+def global_avg_pool(hag: ArchitectureNode):
+    #
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    #
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    # # TODO: Add option to create operand
+    with Codelet("global_avg_pool", [data], [out], hag) as cdlt:
+
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=0)
+
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "IH") as iy:
+                    with Loop(0, "IW") as ix:
+                        with Loop(0, "OH") as oy:
+                            with Loop(0, "OW") as ox:
+                                cdlt.transfer(data[n, c, iy + oy, ix + ox], ["DRAM", "VMEM1"])
+                                cdlt.compute("MAX", [data, data], [out], target="SIMD")
+                                cdlt.transfer(out[n, c, oy, ox], ["VMEM1", "DRAM"])
+    return cdlt
+
 GENESYS_CODELETS = {
     "max_pool": maxpool2d,
+    "global_avg_pool": global_avg_pool,
     "conv_bias": conv2d_bias,
     "conv": conv2d,
     "gemm": gemm,
