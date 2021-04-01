@@ -53,6 +53,18 @@ def test_genesys_max_pool():
     res = program.emit("json_no_ops")
     pprint(res)
 
+def test_genesys_global_avg_pool():
+    from pprint import pprint
+    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_globalaveragepool.srdfg")
+    genesys = define_genesys(GENESYS_CFG)
+    program = initialize_program(graph, genesys)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile()
+    res = program.emit("json_no_ops")
+    pprint(res)
+
 def test_genesys_gemm():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
     batch_size_pass = pm.UpdateBatchSize(32, graph.op_name)
