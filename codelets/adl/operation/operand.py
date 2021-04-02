@@ -58,6 +58,9 @@ class Datatype:
     def bytes(self):
         return self.bitwidth // 8
 
+    def bits(self):
+        return self.bitwidth
+
 @dataclass
 class DataMovement:
     src_node: str

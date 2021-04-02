@@ -38,7 +38,7 @@ def update_batch_size(program, node: pm.Node, cdlt: 'Codelet', batch_size=None) 
     return cdlt
 
 def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
-    if cdlt.op_name == "conv_bias":
+    if cdlt.op_name in "conv_bias":
         assert isinstance(shaped_nodes, list)
         activation = node.inputs[0]
         weight = node.inputs[1]
@@ -215,8 +215,6 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
             cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
         assert ic_shape == oc_shape
         if cdlt.op_name == 'global_avg_pool':
-            print(node.inputs[0].shape)
-            print(node.outputs[0].shape)
             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
             cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
         else:

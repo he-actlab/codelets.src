@@ -76,30 +76,6 @@ def generate_genesys(genesys_cfg):
 
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
-    # cfg = {}
-    # cfg['ARRAY_N'] = 32
-    # cfg['ARRAY_M'] = 32
-    # cfg['DATA_WIDTH'] = 8 // 8
-    # cfg['WGT_WIDTH'] = 8 // 8
-    # cfg['BIAS_WIDTH'] = 32 // 8
-    # cfg['ACC_WIDTH'] = 32 // 8
-    # cfg['SIMD_WIDTH'] = 32
-    # cfg['CHANNEL_BW'] = 512 // 8
-    #
-    # cfg['IBUF_DEPTH'] = 2048
-    # cfg['WBUF_DEPTH'] = 512
-    # cfg['OBUF_DEPTH'] = 2048
-    # cfg['BBUF_DEPTH'] = 2048
-    # cfg['VMEM_DEPTH'] = cfg['OBUF_DEPTH']
-    #
-    # cfg['IBUF_CAPACITY'] = cfg['ARRAY_N']*cfg['DATA_WIDTH']*2048
-    #
-    # cfg['WBUF_BANKS'] = cfg['ARRAY_M']*cfg['ARRAY_N']
-    # cfg['OBUF_BANKS'] = cfg['ARRAY_M']
-    # cfg['BBUF_BANKS'] = cfg['ARRAY_M']
-    # cfg['VMEM_BANKS'] = cfg['SIMD_WIDTH']
-    # cfg['IMM_CAPACITY'] = 32 * cfg['ACC_WIDTH']
-    # cfg['DRAM_CAPACITY'] = 1000000
 
     with ComputeNode("Genesys") as hag:
         vmem1 = StorageNode("VMEM1", access_type='RAM', banks=cfg['SIMD_WIDTH'],
@@ -115,8 +91,9 @@ def define_genesys(cfg):
                           latency=1, input_ports=2, output_ports=2)
 
         # TODO: Does this need to be added?
-        # instr_mem = StorageNode("INSTR_MEM",access_type='RAM', size=16,
-        #                         latency=1, input_ports=2, output_ports=2)
+        instr_mem = StorageNode("INSTR_MEM",access_type='RAM', width=cfg['INSTR_WIDTH'],
+                                banks=cfg['INSTR_BANKS'], depth=cfg['INSTR_DEPTH'],
+                                latency=1, input_ports=2, output_ports=2)
 
         dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
                             width=cfg['ACC_WIDTH'], depth=cfg['DRAM_DEPTH'],
@@ -145,10 +122,11 @@ def define_genesys(cfg):
             # Request size * data width * banks
             # iters = tile_size / (Request size * data width * banks)
 
-            systolic_array.add_subgraph_edge('DRAM', 'IBUF', bandwidth=cfg['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'WBUF', bandwidth=cfg['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'BBUF', bandwidth=cfg['CHANNEL_BW'])
-            systolic_array.add_subgraph_edge('DRAM', 'OBUF', bandwidth=cfg['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'IBUF', bandwidth=cfg['IBUF_CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'WBUF', bandwidth=cfg['PARAM_BUF_CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'BBUF', bandwidth=cfg['PARAM_BUF_CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'OBUF', bandwidth=cfg['OBUF_CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('DRAM', 'INSTR_MEM', bandwidth=cfg['INSTR_CHANNEL_BW'])
 
             systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0]*cfg['DATA_WIDTH'])
             systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*cfg['DATA_WIDTH'])

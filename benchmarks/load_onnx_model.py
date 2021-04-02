@@ -66,6 +66,26 @@ def store_unique_model_layers(model_name, store_as_polymath=False):
         else:
             layers[n.op_type] += 1
 
+def store_target_model_layer(model_name, layer_name, store_name=None, store_as_polymath=False):
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    model = onnx.load_model(model_path)
+    found = False
+    for n in model.graph.node:
+        if n.op_type == layer_name:
+            inputs = n.input
+            outputs = n.output
+            op_name = n.op_type.lower() if store_name is None else store_name
+            layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
+
+            onnx.utils.extract_model(model_path, layer_path, inputs, outputs)
+            if store_as_polymath:
+                convert_model_to_polymath(layer_path)
+            found = True
+            break
+
+    if not found:
+        raise RuntimeError(f"Unable to find layer {layer_name} in model")
+
 
 if __name__ == "__main__":
     # argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
@@ -80,8 +100,9 @@ if __name__ == "__main__":
     # argparser.add_argument('-pm', '--to_polymath', type=str2bool, nargs='?', default=False,
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
-    model_name = 'lenet'
+    model_name = 'resnet18_train'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     # convert_model_to_polymath(model_path)
-    store_unique_model_layers(model_name, store_as_polymath=True)
+    # store_unique_model_layers(model_name, store_as_polymath=True)
+    store_target_model_layer(model_name, "Conv", store_name="conv_bias", store_as_polymath=True)
