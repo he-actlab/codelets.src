@@ -119,7 +119,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
                 else:
                     size_map[k] = v
 
-            dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bytes()
+            dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bits()
             total_size = np.prod(list(size.values()))*dtype_size
 
             constraint_sat = tile_constraints[key].evaluate_fn(total_size)

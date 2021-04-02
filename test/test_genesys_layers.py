@@ -89,6 +89,17 @@ def test_genesys_conv():
     res = program.emit("string_final")
     print(res)
 
+def test_genesys_conv_bias():
+    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_conv_bias.srdfg")
+    genesys = define_genesys(GENESYS_CFG)
+    program = initialize_program(graph, genesys)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile()
+    res = program.emit("string_final")
+    print(res)
+
 
 
 

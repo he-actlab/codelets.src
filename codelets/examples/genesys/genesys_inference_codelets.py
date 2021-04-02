@@ -71,6 +71,42 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
     return cdlt
 
+def conv2d_added_bias(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    required_params = {}
+
+    with Codelet("conv", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "BBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with Loop(0, "OC") as oc:
+            with Loop(0, "N") as n:
+                with Loop(0, "IC") as ic:
+                    with Loop(0, "KH") as kh:
+                        with Loop(0, "KW") as kw:
+                            with Loop(0, "OH") as y:
+                                with Loop(0, "OW") as x:
+                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
+                                    cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
+                                    cdlt.transfer(data[n, ic, y * "stride" + kh, x * "stride" + kw], ["DRAM", "IBUF"])
+                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
+                                    # cdlt.compute("MVMUL", [data[n, ic, y*"stride" + kh, x*"stride" + kw], weight[oc, ic, kh, kw], bias[oc]], [out[n, oc, y, x]], target="pe_array")
+                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "BBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+    return cdlt
+
 def conv2d_bias(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
