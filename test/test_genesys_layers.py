@@ -1,4 +1,5 @@
-from codelets.examples.genesys import genesys_instructions, define_genesys, GENESYS_CFG, GENESYS_DTYPES
+from codelets.examples.genesys import genesys_instructions, define_genesys,\
+    GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import polymath as pm
 from pprint import pprint
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
@@ -15,11 +16,22 @@ LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
 TestDfgNode = namedtuple('TestDfgNode', ['input_components', 'input_shapes', 'attrs'])
 GENESYS_CFG_PATH = f"{CWD}/scratch/genesys_cfg.json"
 
+def update_genesys_cfg_from_dtypes():
+    GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+    GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+
 def test_genesys_add():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_add.srdfg")
-
+    GENESYS_DTYPES['SIMD'] = 'FXP16'
+    GENESYS_DTYPES['SYSTOLIC_ARRAY'] = {}
+    GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
+    GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
+    update_genesys_cfg_from_dtypes()
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
+
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': GENESYS_DTYPES})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
