@@ -91,7 +91,7 @@ class StorageNode(ArchitectureNode):
 
     @property
     def size_bytes(self):
-        return self._size
+        return self.size // 8
 
     @property
     def indirection(self):
