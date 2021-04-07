@@ -30,6 +30,7 @@ def test_genesys_add():
     GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
     update_genesys_cfg_from_dtypes()
     genesys = define_genesys(GENESYS_CFG)
+    print(genesys.get_subgraph_node("VMEM1").size_bytes)
     program = initialize_program(graph, genesys)
 
 
@@ -79,10 +80,15 @@ def test_genesys_global_avg_pool():
 
 def test_genesys_gemm():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
-    batch_size_pass = pm.UpdateBatchSize(32, graph.op_name)
+    GENESYS_DTYPES['SIMD'] = 'FXP16'
+    GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
+    GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
+    update_genesys_cfg_from_dtypes()
+    batch_size_pass = pm.UpdateBatchSize(64, graph.op_name)
     graph = batch_size_pass(graph)
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': GENESYS_DTYPES})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])

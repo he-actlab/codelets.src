@@ -333,7 +333,7 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
 
     # TODO: Change this back to non-integer
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth / " \
-                   f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{buffer_name}').banks)))"
+                   f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
     n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str})/ hag.get_subgraph_node('{buffer_name}').banks)"
     instr = hag.get_primitive_template("SA_LOOP")
     instr.set_field_flex_param("LOOP_LEVEL", "op.loop_level")
@@ -376,7 +376,7 @@ def buffer_dram_template(buffer_name, hag):
     loop_id_str = f"hag.util_fns.get_loop_level_id('{buffer_name}', op.loop_id, 2, 'ST')"
 
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{buffer_name}', 'DRAM').bandwidth / " \
-                   f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{buffer_name}').banks)))"
+                   f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
     # TODO: Change this back to non-integer
     n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str})/ hag.get_subgraph_node('{buffer_name}').banks)"
     instr = hag.get_primitive_template("SA_LOOP")
@@ -786,7 +786,7 @@ def dram_simd_template(mem_name, hag):
     loop_id_str = f"cdlt.op_id_counters['loop'] + {VMEM_ID_MAP['LD'][mem_name]}"
     # TODO: Change this back to non-integer
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('DRAM', '{mem_name}').bandwidth / " \
-                   f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{mem_name}').banks)))"
+                   f"(op.operand.dtype.bits() * hag.get_subgraph_node('{mem_name}').banks)))"
     n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str})/ hag.get_subgraph_node('{mem_name}').banks)"
     # transfer size = 32
     # req_size = 1
@@ -808,7 +808,7 @@ def dram_simd_template(mem_name, hag):
 
     instr = hag.get_primitive_template("LD_START")
     instr.set_field_by_name("NS_ID", f"{mem_name}")
-    instr.set_field_flex_param("LD_DATA_WIDTH", "op.operand.dtype.bytes() * 8")
+    instr.set_field_flex_param("LD_DATA_WIDTH", "op.operand.dtype.bits()")
     instr.set_field_flex_param("REQUEST_SIZE", req_size_str)
     instructions.append(instr)
 
@@ -851,7 +851,7 @@ def simd_dram_template(mem_name, hag):
     loop_id_str = f"cdlt.op_id_counters['loop'] + {VMEM_ID_MAP['ST'][mem_name]}"
     # TODO: Change this back to non-integer
     req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{mem_name}', 'DRAM').bandwidth / " \
-                   f"(op.operand.dtype.bytes() * hag.get_subgraph_node('{mem_name}').banks)))"
+                   f"(op.operand.dtype.bits() * hag.get_subgraph_node('{mem_name}').banks)))"
     n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str})/ hag.get_subgraph_node('{mem_name}').banks)"
     # transfer size = 32
     # req_size = 1
@@ -873,7 +873,7 @@ def simd_dram_template(mem_name, hag):
 
     instr = hag.get_primitive_template("ST_START")
     instr.set_field_by_name("NS_ID", f"{mem_name}")
-    instr.set_field_flex_param("ST_DATA_WIDTH", "op.operand.dtype.bytes() * 8")
+    instr.set_field_flex_param("ST_DATA_WIDTH", "op.operand.dtype.bits()")
     instr.set_field_flex_param("REQUEST_SIZE", req_size_str)
     instructions.append(instr)
     return instructions
