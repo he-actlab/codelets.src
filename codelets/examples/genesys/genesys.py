@@ -132,7 +132,7 @@ def define_genesys(cfg):
             systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*cfg['DATA_WIDTH'])
             systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
             systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
-            systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
+            systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=cfg['OBUF_CHANNEL_BW'])
             # TODO: Add OBUF TO DRAM EDGE
             systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
             for p in GENESYS_INSTRUCTIONS['systolic_array']:
@@ -145,11 +145,11 @@ def define_genesys(cfg):
         hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         # hag.add_subgraph_edge('SIMD', 'DRAM', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
-        hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=cfg['CHANNEL_BW'])
-        hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
+        hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=cfg['SIMD_CHANNEL_BW'])
+        hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=cfg['SIMD_CHANNEL_BW'])
 
-        hag.add_subgraph_edge('DRAM', 'VMEM2', bandwidth=cfg['CHANNEL_BW'])
-        hag.add_subgraph_edge('VMEM2', 'DRAM', bandwidth=cfg['CHANNEL_BW'])
+        hag.add_subgraph_edge('DRAM', 'VMEM2', bandwidth=cfg['SIMD_CHANNEL_BW'])
+        hag.add_subgraph_edge('VMEM2', 'DRAM', bandwidth=cfg['SIMD_CHANNEL_BW'])
         hag.add_subgraph_edge('OBUF', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         for p in GENESYS_INSTRUCTIONS['SIMD']:
             simd.add_primitive(p)
