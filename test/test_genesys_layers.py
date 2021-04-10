@@ -12,6 +12,7 @@ TEST_DIR = f"{CWD}/input_files"
 BENCH_DIR = f"{CWD}/../benchmarks"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
+TILING_DIR = f"{BENCH_DIR}/tiling_info"
 
 TestDfgNode = namedtuple('TestDfgNode', ['input_components', 'input_shapes', 'attrs'])
 GENESYS_CFG_PATH = f"{CWD}/scratch/genesys_cfg.json"
@@ -30,15 +31,14 @@ def test_genesys_add():
     GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
     update_genesys_cfg_from_dtypes()
     genesys = define_genesys(GENESYS_CFG)
-    print(genesys.get_subgraph_node("VMEM1").size_bytes)
     program = initialize_program(graph, genesys)
-
-
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': GENESYS_DTYPES})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile(tiling_path=f"{TILING_DIR}/resnet18_add_tiling_info1.json")
     program.compile()
+    # program.store_tiling(f"{TILING_DIR}")
     res = program.emit("json_no_ops")
     pprint(res)
 

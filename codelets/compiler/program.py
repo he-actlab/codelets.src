@@ -16,7 +16,7 @@ EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", 
 @dataclass
 class CompilationStage:
     name: str
-    level: int
+    level: str
     compilation_fn: Callable
     dependencies: List[str]
     fn_kwargs: Dict[str, Any] = field(default_factory=dict)
@@ -130,7 +130,7 @@ class CodeletProgram(object):
 
     def add_compilation_step(self, name: str,
                              compilation_fn: Callable,
-                             level=0,
+                             level='codelet',
                              dependencies=None,
                              stage_kwargs=None,
                              insert_idx=-1,
@@ -235,7 +235,29 @@ class CodeletProgram(object):
             raise RuntimeError(f"{sequence_algorithm} is not a valid sequencing algorithm")
         return node_list
 
-    def compile(self, sequence_algorithm="default"):
+    def store_tiling(self, path):
+        tiling_info = {}
+        for c in self.codelets:
+            tiling_info[f"{c.op_name}{c.instance_id}"] = c.domain_tiling
+
+        with open(f"{path}/{self.name}_tiling_info.json", "w") as outfile:
+            json.dump(tiling_info, outfile, indent=4)
+
+
+    def load_tiling(self, filename):
+
+        with open(f'{filename}') as f:
+            tiling = json.load(f)
+
+        for c in self.codelets:
+            tile_key = f"{c.op_name}{c.instance_id}"
+            assert tile_key in tiling
+            c._domain_tiling = {}
+            for level, tiling in tiling[tile_key].items():
+                c._domain_tiling[int(level)] = tiling
+
+
+    def compile(self, sequence_algorithm="default", tiling_path=None):
         node_sequence = self.sequence_nodes(sequence_algorithm)
 
         # This function performs breadth-first compilation, with coarsest abstractions first:
@@ -248,6 +270,9 @@ class CodeletProgram(object):
             cdlt = self.instantiate_codelet(n)
             assert n.name not in codelets
             codelets[n.name] = cdlt
+
+        if tiling_path is not None:
+            self.load_tiling(tiling_path)
 
         for level, fns in self.preproc_steps.items():
             for n in node_sequence:
