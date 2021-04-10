@@ -90,7 +90,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
     perm_stack = deque()
 
     if 0 in cdlt.domain_tiling:
-        first_perm = [tuple(cdlt.domain_tiling[0].values())]
+        first_perm = [tuple(cdlt.domain_tiling[0][ld] for ld in loop_dependencies)]
     else:
         first_perm = product(*tuple(level_factors[0].values()))
 
@@ -141,7 +141,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
             max_level = level
         prev_level = level - 1
         if level in cdlt.domain_tiling:
-            perms = [tuple(cdlt.domain_tiling[level].values())]
+            perms = [tuple(cdlt.domain_tiling[level][ld] for ld in loop_dependencies)]
         else:
             perms = perm_stack[prev_level]
         assert perms is not None

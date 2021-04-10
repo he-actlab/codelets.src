@@ -253,8 +253,8 @@ class CodeletProgram(object):
             tile_key = f"{c.op_name}{c.instance_id}"
             assert tile_key in tiling
             c._domain_tiling = {}
-            for level, tiling in tiling[tile_key].items():
-                c._domain_tiling[int(level)] = tiling
+            for level, tiling_values in tiling[tile_key].items():
+                c._domain_tiling[int(level)] = tiling_values
 
 
     def compile(self, sequence_algorithm="default", tiling_path=None):
