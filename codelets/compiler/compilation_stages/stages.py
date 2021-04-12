@@ -38,7 +38,7 @@ def update_batch_size(program, node: pm.Node, cdlt: 'Codelet', batch_size=None) 
     return cdlt
 
 def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
-    if cdlt.op_name in "conv_bias":
+    if cdlt.op_name == "conv_bias":
         assert isinstance(shaped_nodes, list)
         activation = node.inputs[0]
         weight = node.inputs[1]
@@ -59,6 +59,48 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         if bias.name not in shaped_nodes:
             bias.shape = tuple([oc_shape])
             shaped_nodes.append(bias.name)
+
+        if activation.name not in shaped_nodes:
+            if activation.shape[1] % sys_array_dims[0] != 0:
+                ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
+            else:
+                ic_shape = activation.shape[1]
+            activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
+            # activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
+            shaped_nodes.append(activation.name)
+        else:
+            ic_shape = activation.shape[-1]
+
+
+
+        if weight.name not in shaped_nodes:
+            weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
+            shaped_nodes.append(weight.name)
+
+        # assert 'pad' in node.kwargs.keys()
+
+        cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
+        cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
+        cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
+        cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
+    elif cdlt.op_name == "conv":
+        assert isinstance(shaped_nodes, list)
+        activation = node.inputs[0]
+        weight = node.inputs[1]
+        out = node.outputs[0]
+        sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
+
+        if out.name not in shaped_nodes:
+            if out.shape[1] % sys_array_dims[1] != 0:
+                oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
+            else:
+                oc_shape = out.shape[1]
+            out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
+            shaped_nodes.append(out.name)
+        else:
+            oc_shape = out.shape[-1]
+
 
         if activation.name not in shaped_nodes:
             if activation.shape[1] % sys_array_dims[0] != 0:
@@ -175,8 +217,9 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
         cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
-    elif cdlt.op_name in ['elem_add', 'relu', 'global_avg_pool']:
+    elif cdlt.op_name in ['elem_add', 'relu', 'global_avg_pool', 'batch_norm']:
         activation = node.inputs[0]
+
         out = node.outputs[0]
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
         if out.name not in shaped_nodes:
@@ -220,6 +263,14 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         else:
             cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
             cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+        if cdlt.op_name == 'batch_norm':
+            print(f"BN: {activation.shape}\n"
+                  f"{node.outputs[0].shape}\n")
+    else:
+        print(f"Node: {node.op_name}\n"
+              f"Shapes: {node.inputs[0].shape}\n"
+              f"{node.inputs[1].shape}\n"
+              f"{node.outputs[0].shape}")
 
     return cdlt
 

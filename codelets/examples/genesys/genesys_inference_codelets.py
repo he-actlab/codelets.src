@@ -161,6 +161,39 @@ def elem_add(hag: ArchitectureNode):
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
 
+
+def batch_norm(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    scale = OperandTemplate("scale", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    offset = OperandTemplate("offset", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("batch_norm", [data, scale, offset], [out], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "H") as h:
+                    with Loop(0, "W") as w:
+                        cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
+                        cdlt.compute("MUL", [data, scale], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+def cross_entropy_loss(hag: ArchitectureNode):
+    res = OperandTemplate("res", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    target = OperandTemplate("target", OP_DTYPES, ["N",], dtype=OP_DTYPES[2])
+    loss = OperandTemplate("loss", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    with Codelet("cross_entropy_loss", [res, target], [loss], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                cdlt.compute("ADD", [res, target], [loss], target="SIMD")
+                cdlt.transfer(loss[n], ["VMEM1", "DRAM"])
+    return cdlt
+
 def relu(hag: ArchitectureNode):
     op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
@@ -229,5 +262,7 @@ GENESYS_CODELETS = {
     "conv": conv2d,
     "gemm": gemm,
     "elem_add": elem_add,
-    "relu": relu
+    "relu": relu,
+    "batch_norm": batch_norm,
+    "cross_entropy_loss": cross_entropy_loss
 }
