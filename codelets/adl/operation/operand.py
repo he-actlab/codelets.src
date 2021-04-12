@@ -158,7 +158,7 @@ class DataMovement:
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
                 for idx, i in enumerate(indices):
-                    assert str(i) in loops
+                    assert str(i) in loops, f"Index is not in loops: {i}: {loops}, Codelet: {cdlt.op_name}"
                     max_vals[str(i)] = loops[str(i)] - 1
 
                 max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})

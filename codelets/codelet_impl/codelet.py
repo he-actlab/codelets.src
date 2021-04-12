@@ -581,9 +581,11 @@ class Codelet(object):
     def instantiate_operands(self, node: pm.Node):
         all_cdlt_ops = self.inputs + self.outputs
         all_node_ops = node.inputs + node.outputs
-
-        for i, n in enumerate(all_node_ops):
-            operand = all_cdlt_ops[i]
+        for i, operand in enumerate(all_cdlt_ops):
+            if operand in self.inputs:
+                n = all_node_ops[i]
+            else:
+                n = node.outputs[self.outputs.index(operand)]
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)

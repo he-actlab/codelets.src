@@ -37,7 +37,6 @@ def test_genesys_add():
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile(tiling_path=f"{TILING_DIR}/resnet18_add_tiling_info1.json")
-    program.compile()
     # program.store_tiling(f"{TILING_DIR}")
     res = program.emit("json_no_ops")
     pprint(res)
