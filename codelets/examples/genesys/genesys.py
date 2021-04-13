@@ -226,7 +226,12 @@ def compile_genesys(model_name,
                     store_tiling=False,
                     store_json_output=False,
                     json_output_filename=None,
-                    verbose=False):
+                    verbose=False,
+                    benchmark_path=None):
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+    OUT_DIR = f"{benchmark_path}/compiler_outputs"
+
+    TILING_DIR = f"{benchmark_path}/tiling_info"
     if update_cfg_dtypes:
         update_genesys_cfg_from_dtypes()
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:

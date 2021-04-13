@@ -105,6 +105,7 @@ def test_genesys_model():
     # If you want to specify the filename, set 'json_output_filename' to a string name
     store_json_output = False
     json_output_filename = None
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
 
     # This function returns
     program = compile_genesys(model_name,
@@ -115,7 +116,16 @@ def test_genesys_model():
                               store_tiling=store_tiling,
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
-                              verbose=True
+                              verbose=True,
+                              benchmark_path=BENCH_DIR
                               )
-
-
+    from codelets.examples.genesys import compile_genesys
+    # program = compile_genesys('resnet18',
+    #                           train=False,
+    #                           update_cfg_dtypes=False,
+    #                           tiling_path=None,
+    #                           batch_size=1,
+    #                           store_tiling=False,
+    #                           store_json_output=False
+    #                           )
+    # program.emit("json_no_ops")
