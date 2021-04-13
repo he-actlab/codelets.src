@@ -221,18 +221,38 @@ class CodeletProgram(object):
         with open(full_path, 'w') as outfile:
             outfile.write(instructions)
 
-    def sequence_nodes(self, sequence_algorithm):
+    def sequence_nodes(self, sequence_algorithm, validate_lowered=True, **sequence_kwargs):
         # TODO: Add support for different sequencing algos
         node_list = []
         all_ops = []
+        missing_ops = []
         if sequence_algorithm == "default":
             for name, node in self.graph.nodes.items():
                 if not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in all_ops:
                     all_ops.append(node.op_name)
                 if self.hag.has_codelet(node.op_name):
                     node_list.append(node)
+                elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
+                    missing_ops.append(node.op_name)
+            if len(missing_ops) > 0 and validate_lowered:
+                raise RuntimeError(
+                    f"Input graph includes operations which are unsupported by the target architecture.\n"
+                    f"Unsupported Operations: {missing_ops}\n"
+                    f"HAG-supported Operations: {self.hag.all_codelet_names}")
+        elif sequence_algorithm == 'filtered':
+            assert 'filtered_layers' in sequence_kwargs
+            filter_layers = sequence_kwargs['filtered_layers']
+            for name, node in self.graph.nodes.items():
+                if not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in all_ops:
+                    all_ops.append(node.op_name)
+                if node.op_name in filter_layers and self.hag.has_codelet(node.op_name):
+                    node_list.append(node)
+                elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
+                    missing_ops.append(node.op_name)
+            print(f"Skipping {missing_ops}")
         else:
             raise RuntimeError(f"{sequence_algorithm} is not a valid sequencing algorithm")
+
         return node_list
 
     def store_tiling(self, path):
@@ -257,8 +277,10 @@ class CodeletProgram(object):
                 c._domain_tiling[int(level)] = tiling_values
 
 
-    def compile(self, sequence_algorithm="default", tiling_path=None):
-        node_sequence = self.sequence_nodes(sequence_algorithm)
+    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None, **compile_kwargs):
+        if verbose:
+            print(f"Sequencing nodes")
+        node_sequence = self.sequence_nodes(sequence_algorithm, **compile_kwargs)
 
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
@@ -266,37 +288,79 @@ class CodeletProgram(object):
         # 3. Generate instruction templates within operations
         codelets = {}
 
+        if verbose:
+            print(f"\nInstantiating codelets")
         for n in node_sequence:
+            if verbose:
+                print(f"Instantiating {n.op_name}")
             cdlt = self.instantiate_codelet(n)
             assert n.name not in codelets
             codelets[n.name] = cdlt
 
+
         if tiling_path is not None:
+            if verbose:
+                print(f"\nLoading predefined tiling at {tiling_path}")
             self.load_tiling(tiling_path)
+
+        if verbose:
+            print(f"\nRunning Preprocessing functions")
 
         for level, fns in self.preproc_steps.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
+                if cdlt.is_noop():
+                    if verbose:
+                        print(f"Skipping NOOP {cdlt.op_name}")
+                    continue
+
                 for fn in fns:
+                    if verbose:
+                        print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)
 
                 assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
                 codelets[n.name] = cdlt
-
+        if verbose:
+            print(f"\nInstantiating Codelet Operations")
         for n in node_sequence:
             cdlt = codelets[n.name]
+            if cdlt.is_noop():
+                if verbose:
+                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                continue
+            if verbose:
+                print(f"Instantiating codelet {cdlt.op_name}{cdlt.instance_id}")
             cdlt.instantiate_operations(n, self.hag)
             # TODO: Check if certain optimizations are necessary
             codelets[n.name] = cdlt
 
+        if verbose:
+            print(f"\nRunning compilation stages")
         for level, fns in self.compilation_pipeline.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
+                if cdlt.is_noop():
+                    if verbose:
+                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                    continue
+
                 for fn in fns:
+                    if verbose:
+                        print(f"Applying stage {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)
                 codelets[n.name] = cdlt
 
+        if verbose:
+            print(f"\nFinalizing instruction templates")
         for n in node_sequence:
+            cdlt = codelets[n.name]
+            if codelets[n.name].is_noop():
+                if verbose:
+                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                continue
+            if verbose:
+                print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
             self.instantiate_instructions_templates(n, codelets[n.name])
 
 

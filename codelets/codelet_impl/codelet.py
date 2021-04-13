@@ -185,6 +185,9 @@ class Codelet(object):
     def tile_levels(self):
         return self._tile_levels
 
+    def is_noop(self):
+        return len(self.operands) == 0 and len(self.operations) == 0
+
     def operand_dim_mapping(self):
         operands = self.inputs + self.outputs
         operand_dims = {}
@@ -301,8 +304,9 @@ class Codelet(object):
 
     def get_loop_order(self):
         operand_dim_map = self.operand_dim_mapping()
-
         loop_order = []
+        if len(self.domain_loop_map) == 0:
+            return []
         for loop_name in self.domain_loop_map[0].keys():
             loop = self.op_map[str(loop_name)]
             rpl = loop.required_params
@@ -336,7 +340,6 @@ class Codelet(object):
 
             op_str = {}
             loop_order = self.get_loop_order()
-
             op_str['operation'] = self.op_name
             op_str['instance_id'] = self.instance_id
             op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
@@ -518,8 +521,14 @@ class Codelet(object):
     def set_dim_values(self, node: pm.Node, operand: OperandTemplate):
 
         if not operand.is_instantiated():
-            for j, s in enumerate(node.shape):
+            if len(operand.permutation) == len(node.shape):
+                print(f"Here: {operand.name}: {operand.permutation}")
+                perm_map = {s: operand.permutation[s] for s in range(len(node.shape))}
+            else:
+                perm_map = {s: s for s in range(len(node.shape))}
+            for j, s_ in enumerate(node.shape):
                 key = operand.shape_list[j]
+                s = node.shape[perm_map[j]]
                 operand.update_shape_symbols(key, s)
 
                 if key not in self.required_params:
@@ -581,17 +590,25 @@ class Codelet(object):
     def instantiate_operands(self, node: pm.Node):
         all_cdlt_ops = self.inputs + self.outputs
         all_node_ops = node.inputs + node.outputs
-        for i, operand in enumerate(all_cdlt_ops):
-            if operand in self.inputs:
-                n = all_node_ops[i]
-            else:
-                n = node.outputs[self.outputs.index(operand)]
+        print(f"{self.op_name}")
+        for i, operand in enumerate(self.inputs):
+            n = node.inputs[i]
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)
             self.set_dim_values(n, operand)
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
+
+        for i, operand in enumerate(self.outputs):
+            n = node.outputs[i]
+            for rp_key in operand.required_params:
+                if rp_key not in self.required_params:
+                    self.add_required_param(rp_key)
+            self.set_dim_values(n, operand)
+            self.set_dtype(n, operand)
+            self.set_op_node_name(n, operand)
+
 
     def instantiate_node_params(self, node, hag):
         fn_params = []

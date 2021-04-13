@@ -5,6 +5,7 @@ from pprint import pprint
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
 from collections import namedtuple
 import json
+import pytest
 from pathlib import Path
 
 CWD = Path(f"{__file__}").parent
@@ -33,7 +34,7 @@ def test_genesys_add():
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': GENESYS_DTYPES})
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile(tiling_path=f"{TILING_DIR}/resnet18_add_tiling_info1.json")
@@ -46,7 +47,7 @@ def test_genesys_relu():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_relu.srdfg")
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
@@ -58,7 +59,7 @@ def test_genesys_max_pool():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_maxpool.srdfg")
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
@@ -70,12 +71,38 @@ def test_genesys_global_avg_pool():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_globalaveragepool.srdfg")
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
     res = program.emit("json_no_ops")
     pprint(res)
+
+def test_genesys_batch_norm():
+    from pprint import pprint
+    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_train_batchnormalization.srdfg")
+    genesys = define_genesys(GENESYS_CFG)
+    program = initialize_program(graph, genesys)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile()
+    res = program.emit("json_no_ops")
+    pprint(res)
+
+def test_genesys_flatten():
+    from pprint import pprint
+    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_flatten.srdfg")
+    genesys = define_genesys(GENESYS_CFG)
+    program = initialize_program(graph, genesys)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile()
+    res = program.emit("json_no_ops")
+    pprint(res)
+
+
 
 def test_genesys_gemm():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
@@ -88,7 +115,7 @@ def test_genesys_gemm():
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': GENESYS_DTYPES})
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
@@ -99,7 +126,7 @@ def test_genesys_conv():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_conv.srdfg")
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
@@ -110,7 +137,7 @@ def test_genesys_conv_bias():
     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_conv_bias.srdfg")
     genesys = define_genesys(GENESYS_CFG)
     program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': []})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("tile", tile)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     program.compile()
@@ -119,4 +146,28 @@ def test_genesys_conv_bias():
 
 
 
+@pytest.mark.parametrize('filtered_layers',[
+    # (['sgd1d', 'sgd2d', 'sgd3d', 'sgd4d']),
+    # (['cross_entropy_loss']),
+    # (['max_pool_grad']),
+    # (['global_average_pool_grad']),
+    # (['relu_grad']),
+    # (['elem_add_grad']),
+    # (['cross_entropy_loss_grad']),
+    (['reduce_sum']),
+])
+def test_filtered_layers(filtered_layers):
+    graph = pm.pb_load(f"{MODEL_DIR}/resnet18_train.srdfg")
+
+    train_graph = pm.create_training_graph(graph)
+    multi_dim_pass = pm.RenameMultiDimOps()
+    train_graph = multi_dim_pass(train_graph)
+    genesys = define_genesys(GENESYS_CFG)
+    program = initialize_program(train_graph, genesys)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("tile", tile)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.compile(verbose=False, sequence_algorithm='filtered', filtered_layers=filtered_layers)
+    res = program.emit("json_no_ops")
+    pprint(res)
 

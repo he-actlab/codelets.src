@@ -1,7 +1,7 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
 from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CAST_NAMES, \
-    CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES
+    CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES, PLACEHOLDER_OP_NAMES
 
 
 from functools import partial
@@ -15,6 +15,10 @@ VMEM_ID_MAP = {'LD': {'VMEM1': 0, 'VMEM2': 1},
 LOOPS_PER_LEVEL = 7
 
 SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES
+def placeholder_alu_template(op_name, hag):
+
+   return []
+
 
 def simd_alu_template(op_name, hag):
     instructions = []
@@ -521,7 +525,7 @@ def outer_simd_loops(hag):
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     macro_instr.set_field_flex_param("BASE_ADDR",
-                               f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 0)")
+                               f"hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(operand.node_name).start, 16, 0)")
 
     micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
     micro_instr.add_iterable('operand', f'cdlt.inputs')
@@ -530,7 +534,7 @@ def outer_simd_loops(hag):
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     micro_instr.set_field_flex_param("BASE_ADDR",
-                               f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 16)")
+                               f"hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(operand.node_name).start, 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -557,7 +561,7 @@ def outer_simd_loops(hag):
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     macro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 0)")
+                                     f"hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(operand.node_name).start, 16, 0)")
 
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
     micro_instr.add_iterable('operand', f'cdlt.outputs')
@@ -566,7 +570,7 @@ def outer_simd_loops(hag):
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     micro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"hag.util_fns.extract_bits(relocation_table.intermediate[operand.node_name].start, 16, 16)")
+                                     f"hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(operand.node_name).start, 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -944,6 +948,7 @@ GENESYS_TEMPLATES = {
     "loop": loop_template,
     "compute": {
         ("pe_array", "MVMUL"): sa_mvmul_template,
-        **{("SIMD", op_name): partial(simd_alu_template, op_name) for op_name in SIMD_OP_NAMES}
+        **{("SIMD", op_name): partial(simd_alu_template, op_name) for op_name in SIMD_OP_NAMES},
+        **{("SIMD", op_name): partial(placeholder_alu_template, op_name) for op_name in PLACEHOLDER_OP_NAMES},
     }
 }

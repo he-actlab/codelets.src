@@ -42,6 +42,30 @@ def default_tile_heuristic(hag: 'ArchitectureNode', cdlt: 'Codelet', tiling_spli
             total_accesses += s
     return total_accesses
 
+def update_shape_from_arch(node, shaped_nodes, arch_constraint, dim_index,
+                           layout_nhwc=False, force_reshape=False):
+
+    if node.name not in shaped_nodes or force_reshape:
+        if node.shape[dim_index] % arch_constraint != 0:
+            dim_shape = node.shape[dim_index] + (arch_constraint - (node.shape[dim_index] % arch_constraint))
+        else:
+            dim_shape = node.shape[dim_index]
+        new_shape = list(node.shape)
+        new_shape[dim_index] = dim_shape
+        if layout_nhwc:
+            node.shape = (new_shape[0], new_shape[2], new_shape[3], new_shape[1])
+            new_shape = list(node.shape)
+        else:
+            node.shape = tuple(new_shape)
+        shaped_nodes[node.name] = node.shape
+    elif shaped_nodes[node.name] != node.shape:
+        new_shape = list(shaped_nodes[node.name])
+    else:
+        new_shape = list(node.shape)
+
+    return tuple(new_shape)
+
+
 def find_tiling(cdlt, level, perm_stack):
     if level > list(cdlt.tile_levels.keys())[-1] or level <= 0:
         return level
@@ -49,7 +73,7 @@ def find_tiling(cdlt, level, perm_stack):
     prev_level = level - 1
     perms = perm_stack[prev_level]
     assert perms is not None
-    valid_splits = None
+    None
 
 
 def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):

@@ -151,13 +151,13 @@ class DataMovement:
 
     def get_size_from_loops(self, cdlt, loops):
         sizes = {}
-
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
                 for idx, i in enumerate(indices):
+
                     assert str(i) in loops, f"Index is not in loops: {i}: {loops}, Codelet: {cdlt.op_name}"
                     max_vals[str(i)] = loops[str(i)] - 1
 
@@ -167,7 +167,6 @@ class DataMovement:
             else:
                 size = o
             sizes[name] = size
-
         return sizes
 
     def set_size_from_splits(self, cdlt, split_levels):
@@ -265,6 +264,7 @@ class OperandTemplate:
     required_params: List[str] = field(default_factory=list)
     current_codelet: ClassVar = field(default=None)
     compute_pad_dim: int = field(default=-1)
+    permutation: tuple = field(default=tuple([]))
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
@@ -387,6 +387,7 @@ class OperandTemplate:
             assert not isinstance(item, list)
             item = (item,)
         offsets = []
+
         for idx in item:
             if isinstance(idx, Basic):
                 off = idx
@@ -409,7 +410,13 @@ class OperandTemplate:
 
     def get_access_offsets(self, offsets):
         if len(offsets) == 0 and len(self.data_moves) > 0:
-            a_offsets = {self.shape_list[i]: list(self.data_moves[-1].offset_map.values())[i].copy() for i in range(len(self.shape_list))}
+            a_offsets = {}
+            for i in range(len(self.shape_list)):
+                omap_val = list(self.data_moves[-1].offset_map.values())[i]
+                if isinstance(omap_val, int):
+                    a_offsets[self.shape_list[i]] = omap_val
+                else:
+                    a_offsets[self.shape_list[i]] = omap_val.copy()
         elif len(offsets) == 0:
             a_offsets = {self.shape_list[i]: 0 for i in range(len(self.shape_list))}
         else:
@@ -690,6 +697,7 @@ class OperandTemplate:
                                   data_path=self.data_path.copy(),
                                   dtype=self.dtype,
                                   node_name=self.node_name,
+                                  permutation=self.permutation,
                                   data_moves=deepcopy(self.data_moves),
                                   operand_type=self.operand_type)
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
