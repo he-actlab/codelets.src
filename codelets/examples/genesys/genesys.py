@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
-from codelets import initialize_program, tile, hoist, pad_operands
+from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
 from .genesys_inference_codelets import GENESYS_CODELETS
@@ -8,6 +8,7 @@ from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
 from pathlib import Path
 import json
+from pprint import pprint
 
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
     OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
@@ -240,16 +241,21 @@ def compile_genesys(model_name,
                     verbose=False,
                     benchmark_path=None,
                     genesys_cfg=None,
-                    dtypes=None):
+                    dtypes=None,
+                    print_config=True):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
+    dtypes = dtypes or GENESYS_DTYPES
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
     else:
         def_cfg = GENESYS_CFG
 
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        pprint(def_cfg)
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
@@ -270,6 +276,7 @@ def compile_genesys(model_name,
     genesys = define_genesys(def_cfg)
     mode = "training" if train else "inference"
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {}
     if store_tiling:
