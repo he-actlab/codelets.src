@@ -211,14 +211,25 @@ def add_genesys_templates(hag: ComputeNode):
     # Loop
     hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
 
-def update_genesys_cfg_from_dtypes():
-    GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
-    GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
-    GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
-    GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
+    if inp_cfg:
+        assert dtypes is not None
+        inp_cfg['DATA_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
+        inp_cfg['WGT_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
+        inp_cfg['BIAS_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
+        inp_cfg['ACC_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
+        out_cfg = inp_cfg
+    else:
+        GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+        GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+        GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+        GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+        out_cfg = GENESYS_CFG
+    return out_cfg
 
 
 def compile_genesys(model_name,
+                    is_layer=False,
                     train=False,
                     update_cfg_dtypes=False,
                     tiling_path=None,
@@ -227,13 +238,18 @@ def compile_genesys(model_name,
                     store_json_output=False,
                     json_output_filename=None,
                     verbose=False,
-                    benchmark_path=None):
+                    benchmark_path=None,
+                    genesys_cfg=None,
+                    dtypes=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
     if update_cfg_dtypes:
-        update_genesys_cfg_from_dtypes()
+        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+    else:
+        def_cfg = GENESYS_CFG
+
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
@@ -251,7 +267,7 @@ def compile_genesys(model_name,
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
     graph = layout_pass(graph)
-    genesys = define_genesys(GENESYS_CFG)
+    genesys = define_genesys(def_cfg)
     mode = "training" if train else "inference"
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
