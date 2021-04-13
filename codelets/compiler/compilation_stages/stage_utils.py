@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 from collections import defaultdict, deque
 from itertools import product
 from pytools import memoize
+from pathlib import Path
+import json
 if TYPE_CHECKING:
     from codelets.adl import ArchitectureNode, StorageNode, ComputeNode
     from codelets.codelet_impl import Codelet
@@ -60,6 +62,7 @@ def update_shape_from_arch(node, shaped_nodes, arch_constraint, dim_index,
         shaped_nodes[node.name] = node.shape
     elif shaped_nodes[node.name] != node.shape:
         new_shape = list(shaped_nodes[node.name])
+        node.shape = tuple(new_shape)
     else:
         new_shape = list(node.shape)
 
@@ -73,7 +76,20 @@ def find_tiling(cdlt, level, perm_stack):
     prev_level = level - 1
     perms = perm_stack[prev_level]
     assert perms is not None
-    None
+    valid_splits = None
+
+def store_tile_checkpoint(cdlt, checkpoint_path):
+    abs_path = Path(checkpoint_path).absolute()
+    if abs_path.exists():
+        with open(f'{abs_path}') as f:
+            tiling = json.load(f)
+    else:
+        tiling = {}
+    tile_key = f"{cdlt.op_name}{cdlt.instance_id}"
+    tiling[tile_key] = cdlt.domain_tiling
+
+    with open(f'{abs_path}', "w") as outfile:
+        json.dump(tiling, outfile, indent=4)
 
 
 def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):

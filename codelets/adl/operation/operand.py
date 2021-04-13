@@ -708,6 +708,7 @@ class OperandTemplate:
         if output_type == "json":
 
             blob = {"name": self.name,
+                    "unique_name": self.node_name,
                     "dtype": str(self.dtype),
                     "shape_symbols": {k: v for k, v in self.shape_symbols.items()},
                     "data_path": self.data_path,

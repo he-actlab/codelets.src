@@ -1,4 +1,4 @@
-from codelets.examples.genesys import genesys_instructions, define_genesys, GENESYS_CFG
+from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES
 import polymath as pm
 from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
@@ -70,8 +70,52 @@ def test_genesys_resnet18_train():
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     # program.compile(tiling_path=f"{TILING_DIR}/resnet18_tiling_info.json")
     #
-    program.compile(verbose=False)
+    program.compile(verbose=True)
     program.store_tiling(f"{TILING_DIR}")
     #
     res = program.emit("json_no_ops")
     # pprint(res)
+
+def test_genesys_model():
+    model_name = 'resnet18'
+
+    # Determines whether to compile a training model or not
+    train = True
+
+    # GENESYS_DTYPES['SIMD'] = 'FXP16'
+    # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
+    # GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
+    # If you update the genesys datatypes above, set 'update_cfg_dtypes' to 'True'
+    update_cfg_dtypes = False
+
+    # If there is an existing tiling file for this particular model, set the tiling path here
+    # If this is set to None, then it will re-tile.
+    # NOTE: if you are compiling a training program, the filename should be f"{model_name}_train_tiling_info.json"
+
+    # tiling_path = f"{model_name}_tiling_info.json"
+    tiling_path = None
+
+    # If this is changed, the batch size will updated for the model
+    batch_size = 1
+
+    # If you had previously never stored tiling for this program, store it
+    store_tiling = True
+
+    # Whether or not to store the compiler output as json.
+    # If you want to specify the filename, set 'json_output_filename' to a string name
+    store_json_output = False
+    json_output_filename = None
+
+    # This function returns
+    program = compile_genesys(model_name,
+                              train=train,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              batch_size=batch_size,
+                              store_tiling=store_tiling,
+                              store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=True
+                              )
+
+
