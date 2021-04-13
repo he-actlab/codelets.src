@@ -19,8 +19,10 @@ LD_ST_NAMES = ["CONFIG_BASE_ADDR", "CONFIG_BASE_LOOP_ITER", "CONFIG_BASE_LOOP_ST
                "CONFIG_TILE_LOOP_ITER", "CONFIG_TILE_LOOP_STRIDE", "START"]
 SIMD_LOOP_NAMES = ["SET_INDEX", "SET_ITER", "SET_INST"]
 PERM_OP_NAMES = ["START_PERMUTE", "LOOP_INDEX"]
+PLACEHOLDER_OP_NAMES = ["MULADD"]
 
 ALU_OPS = (0, ALU_OP_NAMES, "ALU")
+PLACEHOLDER_OPS = (0, PLACEHOLDER_OP_NAMES, "ALU")
 CALC_OPS = (1, CALC_OP_NAMES, "CALCULUS")
 CMP_OPS = (2, CMP_OP_NAMES, "COMPARISON")
 DTYPE_CAST_OPS = (3, DTYPE_CAST_NAMES, "DTYPE_CAST")
@@ -220,6 +222,27 @@ def create_simd_perm_ops():
                                     (loop_order, loop_idx_id, num_iters)))
     return instructions
 
+def create_placeholder_simd_instruction(op_fn):
+    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
+    NS_OP_CODES = {name: i for i, name in enumerate(NS_NAMES)}
+    fn_code = len(ALU_OP_NAMES)
+
+    op_code = ALU_OPS[0]
+    op_type = ALU_OPS[2]
+    dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
+    dest_ns_idx = Field("DST_INDEX_ID", 5)
+    src1_ns = Field("SRC1_NS_ID", 3, value_names=NS_OP_CODES)
+    src1_ns_idx = Field("SRC1_INDEX_ID", 5)
+    src2_ns = Field("SRC2_NS_ID", 3, value_names=NS_OP_CODES)
+    src2_ns_idx = Field("SRC2_INDEX_ID", 5)
+    if op_type == "DTYPE_CAST":
+        src2_ns.set_value_by_string("IMM")
+    op_fn_code = (op_code << FUNCTION_CODE_WIDTH) + fn_code
+    op_fn_code_width = OPCODE_WIDTH + FUNCTION_CODE_WIDTH
+    instr_fields = (dest_ns, dest_ns_idx, src1_ns, src1_ns_idx, src2_ns, src2_ns_idx)
+    instr = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
+    return instr
+
 def create_simd_ops():
     instructions = []
 
@@ -377,7 +400,25 @@ def create_simd_ops():
             op_fn_code_width = OPCODE_WIDTH + FUNCTION_CODE_WIDTH
             instr = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
             instructions.append(instr)
+    for op_type_list in [PERM_OPS]:
+        op_code = op_type_list[0]
+        op_fnctions = op_type_list[1]
+        op_type = op_type_list[2]
+        for fn_code, op_fn in enumerate(op_fnctions):
+            dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
+            dest_ns_idx = Field("DST_INDEX_ID", 5)
 
+            src1_ns = Field("SRC1_NS_ID", 3, value_names=NS_OP_CODES)
+            src1_ns_idx = Field("SRC1_INDEX_ID", 5)
+            src2_ns = Field("SRC2_NS_ID", 3, value_names=NS_OP_CODES)
+            src2_ns_idx = Field("SRC2_INDEX_ID", 5)
+            if op_type == "DTYPE_CAST":
+                src2_ns.set_value_by_string("IMM")
+            op_fn_code = (op_code << FUNCTION_CODE_WIDTH) + fn_code + len(ALU_OP_NAMES)
+            op_fn_code_width = OPCODE_WIDTH + FUNCTION_CODE_WIDTH
+            instr_fields = (dest_ns, dest_ns_idx, src1_ns, src1_ns_idx, src2_ns, src2_ns_idx)
+            instr = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
+            instructions.append(instr)
     return instructions
 
 
