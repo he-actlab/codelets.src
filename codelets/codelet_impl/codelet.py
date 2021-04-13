@@ -522,7 +522,6 @@ class Codelet(object):
 
         if not operand.is_instantiated():
             if len(operand.permutation) == len(node.shape):
-                print(f"Here: {operand.name}: {operand.permutation}")
                 perm_map = {s: operand.permutation[s] for s in range(len(node.shape))}
             else:
                 perm_map = {s: s for s in range(len(node.shape))}
@@ -590,7 +589,6 @@ class Codelet(object):
     def instantiate_operands(self, node: pm.Node):
         all_cdlt_ops = self.inputs + self.outputs
         all_node_ops = node.inputs + node.outputs
-        print(f"{self.op_name}")
         for i, operand in enumerate(self.inputs):
             n = node.inputs[i]
             for rp_key in operand.required_params:
@@ -599,6 +597,7 @@ class Codelet(object):
             self.set_dim_values(n, operand)
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
+            operand.node_name = n.name
 
         for i, operand in enumerate(self.outputs):
             n = node.outputs[i]
@@ -608,6 +607,7 @@ class Codelet(object):
             self.set_dim_values(n, operand)
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
+            operand.node_name = n.name
 
 
     def instantiate_node_params(self, node, hag):

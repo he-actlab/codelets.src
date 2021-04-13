@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
 
 
-from .stage_utils import default_tile_heuristic, set_codelet_tiling, update_shape_from_arch
+from .stage_utils import default_tile_heuristic, set_codelet_tiling, update_shape_from_arch, store_tile_checkpoint
 import polymath as pm
 import json
 
@@ -92,14 +92,13 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
             assert bool(node.kwargs['transA']) == False
 
         act_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 1)
-        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 1)
+        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 0)
+        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 1, force_reshape=True)
+        out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 1)
 
-
-        out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 0)
         if program.program_mode == 'training':
-            out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 1, force_reshape=True)
-            weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
             inp_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
+            out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 0, force_reshape=True)
             if out_shape[0] != inp_shape[0]:
                 raise RuntimeError(f"Input and output shapes are incorrect for {cdlt.op_name}:"
                                    f"Input {activation.name} shape: {inp_shape}/{activation.shape}\n"
@@ -116,7 +115,11 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         if len(node.inputs) == 3:
             bias = node.inputs[2]
             bias_shape = update_shape_from_arch(bias, shaped_nodes, sys_array_dims[1], 0)
-            assert bias_shape[0] == out_shape[1]
+
+            if bias_shape[0] != out_shape[1]:
+                raise RuntimeError(f"Bias and output shapes are incorrect for {cdlt.op_name}"
+                                   f"Bias {bias.name} shape: {bias_shape}/{bias.shape}\n"
+                                   f"Output {out.name} shape: {out_shape}/{out.shape}")
     elif cdlt.op_name == 'reduce_sum':
         assert len(node.inputs[0].shape) == 2
         assert len(node.outputs[0].shape) == 1
@@ -158,7 +161,10 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         data = node.inputs[0]
         grad = node.inputs[1]
         out = node.outputs[0]
-        assert data.name in shaped_nodes
+        data_shape = update_shape_from_arch(data, shaped_nodes, simd_constraint, len(data.shape) - 1)
+
+        if grad.name not in shaped_nodes:
+            raise RuntimeError(f"Gradient {grad.name} not found in shaped nodes for {node.op_name}")
         assert grad.name in shaped_nodes
         assert grad.shape == data.shape
         if program.program_mode == 'training':
@@ -206,8 +212,7 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         op1_shape = update_shape_from_arch(op1, shaped_nodes, simd_constraint, 3)
         op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_constraint, 3)
         out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, 3)
-        assert op1_shape == op2_shape
-        assert out_shape == op2_shape
+
 
         if cdlt.op_name == 'global_average_pool_grad':
             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
@@ -240,6 +245,16 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
             cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
             cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
             cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+        if cdlt.op_name not in ['max_pool_grad', 'global_average_pool_grad']:
+            if op1_shape != op2_shape:
+                raise RuntimeError(f"Operand1 and Operand2 shapes are incorrect for {cdlt.op_name}:\n"
+                                   f"Operand1 {op1.name} shape: {op1_shape}/{op1.shape}\n"
+                                   f"Operand2 {op2.name} shape: {op2_shape}/{op2.shape}\n")
+
+            if out_shape != op2_shape:
+                raise RuntimeError(f"Operand1 and output shapes are incorrect for {cdlt.op_name}:\n"
+                                   f"Operand1 {op1.name} shape: {op1_shape}/{op1.shape}\n"
+                                   f"Output {out.name} shape: {out_shape}/{out.shape}\n")
     elif cdlt.op_name in NOOPS:
         pass
     else:
@@ -250,423 +265,7 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
 
     return cdlt
 
-# def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
-#     assert isinstance(shaped_nodes, dict)
-#
-#
-#
-#     if cdlt.op_name == "conv_bias":
-#         activation = node.inputs[0]
-#         weight = node.inputs[1]
-#         bias = node.inputs[2]
-#         out = node.outputs[0]
-#         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-#
-#         if out.name not in shaped_nodes:
-#             if out.shape[1] % sys_array_dims[1] != 0:
-#                 oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
-#             else:
-#                 oc_shape = out.shape[1]
-#             out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
-#             shaped_nodes[out.name] = out.shape
-#         else:
-#             oc_shape = out.shape[-1]
-#
-#         if bias.name not in shaped_nodes:
-#             bias.shape = tuple([oc_shape])
-#             shaped_nodes[bias.name] = bias.shape
-#
-#         if activation.name not in shaped_nodes:
-#             if activation.shape[1] % sys_array_dims[0] != 0:
-#                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
-#             else:
-#                 ic_shape = activation.shape[1]
-#             activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
-#             # activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
-#             shaped_nodes[activation.name] = activation.shape
-#         else:
-#             ic_shape = activation.shape[-1]
-#
-#
-#
-#         if weight.name not in shaped_nodes:
-#             weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
-#             shaped_nodes[weight.name] = weight.shape
-#
-#         # assert 'pad' in node.kwargs.keys()
-#
-#         cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
-#         cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
-#         cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
-#     elif cdlt.op_name == 'batchnorm_grad':
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#
-#         for idx, i in enumerate(node.inputs):
-#             if len(i.shape) == 4:
-#                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#                 cdlt.inputs[idx].set_dim_order(['N', 'H', 'W', 'C'])
-#             else:
-#                 assert len(i.shape) == 1
-#                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
-#         for idx, i in enumerate(node.outputs):
-#             if len(i.shape) == 4:
-#                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#                 cdlt.outputs[idx].set_dim_order(['N', 'H', 'W', 'C'])
-#             else:
-#                 assert len(i.shape) == 1
-#                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
-#
-#     elif cdlt.op_name == "conv":
-#         activation = node.inputs[0]
-#         weight = node.inputs[1]
-#         out = node.outputs[0]
-#         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-#
-#         if out.name not in shaped_nodes:
-#             if out.shape[1] % sys_array_dims[1] != 0:
-#                 oc_shape = out.shape[1] + (sys_array_dims[1] - (out.shape[1] % sys_array_dims[1]))
-#             else:
-#                 oc_shape = out.shape[1]
-#             out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
-#             shaped_nodes[out.name] = out.shape
-#         else:
-#             oc_shape = out.shape[-1]
-#
-#
-#         if activation.name not in shaped_nodes:
-#             if activation.shape[1] % sys_array_dims[0] != 0:
-#                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
-#             else:
-#                 ic_shape = activation.shape[1]
-#             activation.shape = tuple([activation.shape[0], activation.shape[2] + 2*node.kwargs['pad'], activation.shape[3] + 2*node.kwargs['pad'], ic_shape])
-#             # activation.shape = tuple([activation.shape[0], activation.shape[2], activation.shape[3], ic_shape])
-#             shaped_nodes[activation.name] = activation.shape
-#         else:
-#             ic_shape = activation.shape[-1]
-#
-#
-#
-#         if weight.name not in shaped_nodes:
-#             weight.shape = tuple([weight.shape[2], weight.shape[3], oc_shape, ic_shape])
-#             shaped_nodes[weight.name] = weight.shape
-#
-#         # assert 'pad' in node.kwargs.keys()
-#
-#         cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
-#         cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
-#         cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
-#
-#
-#     elif cdlt.op_name == "gemm":
-#         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-#
-#         activation = node.inputs[0]
-#         weight = node.inputs[1]
-#
-#         bias = node.inputs[2]
-#         out = node.outputs[0]
-#
-#         if 'transB' in node.kwargs and node.kwargs['transB'] == 1:
-#             if weight.name in shaped_nodes:
-#                 cdlt.inputs[1].permutation = (1, 0)
-#             else:
-#                 weight.shape = (weight.shape[1], weight.shape[0])
-#             # cdlt.inputs[1].set_dim_order(['P', 'N'])
-#         #
-#         if 'transA' in node.kwargs and node.kwargs['transA'] == 1:
-#             if activation.name in shaped_nodes:
-#                 cdlt.inputs[0].permutation = (1, 0)
-#             else:
-#                 activation.shape = (activation.shape[1], activation.shape[0])
-#             # cdlt.inputs[0].set_dim_order(['N', 'M'])
-#
-#         if activation.name not in shaped_nodes:
-#             if activation.shape[1] % sys_array_dims[0] != 0:
-#                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
-#             else:
-#                 ic_shape = activation.shape[1]
-#             activation.shape = tuple([activation.shape[0], ic_shape])
-#             shaped_nodes[activation.name] = activation.shape
-#         else:
-#             ic_shape = activation.shape[-1]
-#
-#         if weight.name not in shaped_nodes:
-#             if weight.shape[1] % sys_array_dims[0] != 0:
-#                 oc_shape = weight.shape[1] + (sys_array_dims[0] - (weight.shape[1] % sys_array_dims[0]))
-#             else:
-#                 oc_shape = weight.shape[1]
-#             weight.shape = tuple([weight.shape[0], oc_shape])
-#             shaped_nodes[weight.name] = weight.shape
-#         else:
-#             oc_shape = weight.shape[1]
-#
-#         out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[0], 0)
-#         if program.program_mode == 'training':
-#             out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 1, force_reshape=True)
-#             weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
-#             inp_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
-#
-#         if bias.name not in shaped_nodes:
-#             bias.shape = tuple([oc_shape])
-#             shaped_nodes[bias.name] = bias.shape
-#
-#     elif cdlt.op_name == "gemm_no_bias":
-#         sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-#
-#         activation = node.inputs[0]
-#         weight = node.inputs[1]
-#         out = node.outputs[0]
-#
-#         if 'transB' in node.kwargs and node.kwargs['transB'] == 1:
-#             if weight.name in shaped_nodes:
-#                 cdlt.inputs[1].permutation = (1, 0)
-#             else:
-#                 weight.shape = (weight.shape[1], weight.shape[0])
-#             # cdlt.inputs[1].set_dim_order(['P', 'N'])
-#         #
-#         if 'transA' in node.kwargs and node.kwargs['transA'] == 1:
-#             if activation.name in shaped_nodes:
-#                 cdlt.inputs[0].permutation = (1, 0)
-#             else:
-#                 activation.shape = (activation.shape[1], activation.shape[0])
-#             # cdlt.inputs[0].set_dim_order(['N', 'M'])
-#
-#         if activation.name not in shaped_nodes:
-#             if activation.shape[1] % sys_array_dims[0] != 0:
-#                 ic_shape = activation.shape[1] + (sys_array_dims[0] - (activation.shape[1] % sys_array_dims[0]))
-#             else:
-#                 ic_shape = activation.shape[1]
-#             activation.shape = tuple([activation.shape[0], ic_shape])
-#             shaped_nodes[activation.name] = activation.shape
-#         else:
-#             ic_shape = activation.shape[-1]
-#
-#         if weight.name not in shaped_nodes:
-#             if weight.shape[1] % sys_array_dims[0] != 0:
-#                 oc_shape = weight.shape[1] + (sys_array_dims[0] - (weight.shape[1] % sys_array_dims[0]))
-#             else:
-#                 oc_shape = weight.shape[1]
-#             weight.shape = tuple([weight.shape[0], oc_shape])
-#             shaped_nodes[weight.name] = weight.shape
-#         else:
-#             oc_shape = weight.shape[1]
-#
-#
-#         if out.name not in shaped_nodes:
-#             out.shape = tuple([out.shape[0], oc_shape])
-#             shaped_nodes[out.name] = out.shape
-#
-#         if program.program_mode == 'training':
-#             out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 0, force_reshape=True)
-#             weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
-#             inp_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
-#
-#     elif cdlt.op_name == 'reduce_sum':
-#         assert len(node.inputs[0].shape) == 2
-#         assert len(node.outputs[0].shape) == 1
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#         data = node.inputs[0]
-#         out = node.outputs[0]
-#         data_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0)
-#         data_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-#         out_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-#
-#
-#     elif cdlt.op_name == 'max_pool':
-#         activation = node.inputs[0]
-#         out = node.outputs[0]
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#
-#         if 'KH' not in node.kwargs:
-#             assert len(node.args) == 4 and isinstance(node.args[2], int)
-#             node.add_attribute('KH', node.args[2])
-#
-#         if 'KW' not in node.kwargs:
-#             assert len(node.args) == 4 and isinstance(node.args[3], int)
-#             node.add_attribute('KW', node.args[3])
-#
-#         if 'stride' in node.kwargs and isinstance(node.kwargs['stride'], list):
-#             sy, sx = node.kwargs['stride'][0], node.kwargs['stride'][1]
-#             assert isinstance(sy, int)
-#             assert isinstance(sx, int)
-#             node.add_attribute('sy', sy)
-#             node.add_attribute('sx', sx)
-#
-#         if out.name not in shaped_nodes:
-#             if out.shape[1] % simd_dims[0] != 0:
-#                 oc_shape = out.shape[1] + (simd_dims[1] - (out.shape[1] % simd_dims[0]))
-#             else:
-#                 oc_shape = out.shape[1]
-#             out.shape = tuple([out.shape[0], out.shape[2], out.shape[3], oc_shape])
-#             shaped_nodes[out.name] = out.shape
-#         else:
-#             oc_shape = out.shape[-1]
-#
-#         if activation.name not in shaped_nodes:
-#             if activation.shape[1] % simd_dims[0] != 0:
-#                 ic_shape = activation.shape[1] + (simd_dims[0] - (activation.shape[1] % simd_dims[0]))
-#             else:
-#                 ic_shape = activation.shape[1]
-#             py, px = node.kwargs['pad'][0], node.kwargs['pad'][1]
-#             activation.shape = tuple([activation.shape[0], activation.shape[2] + 2 * py,
-#                                       activation.shape[3] + 2 * px, ic_shape])
-#             shaped_nodes[activation.name] = activation.shape
-#         else:
-#             ic_shape = activation.shape[-1]
-#
-#         assert ic_shape == oc_shape
-#
-#         cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#         cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-#         cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
-#     elif cdlt.op_name in STANDARD_SHAPE_OPS:
-#
-#         activation = node.inputs[0]
-#         out = node.outputs[0]
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#
-#         shaped_output = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#
-#
-#         oc_shape = shaped_output[-1]
-#
-#         shaped_act = update_shape_from_arch(activation, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#
-#         ic_shape = shaped_act[-1]
-#
-#         if cdlt.op_name in BINARY_SIMD:
-#             op2 = node.inputs[1]
-#             op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#             ic_shape2 = op2_shape[-1]
-#             assert ic_shape2 == ic_shape
-#             cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
-#         if ic_shape != oc_shape:
-#             raise RuntimeError(f"Inconsistent shape update for {cdlt.op_name}\n"
-#                   f"Output {out.name} shape: {shaped_output}\n"
-#                   f"Act {activation.name} shape: {shaped_act}")
-#         assert ic_shape == oc_shape
-#         if cdlt.op_name == 'global_avg_pool':
-#             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#             cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
-#         elif cdlt.op_name == 'global_average_pool_grad':
-#             op2 = node.inputs[1]
-#             op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#             cdlt.inputs[1].set_dim_order(['N', 'OH', 'OW', 'C'])
-#             cdlt.outputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#         elif cdlt.op_name == 'elem_add_grad':
-#             op3 = node.inputs[2]
-#             op3_shape = update_shape_from_arch(op3, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#             cdlt.inputs[2].set_dim_order(['N', 'H', 'W', 'C'])
-#
-#             grad1 = node.outputs[1]
-#             grad1_shape = update_shape_from_arch(grad1, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#             cdlt.outputs[1].set_dim_order(['N', 'H', 'W', 'C'])
-#
-#             cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-#             cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-#         elif cdlt.op_name == 'max_pool_grad':
-#
-#             if 'KH' not in node.kwargs:
-#                 node.add_attribute('KH', node.kernel_size[0])
-#
-#             if 'KW' not in node.kwargs:
-#                 node.add_attribute('KW', node.kernel_size[1])
-#
-#             if 'stride' in node.kwargs and isinstance(node.kwargs['stride'], list):
-#                 sy, sx = node.kwargs['stride'][0], node.kwargs['stride'][1]
-#                 assert isinstance(sy, int)
-#                 assert isinstance(sx, int)
-#                 node.add_attribute('sy', sy)
-#                 node.add_attribute('sx', sx)
-#
-#             op2 = node.inputs[1]
-#             op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_dims[0], 1, layout_nhwc=True)
-#             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#             cdlt.inputs[1].set_dim_order(['N', 'OH', 'OW', 'C'])
-#             cdlt.outputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-#         else:
-#             cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-#             cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-#     elif cdlt.op_name in NOOPS:
-#         pass
-#     elif cdlt.op_name == 'sgd1d':
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#         data = node.inputs[0]
-#         grad = node.inputs[1]
-#         out = node.outputs[0]
-#         ic_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0)
-#         ic_shape_grad = update_shape_from_arch(grad, shaped_nodes, simd_dims[0], 0)
-#         assert ic_shape_grad == ic_shape
-#         ic_shape_out = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-#         assert ic_shape_grad == ic_shape_out
-#
-#     elif cdlt.op_name == 'sgd2d':
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#         data = node.inputs[0]
-#         grad = node.inputs[1]
-#         # out = node.outputs[0]
-#
-#         ic_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1)
-#         ic_shape_grad = update_shape_from_arch(grad, shaped_nodes, simd_dims[0], 1)
-#         if program.program_mode == 'training':
-#             ic_shape_grad = update_shape_from_arch(grad, shaped_nodes, simd_dims[0], 0, force_reshape=True)
-#
-#         if ic_shape_grad != ic_shape:
-#             raise RuntimeError(f"Incosnistent shapes for data:\n"
-#                                f"Data shape {data.name}: {data.shape}\n"
-#                                f"Gradient shape {grad.name}: {grad.shape}")
-#
-#         # ic_shape_out = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 1)
-#         # assert ic_shape_grad == ic_shape_out
-#     elif cdlt.op_name == 'cross_entropy_loss':
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#         data = node.inputs[0]
-#         target = node.inputs[1]
-#         out = node.outputs[0]
-#         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0, force_reshape=True)
-#         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-#         updated_shape = update_shape_from_arch(target, shaped_nodes, simd_dims[0], 0)
-#         last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-#         if last_shape[0] != updated_shape[0] or class_shape[0] != last_shape[0]:
-#             raise RuntimeError(f"Shape update for {cdlt.op_name} was invalid:\n"
-#                                f"Data: {data.shape}\n"
-#                                f"Target: {target.shape}\n"
-#                                f"Output: {out.shape}")
-#     elif cdlt.op_name == 'cross_entropy_loss_grad':
-#         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-#         data = node.inputs[0]
-#         target = node.inputs[1]
-#         grad = node.inputs[2]
-#         out = node.outputs[0]
-#
-#         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0)
-#         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-#         updated_shape = update_shape_from_arch(target, shaped_nodes, simd_dims[0], 0)
-#         grad_shape = update_shape_from_arch(grad, shaped_nodes, simd_dims[0], 0)
-#         last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-#         last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-#
-#         # TODO: Need to fix this at some point to be consistent
-#
-#
-#         assert last_shape[0] == updated_shape[0] and class_shape[0] == last_shape[0]
-#
-#     else:
-#         raise RuntimeError(f"Node: {node.op_name}\n"
-#               f"Shapes: {node.inputs[0].shape}\n"
-#               f"{node.inputs[1].shape}\n"
-#               f"{node.outputs[0].shape}")
-#
-#     return cdlt
-
-
-def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None) -> 'Codelet':
+def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
@@ -834,6 +433,10 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None) -> 'Codelet
                                f"Tiling keys: {list(o.tiling.keys())}\n"
                                f"Unique data path locations: {o.unique_data_locations()}\n"
                                f"Data path: {o.data_path}")
+
+    if checkpoint_file is not None:
+        store_tile_checkpoint(cdlt, checkpoint_file)
+
     return cdlt
 
 

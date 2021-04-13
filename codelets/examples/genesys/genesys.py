@@ -1,11 +1,25 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
+from codelets import initialize_program, tile, hoist, pad_operands
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
 from .genesys_inference_codelets import GENESYS_CODELETS
+from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
+from pathlib import Path
+import json
+
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
     OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
+import polymath as pm
+
+CWD = Path(f"{__file__}").parent
+BENCH_DIR = f"{CWD}/../../../benchmarks"
+OUT_DIR = f"{BENCH_DIR}/compiler_outputs"
+MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
+TILING_DIR = f"{BENCH_DIR}/tiling_info"
+
+
 
 LOOPS_PER_LEVEL = 7
 INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
@@ -196,6 +210,78 @@ def add_genesys_templates(hag: ComputeNode):
 
     # Loop
     hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
+
+def update_genesys_cfg_from_dtypes():
+    GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+    GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+
+
+def compile_genesys(model_name,
+                    train=False,
+                    update_cfg_dtypes=False,
+                    tiling_path=None,
+                    batch_size=1,
+                    store_tiling=False,
+                    store_json_output=False,
+                    json_output_filename=None,
+                    verbose=False):
+    if update_cfg_dtypes:
+        update_genesys_cfg_from_dtypes()
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:
+        raise RuntimeError(f"Invalid model name for compilation")
+    if train:
+        model_name = f"{model_name}_train"
+    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        graph = pm.create_training_graph(graph)
+
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+    genesys = define_genesys(GENESYS_CFG)
+    mode = "training" if train else "inference"
+    program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    tile_kwargs = {}
+    if store_tiling:
+        tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
+    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    if tiling_path is not None:
+        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
+    else:
+        program.compile(verbose=verbose)
+
+    if store_tiling:
+        program.store_tiling(f"{TILING_DIR}")
+
+    if store_json_output:
+        res = program.emit("json")
+
+        if json_output_filename is not None:
+            with open(json_output_filename, "w") as outfile:
+                json.dump(res, outfile, indent=4)
+        else:
+            store_dir = f"{OUT_DIR}/{model_name}_compiled"
+            p = Path(f"{store_dir}.json")
+            if p.exists():
+                count = 0
+                while Path(f"{store_dir}{count}.json").exists():
+                    count += 1
+                with open(f"{store_dir}{count}.json", "w") as outfile:
+                    json.dump(res, outfile, indent=4)
+            else:
+                with open(f"{store_dir}.json", "w") as outfile:
+                    json.dump(res, outfile, indent=4)
+    return program
 
 
 def add_genesys_codelets(hag: ComputeNode):
