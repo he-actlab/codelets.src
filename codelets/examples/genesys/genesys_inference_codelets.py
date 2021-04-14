@@ -343,15 +343,16 @@ def reduce_sum(hag: ArchitectureNode):
 def cross_entropy_loss(hag: ArchitectureNode):
     res = OperandTemplate("res", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     target = OperandTemplate("target", OP_DTYPES, ["N",], dtype=OP_DTYPES[2])
-    loss = OperandTemplate("loss", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    loss = OperandTemplate("loss", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
     with Codelet("cross_entropy_loss", [res, target], [loss], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
-                cdlt.transfer(target[n], ["DRAM", "VMEM2"])
-                cdlt.compute("ADD", [res, target], [loss], target="SIMD")
-                cdlt.transfer(loss[n], ["VMEM1", "DRAM"])
+        with Loop(0, "D") as d:
+            with Loop(0, "N") as n:
+                with Loop(0, "C") as c:
+                    cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
+                    cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                    cdlt.compute("ADD", [res, target], [loss], target="SIMD")
+                    cdlt.transfer(loss[d], ["VMEM1", "DRAM"])
     return cdlt
 
 
@@ -485,18 +486,19 @@ def global_avg_pool(hag: ArchitectureNode):
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):
     data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    grad = OperandTemplate("grad", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
     target = OperandTemplate("target", OP_DTYPES, ["N",], dtype=OP_DTYPES[2])
     data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("cross_entropy_loss_grad", [data, target, grad], [data_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
-                cdlt.transfer(target[n], ["DRAM", "VMEM2"])
-                cdlt.transfer(grad[n], ["DRAM", "VMEM2"])
-                cdlt.compute("ADD", [data, target, grad], [data_grad], target="SIMD")
-                cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        with Loop(0, "D") as d:
+            with Loop(0, "N") as n:
+                with Loop(0, "C") as c:
+                    cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                    cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                    cdlt.transfer(grad[d], ["DRAM", "VMEM2"])
+                    cdlt.compute("ADD", [data, target, grad], [data_grad], target="SIMD")
+                    cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
 GENESYS_CODELETS = {
