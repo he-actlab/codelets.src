@@ -1531,6 +1531,7 @@
             "loop3": 7
         }
     },
+    "coarse_flatten68": {},
     "gemm69": {
         "0": {
             "loop2": 1,
@@ -1649,6 +1650,7 @@
             "loop0": 1
         }
     },
+    "flatten_grad77": {},
     "global_average_pool_grad78": {
         "0": {
             "loop0": 1,

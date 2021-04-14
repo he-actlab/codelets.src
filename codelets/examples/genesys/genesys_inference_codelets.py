@@ -49,7 +49,6 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("start", "systolic_array")
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "IBUF")
-        cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
         with Loop(0, "P") as p:
             with Loop(0, "N") as n:
@@ -64,7 +63,6 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
-        cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
     return cdlt
 

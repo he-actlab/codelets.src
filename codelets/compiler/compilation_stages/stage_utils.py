@@ -91,7 +91,6 @@ def store_tile_checkpoint(cdlt, checkpoint_path):
     with open(f'{abs_path}', "w") as outfile:
         json.dump(tiling, outfile, indent=4)
 
-
 def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level

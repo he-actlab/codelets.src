@@ -9,7 +9,7 @@ from .stage_utils import default_tile_heuristic, set_codelet_tiling, update_shap
 import polymath as pm
 import json
 
-SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm']
+SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias']
 
 # TODO: Update SIMD_CDLTS for dtypes
 SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization',
@@ -31,7 +31,6 @@ def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=Non
             cdlt.inputs[2].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
         cdlt.outputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
     else:
-        assert cdlt.op_name in SIMD_CDLTS
         for o in cdlt.operands:
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
