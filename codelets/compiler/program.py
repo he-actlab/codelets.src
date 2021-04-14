@@ -9,6 +9,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 import numpy as np
 import polymath as pm
+from sympy import Basic
 from .relocation_table import RelocationTable
 
 EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "binary"]
@@ -200,7 +201,9 @@ class CodeletProgram(object):
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(codelet_strings)
         else:
-            return {"mode": self.program_mode, "program": codelet_strings}
+            res = {"mode": self.program_mode, "program": codelet_strings}
+            res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
+            return res
 
 
     def instantiate_instructions_templates(self, node, cdlt):
@@ -271,10 +274,13 @@ class CodeletProgram(object):
 
         for c in self.codelets:
             tile_key = f"{c.op_name}{c.instance_id}"
-            assert tile_key in tiling
             c._domain_tiling = {}
-            for level, tiling_values in tiling[tile_key].items():
-                c._domain_tiling[int(level)] = tiling_values
+
+            if tile_key not in tiling:
+                print(f"{tile_key} not found in tiling. Leaving tiling to empty")
+            else:
+                for level, tiling_values in tiling[tile_key].items():
+                    c._domain_tiling[int(level)] = tiling_values
 
 
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None, **compile_kwargs):
@@ -376,3 +382,13 @@ def tiling_constraint(shapes, node_capacities, tile_sizes):
         if data_size >= node_capacities[i]:
             return False
     return True
+
+class CodeletJSONEncoder(json.JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, np.floating):
+            return float(o)
+        elif isinstance(o, Basic):
+            return str(o)
+        return json.JSONEncoder.default(self, o)

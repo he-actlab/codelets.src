@@ -230,7 +230,7 @@ def wbuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 0)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[1].node_name).start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -238,7 +238,8 @@ def wbuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 16)")
+
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[1].node_name).start, 16, 16)")
     instructions.append(instr)
     return instructions
 
@@ -259,7 +260,7 @@ def imm_end_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 0)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[1].node_name).start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -267,7 +268,7 @@ def imm_end_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "WBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[1].node_name].start, 16, 16)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[1].node_name).start, 16, 16)")
     instructions.append(instr)
     return instructions
 
@@ -278,7 +279,7 @@ def ibuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "IBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[0].node_name].start, 16, 0)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[0].node_name).start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -286,7 +287,7 @@ def ibuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "IBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.inputs[0].node_name].start, 16, 16)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[0].node_name).start, 16, 16)")
     instructions.append(instr)
     return instructions
 
@@ -297,7 +298,7 @@ def bbuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "BBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].node_name].start, 16, 0)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[2].node_name).start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -305,7 +306,7 @@ def bbuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "BBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.state[cdlt.inputs[2].node_name].start, 16, 16)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.inputs[2].node_name).start, 16, 16)")
     instructions.append(instr)
     return instructions
 
@@ -316,7 +317,8 @@ def obuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "OBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 0)")
+
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.outputs[0].node_name).start, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -324,7 +326,7 @@ def obuf_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", "OBUF")
     instr.set_field_flex_param("BASE_ADDR",
-                             "hag.util_fns.extract_bits(relocation_table.intermediate[cdlt.outputs[0].node_name].start, 16, 16)")
+                             "hag.util_fns.extract_bits(relocation_table.get_relocation_by_name(cdlt.outputs[0].node_name).start, 16, 16)")
     instructions.append(instr)
     return instructions
 

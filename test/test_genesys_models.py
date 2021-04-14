@@ -92,8 +92,8 @@ def test_genesys_model():
     # If this is set to None, then it will re-tile.
     # NOTE: if you are compiling a training program, the filename should be f"{model_name}_train_tiling_info.json"
 
-    # tiling_path = f"{model_name}_tiling_info.json"
-    tiling_path = None
+    tiling_path = f"{model_name}_train_training_tiling_info_checkpoint0.json"
+    # tiling_path = None
 
     # If this is changed, the batch size will updated for the model
     batch_size = 1
@@ -103,7 +103,7 @@ def test_genesys_model():
 
     # Whether or not to store the compiler output as json.
     # If you want to specify the filename, set 'json_output_filename' to a string name
-    store_json_output = False
+    store_json_output = True
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
 
@@ -119,13 +119,3 @@ def test_genesys_model():
                               verbose=True,
                               benchmark_path=BENCH_DIR
                               )
-    from codelets.examples.genesys import compile_genesys
-    # program = compile_genesys('resnet18',
-    #                           train=False,
-    #                           update_cfg_dtypes=False,
-    #                           tiling_path=None,
-    #                           batch_size=1,
-    #                           store_tiling=False,
-    #                           store_json_output=False
-    #                           )
-    # program.emit("json_no_ops")
