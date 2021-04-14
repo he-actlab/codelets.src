@@ -2888,7 +2888,6 @@
             "loop5": 1
         }
     },
-    "coarse_flatten121": {},
     "gemm122": {
         "0": {
             "loop2": 1,

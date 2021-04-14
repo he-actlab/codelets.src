@@ -175,15 +175,17 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         data = node.inputs[0]
         target = node.inputs[1]
         out = node.outputs[0]
+
         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0, force_reshape=True)
         class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
         updated_shape = update_shape_from_arch(target, shaped_nodes, simd_dims[0], 0)
         last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-        if last_shape[0] != updated_shape[0] or class_shape[0] != last_shape[0]:
+
+        if updated_shape[0] != class_shape[0]:
             raise RuntimeError(f"Shape update for {cdlt.op_name} was invalid:\n"
-                               f"Data: {data.shape}\n"
-                               f"Target: {target.shape}\n"
-                               f"Output: {out.shape}")
+                               f"Data {data.name}: {data.shape}/{class_shape}\n"
+                               f"Target {target.name}: {target.shape}/{updated_shape}\n"
+                               f"Output {out.name}: {out.shape}/{last_shape}")
     elif cdlt.op_name == 'cross_entropy_loss_grad':
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
         data = node.inputs[0]
