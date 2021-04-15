@@ -10,11 +10,13 @@ if TYPE_CHECKING:
 from codelets.adl.flex_param import FlexParam
 
 
-from codelets.compiler.transformations import factors
+from codelets.compiler.transformations import factors, factors_rand_sort,\
+    factors_reversed, get_sorted_perms
 import numpy as np
 
+FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed}
 
-def get_level_tiling(cdlt, loop_dependencies, shapes, splits):
+def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn):
     out_shapes = {}
     out_factors = {}
 
@@ -30,9 +32,10 @@ def get_level_tiling(cdlt, loop_dependencies, shapes, splits):
         if cdlt.domain_loop_map[l] in fixed_dims:
             out_factors[l] = [1]
         else:
-            out_factors[l] = factors(out_shapes[l])
+            out_factors[l] = factor_fn(out_shapes[l])
 
     perms = product(*tuple(out_factors.values()))
+    perms = get_sorted_perms(perms)
     # Need to skip past the first tiling because its all 1's
     # next(perms)
     return out_shapes, out_factors, perms
@@ -91,9 +94,13 @@ def store_tile_checkpoint(cdlt, checkpoint_path):
     with open(f'{abs_path}', "w") as outfile:
         json.dump(tiling, outfile, indent=4)
 
-def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
+def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name):
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level
+    if factor_fn_name is not None:
+        factor_fn = FACTOR_FN_MAP[factor_fn_name]
+    else:
+        factor_fn = FACTOR_FN_MAP['default']
     tile_constraints, tile_pad_constraints = get_tile_constraints(cdlt, hag)
     level_accesses = defaultdict(list)
     loop_dependencies = []
@@ -121,7 +128,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
         if cdlt.domain_loop_map[l] in fixed_dims:
             level_factors[0][loop.op_str] = [1]
         else:
-            level_factors[0][loop.op_str] = factors(loop.iter_count)
+            level_factors[0][loop.op_str] = factor_fn(loop.iter_count)
 
         shapes[0][loop.op_str] = loop.iter_count
         selected_splits[0][loop.op_str] = 1
@@ -131,7 +138,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
     if 0 in cdlt.domain_tiling:
         first_perm = [tuple(cdlt.domain_tiling[0][ld] for ld in loop_dependencies)]
     else:
-        first_perm = product(*tuple(level_factors[0].values()))
+        first_perm = get_sorted_perms(product(*tuple(level_factors[0].values())))
 
     perm_stack.append(first_perm)
     max_level = 1
@@ -207,7 +214,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', heuristic_fn):
             parent_perms.append(prev_perm)
             selected_splits[level] = valid_splits.copy()
             accumulated_splits = {k: v*selected_splits[level][k] for k, v in accumulated_splits.items()}
-            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits)
+            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits, factor_fn)
             perm_stack.append(new_perms)
             level += 1
 
@@ -371,7 +378,7 @@ def get_all_possible_tilings(cdlt: 'Codelet', hag: 'ArchitectureNode'):
             parent_perms.append(prev_perm)
             selected_splits[level] = valid_splits.copy()
             accumulated_splits = {k: v*selected_splits[level][k] for k, v in accumulated_splits.items()}
-            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits)
+            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits, factors)
             perm_stack.append(new_perms)
             level += 1
 

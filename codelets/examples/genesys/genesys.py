@@ -242,7 +242,8 @@ def compile_genesys(model_name,
                     genesys_cfg=None,
                     dtypes=None,
                     print_config=True,
-                    store_ops=False):
+                    store_ops=False,
+                    factor_fn='default'):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -278,7 +279,7 @@ def compile_genesys(model_name,
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {}
+    tile_kwargs = {'factor_fn_name': factor_fn}
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
