@@ -34,6 +34,9 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
     return cdlt
 
 
@@ -64,6 +67,9 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
     return cdlt
 
 
@@ -98,6 +104,10 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("OC_hint2", f"size == {sys_array_dims[1]}")
+
     return cdlt
 
 def conv2d_added_bias(hag: ArchitectureNode):
@@ -134,6 +144,9 @@ def conv2d_added_bias(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("OC_hint2", f"size == {sys_array_dims[1]}")
     return cdlt
 
 def conv2d_bias(hag: ArchitectureNode):
@@ -172,6 +185,9 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("OC_hint2", f"size == {sys_array_dims[1]}")
     return cdlt
 
 def elem_add(hag: ArchitectureNode):

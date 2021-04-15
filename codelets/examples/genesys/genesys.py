@@ -315,6 +315,83 @@ def compile_genesys(model_name,
     return program
 
 
+def compile_genesys_layer(layer_file,
+                    update_cfg_dtypes=False,
+                    tiling_path=None,
+                    store_tiling=False,
+                    store_json_output=False,
+                    json_output_filename=None,
+                    verbose=False,
+                    benchmark_path=None,
+                    genesys_cfg=None,
+                    dtypes=None,
+                    print_config=True,
+                    store_ops=False,
+                          store_checkpoint=False,factor_fn='default',
+                          batch_size=1):
+    LAYER_DIR = f"{benchmark_path}/layers/srdfg"
+    OUT_DIR = f"{benchmark_path}/compiler_outputs"
+
+    TILING_DIR = f"{benchmark_path}/tiling_info"
+    dtypes = dtypes or GENESYS_DTYPES
+    if update_cfg_dtypes:
+        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+    else:
+        def_cfg = GENESYS_CFG
+
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        pprint(def_cfg)
+
+    graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+    genesys = define_genesys(def_cfg)
+    mode = "inference"
+    program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    tile_kwargs = {'factor_fn_name': factor_fn}
+    if store_tiling and store_checkpoint:
+        tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
+    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+
+    if tiling_path is not None:
+        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
+    else:
+        program.compile(verbose=verbose)
+
+    if store_tiling:
+        program.store_tiling(f"{TILING_DIR}")
+
+    if store_json_output:
+        out_type = "json" if store_ops else "json_no_ops"
+        res = program.emit(out_type)
+
+        if json_output_filename is not None:
+            with open(json_output_filename, "w") as outfile:
+                json.dump(res, outfile, indent=4)
+        else:
+            store_dir = f"{OUT_DIR}/{layer_file}_compiled"
+            p = Path(f"{store_dir}.json")
+            if p.exists():
+                count = 0
+                while Path(f"{store_dir}{count}.json").exists():
+                    count += 1
+                with open(f"{store_dir}{count}.json", "w") as outfile:
+                    json.dump(res, outfile, indent=4)
+            else:
+                with open(f"{store_dir}.json", "w") as outfile:
+                    json.dump(res, outfile, indent=4)
+    return program
+
+
 def add_genesys_codelets(hag: ComputeNode):
     for op_name, cdlt in GENESYS_CODELETS.items():
         hag.add_codelet(cdlt(hag))

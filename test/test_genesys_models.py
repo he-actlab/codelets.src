@@ -86,7 +86,7 @@ def test_genesys_model():
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
     # If you update the genesys datatypes above, set 'update_cfg_dtypes' to 'True'
-    update_cfg_dtypes = True
+    update_cfg_dtypes = False
 
     # If there is an existing tiling file for this particular model, set the tiling path here
     # If this is set to None, then it will re-tile.
