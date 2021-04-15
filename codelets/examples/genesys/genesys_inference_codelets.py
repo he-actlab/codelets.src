@@ -105,8 +105,8 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    # cdlt.add_compilation_param("KH_hint1", f"split == 1 or size == 28")
-    # cdlt.add_compilation_param("KW_hint1", f"split == 1 or size == 28")
+    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
+    cdlt.add_compilation_param("LEVEL1_hint", f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC'] <= {wbuf_elements}")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
     cdlt.add_compilation_param("OH_hint2", f"size == 1")
     cdlt.add_compilation_param("OW_hint2", f"size == 1")
@@ -202,6 +202,11 @@ def conv2d_bias(hag: ArchitectureNode):
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
     # cdlt.add_compilation_param("KH_hint1", f"split == 1 or size == 28")
     # cdlt.add_compilation_param("KW_hint1", f"split == 1 or size == 28")
+    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").num_elements
+    wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
+    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
+    cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
     cdlt.add_compilation_param("OH_hint2", f"size == 1")
     cdlt.add_compilation_param("OW_hint2", f"size == 1")

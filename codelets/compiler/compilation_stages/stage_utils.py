@@ -296,4 +296,9 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode'):
             if tile_hint_key in cdlt.compilation_params:
                 tile_info.add_tile_hint(level, loop_name, cdlt.compilation_params[tile_hint_key])
 
+    for level in cdlt.tile_levels.keys():
+        level_hint_key = f"LEVEL{level}_hint"
+        if level_hint_key in cdlt.compilation_params:
+            tile_info.add_level_hint(level, cdlt.compilation_params[level_hint_key])
+
     return tile_info
