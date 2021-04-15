@@ -1,7 +1,7 @@
 import json
 from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
-
+from time import time
 from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
 from codelets.codelet_impl import Codelet
@@ -284,16 +284,20 @@ class CodeletProgram(object):
 
 
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None, **compile_kwargs):
+        start = time()
         if verbose:
             print(f"Sequencing nodes")
         node_sequence = self.sequence_nodes(sequence_algorithm, **compile_kwargs)
 
+        if verbose:
+            print(f"Sequencing took {time() - start} seconds")
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
         # 2. Generate operands/operations within codelets
         # 3. Generate instruction templates within operations
         codelets = {}
 
+        stage_start = time()
         if verbose:
             print(f"\nInstantiating codelets")
         for n in node_sequence:
@@ -303,6 +307,8 @@ class CodeletProgram(object):
             assert n.name not in codelets
             codelets[n.name] = cdlt
 
+        if verbose:
+            print(f"\nInstantiating codelets took {time() - stage_start} seconds")
 
         if tiling_path is not None:
             if verbose:
@@ -312,6 +318,7 @@ class CodeletProgram(object):
         if verbose:
             print(f"\nRunning Preprocessing functions")
 
+        stage_start = time()
         for level, fns in self.preproc_steps.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
@@ -328,7 +335,9 @@ class CodeletProgram(object):
                 assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
                 codelets[n.name] = cdlt
         if verbose:
+            print(f"\nPreprocessing took {time() - stage_start} seconds")
             print(f"\nInstantiating Codelet Operations")
+        stage_start = time()
         for n in node_sequence:
             cdlt = codelets[n.name]
             if cdlt.is_noop():
@@ -342,7 +351,10 @@ class CodeletProgram(object):
             codelets[n.name] = cdlt
 
         if verbose:
+            print(f"\nCodelet instantiation took {time() - stage_start}")
             print(f"\nRunning compilation stages")
+
+        stage_start = time()
         for level, fns in self.compilation_pipeline.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
@@ -358,6 +370,7 @@ class CodeletProgram(object):
                 codelets[n.name] = cdlt
 
         if verbose:
+            print(f"\nCompilation stages took {time() - stage_start} seconds")
             print(f"\nFinalizing instruction templates")
         for n in node_sequence:
             cdlt = codelets[n.name]
@@ -368,6 +381,9 @@ class CodeletProgram(object):
             if verbose:
                 print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
             self.instantiate_instructions_templates(n, codelets[n.name])
+
+        if verbose:
+            print(f"\nTotal compilation time was {time() - start} seconds")
 
 
 def generate_possible_tilings(shape_dict, memory_paths):

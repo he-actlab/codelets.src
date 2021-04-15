@@ -8,7 +8,7 @@ from . import pairwise
 import polymath as pm
 from numbers import Integral
 from copy import deepcopy
-from sympy import Basic, Idx, symbols, Integer
+from sympy import Basic, Idx, symbols, Integer, lambdify
 from codelets.adl import util
 from dataclasses import dataclass, field
 
@@ -72,6 +72,7 @@ class DataMovement:
     offset_map: Dict[str, List[Union[int, str, Basic]]] = field(default_factory=dict)
     evaluated_offsets: Dict[str, List[Union[int, str, Basic]]] = field(default_factory=dict)
     evaluated_domain_offsets: Dict[str, List[Union[int, str, Basic, Offset]]] = field(default_factory=dict)
+    lambdified_expr: Dict[str, Any] = field(default_factory=dict)
 
     def __str__(self):
         path = f"PATH: {self.src_node}->{self.dst_node}"
@@ -137,8 +138,8 @@ class DataMovement:
                 max_vals = {}
                 for idx, i in enumerate(indices):
                     assert cdlt.op_map[str(i)].end % splits[str(i)] == 0
-                    max_vals[str(i)] = cdlt.op_map[str(i)].end // splits[str(i)] - 1
-                max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})
+                    max_vals[i] = cdlt.op_map[str(i)].end // splits[str(i)] - 1
+                max_vals.update({i: cdlt.required_params[str(i)].value for i in others})
 
                 size = self.resolve_offset(o, max_vals) + 1
                 # TODO: Add logic here to check for zero values
@@ -159,9 +160,9 @@ class DataMovement:
                 for idx, i in enumerate(indices):
 
                     assert str(i) in loops, f"Index is not in loops: {i}: {loops}, Codelet: {cdlt.op_name}"
-                    max_vals[str(i)] = loops[str(i)] - 1
+                    max_vals[i] = loops[str(i)] - 1
 
-                max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})
+                max_vals.update({i: cdlt.required_params[str(i)].value for i in others})
                 size = self.resolve_offset(o, max_vals) + 1
                 # TODO: Add logic here to check for zero values
             else:
@@ -229,21 +230,27 @@ class DataMovement:
             if isinstance(o, Basic):
                 indices = list(o.atoms(Idx))
                 others = [i for i in list(o.free_symbols) if i not in indices]
-                max_vals = {str(i): cdlt.op_map[str(i)].end - 1 for i in indices}
-                max_vals.update({str(i): cdlt.required_params[str(i)].value for i in others})
+                max_vals = {i: cdlt.op_map[str(i)].end - 1 for i in indices}
+                max_vals.update({i: cdlt.required_params[str(i)].value for i in others})
                 size = self.resolve_offset(o, max_vals) + 1
             else:
                 size = o
             self.evaluated_offsets[name] = size
 
     def resolve_offset(self, expr: Basic, values: Dict[str, int]):
-        for f_sym in list(expr.free_symbols):
-            if str(f_sym) in values:
-                expr = expr.subs(f_sym, values[str(f_sym)])
-        if not isinstance(expr, (Integer, Integral)):
+        if expr in self.lambdified_expr:
+            f = self.lambdified_expr[expr]
+        else:
+            free_symbs = list(expr.free_symbols)
+            f = lambdify(free_symbs, expr, "numpy")
+            self.lambdified_expr[expr] = f
+        args = tuple([values[f] for f in list(expr.free_symbols) if f in values])
+        res = f(*args)
+        if not isinstance(res, (Integer, Integral)):
             raise TypeError(f"Unable to compute domain domain_offsets because offset is not an integer:"
                             f"Offset: {expr}\tType: {type(expr)}")
-        return int(expr)
+
+        return int(res)
 
 
 

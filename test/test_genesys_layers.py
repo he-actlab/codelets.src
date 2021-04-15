@@ -1,5 +1,5 @@
 from codelets.examples.genesys import genesys_instructions, define_genesys,\
-    GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
+    GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, compile_genesys_layer
 import polymath as pm
 from pprint import pprint
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
@@ -144,6 +144,31 @@ def test_genesys_conv_bias():
     res = program.emit("string_final")
     print(res)
 
+def test_genesys_conv_resnet50():
+    layer_name = "resnet50_conv"
+    batch_size = 64
+    update_cfg_dtypes = False
+    tiling_path = None
+    store_tiling = False
+    store_json_output = False
+    json_output_filename = None
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+
+    # This function returns
+    program = compile_genesys_layer(layer_name,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              store_tiling=store_tiling,
+                                    store_checkpoint=False,
+                                    store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=True,
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default',
+                                    batch_size=batch_size
+                              )
+    res = program.emit("json_no_ops")
+    pprint(res)
 
 
 @pytest.mark.parametrize('filtered_layers',[
