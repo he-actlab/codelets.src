@@ -109,6 +109,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         factor_fn = FACTOR_FN_MAP[factor_fn_name]
     else:
         factor_fn = FACTOR_FN_MAP['default']
+
     tile_constraints = get_tile_constraints(cdlt, hag)
     level_accesses = defaultdict(list)
     loop_dependencies = []
@@ -204,7 +205,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         for p in perms:
             level_counter[level] += 1
             perm_shapes = get_sizes_from_splits(loop_deps_fixed, fixed_shapes, p)
-            passes_hint = tile_constraints.check_tile_hints(level, loop_deps_fixed, perm_shapes)
+            passes_hint = tile_constraints.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
             valid_splits = find_valid_splits(p, level, prev_perm)
@@ -243,7 +244,8 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         for idx, a in enumerate(o.data_moves):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
-                a.offset_map = o.data_moves[idx - 1].offset_map.copy()
+                a.reinit_offset_map(o.data_moves[idx - 1].offset_map.copy())
+                # a.offset_map = o.data_moves[idx - 1].offset_map.copy()
 
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, selected_splits)
