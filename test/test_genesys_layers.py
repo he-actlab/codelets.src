@@ -145,8 +145,8 @@ def test_genesys_conv_bias():
     print(res)
 
 def test_genesys_conv_resnet50():
-    layer_name = "resnet50_conv"
-    batch_size = 64
+    layer_name = "resnet50_add"
+    batch_size = 16
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -159,8 +159,8 @@ def test_genesys_conv_resnet50():
                               update_cfg_dtypes=update_cfg_dtypes,
                               tiling_path=tiling_path,
                               store_tiling=store_tiling,
-                                    store_checkpoint=False,
-                                    store_json_output=store_json_output,
+                              store_checkpoint=False,
+                              store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
                               verbose=True,
                               benchmark_path=BENCH_DIR,

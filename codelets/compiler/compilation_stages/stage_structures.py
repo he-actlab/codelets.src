@@ -49,14 +49,16 @@ class TilingInfo:
         return constraint_sat
 
     def add_tile_hint(self, level: int, loop_name: str, hint_str):
-        hint = FlexParam(f"{loop_name}_lvl{level}_hint", ["size"], hint_str)
+        hint = FlexParam(f"{loop_name}_lvl{level}_hint", ["size", "split"], hint_str)
         self.tile_hints[level][loop_name] = hint
 
-    def check_tile_hints(self, level, loop_deps, sizes):
+    def check_tile_hints(self, level, loop_deps, sizes, splits):
 
         for l, th in self.tile_hints[level].items():
-            size = sizes[loop_deps.index(l)]
-            valid = th.evaluate_fn(size)
+            idx = loop_deps.index(l)
+            size = sizes[idx]
+            split = splits[idx]
+            valid = th.evaluate_fn(size, split)
             if not valid:
                 return False
         return True

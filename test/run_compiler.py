@@ -1,4 +1,4 @@
-from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES
+from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES, compile_genesys_layer
 import polymath as pm
 from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
@@ -25,7 +25,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def run_model(model_name, train, batch_size, factor_fn):
-
+    MODEL_NAMES = ['resnet18', 'resnet50']
     # GENESYS_DTYPES['SIMD'] = 'FXP16'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
@@ -48,26 +48,37 @@ def run_model(model_name, train, batch_size, factor_fn):
     store_json_output = False
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
-
-    # This function returns
-    program = compile_genesys(model_name,
-                              train=train,
-                              update_cfg_dtypes=update_cfg_dtypes,
-                              tiling_path=tiling_path,
-                              batch_size=batch_size,
-                              store_tiling=store_tiling,
-                              store_json_output=store_json_output,
-                              json_output_filename=json_output_filename,
-                              verbose=True,
-                              benchmark_path=BENCH_DIR,
-                              factor_fn=factor_fn
-                              )
-
+    if model_name in MODEL_NAMES:
+        # This function returns
+        program = compile_genesys(model_name,
+                                  train=train,
+                                  update_cfg_dtypes=update_cfg_dtypes,
+                                  tiling_path=tiling_path,
+                                  batch_size=batch_size,
+                                  store_tiling=store_tiling,
+                                  store_json_output=store_json_output,
+                                  json_output_filename=json_output_filename,
+                                  verbose=True,
+                                  benchmark_path=BENCH_DIR,
+                                  factor_fn=factor_fn
+                                  )
+    else:
+        program = compile_genesys_layer(model_name,
+                                        update_cfg_dtypes=update_cfg_dtypes,
+                                        tiling_path=tiling_path,
+                                        store_tiling=store_tiling,
+                                        store_checkpoint=False,
+                                        store_json_output=store_json_output,
+                                        json_output_filename=json_output_filename,
+                                        verbose=True,
+                                        benchmark_path=BENCH_DIR,
+                                        factor_fn='default',
+                                        batch_size=batch_size
+                                        )
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
     argparser.add_argument('-m', '--model_name', required=True,
                            help='Name of the benchmark to create. One of "resnet18", "lenet')
-
 
     argparser.add_argument('-t', '--training_mode', type=str2bool, nargs='?', default=False,
                            const=True, help='Whether or not the model is in training mode')
