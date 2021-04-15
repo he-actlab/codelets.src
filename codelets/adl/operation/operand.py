@@ -89,8 +89,19 @@ class DataMovement:
             if isinstance(o, Basic):
                 self.symbol_str_map[o] = str(o)
                 self.symbol_atoms_map[o] = list(o.atoms(Idx))
+                others = [i for i in list(o.free_symbols) if i not in self.symbol_atoms_map[o]]
+
                 for idx in self.symbol_atoms_map[o]:
                     self.symbol_str_map[idx] = str(idx)
+
+                for oth in others:
+                    self.symbol_str_map[oth] = str(oth)
+
+    def get_symbol_str(self, obj):
+        return self.symbol_str_map[obj]
+
+    def get_symbol_atoms(self, obj):
+        return self.symbol_atoms_map[obj]
 
     def __str__(self):
         path = f"PATH: {self.src_node}->{self.dst_node}"
@@ -135,10 +146,10 @@ class DataMovement:
         new_offset_map = {}
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
-                # indices = list(o.atoms(Idx))
-                indices = self.symbol_atoms_map[o]
+                indices = self.get_symbol_atoms(o)
                 for idx, i in enumerate(indices):
-                    if self.symbol_str_map[i] in replacements and self.symbol_str_map[i] in dep_map:
+                    i_str = self.get_symbol_str(i)
+                    if i_str in replacements and i_str in dep_map:
                         replacement_op = cdlt.op_map[dep_map[str(i)]]
                         assert replacement_op.op_type == "loop"
                         o.subs(i, replacement_op.get_symbol())
@@ -161,15 +172,14 @@ class DataMovement:
         sizes = {}
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
-                # indices = list(o.atoms(Idx))
-                indices = self.symbol_atoms_map[o]
+                indices = self.get_symbol_atoms(o)
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
                 for idx, i in enumerate(indices):
-                    i_as_str = self.symbol_str_map[i]
+                    i_as_str = self.get_symbol_str(i)
                     assert cdlt.op_map[i_as_str].end % splits[i_as_str] == 0
                     max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
-                max_vals.update({i: cdlt.required_params[str(i)].value for i in others})
+                max_vals.update({i: cdlt.required_params[self.get_symbol_str(i)].value for i in others})
                 size = self.resolve_offset(o, max_vals) + 1
                 # TODO: Add logic here to check for zero values
             else:
@@ -183,11 +193,12 @@ class DataMovement:
         sizes = {}
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
-                indices = list(o.atoms(Idx))
+                # indices = list(o.atoms(Idx))
+                indices = self.get_symbol_atoms(o)
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
                 for idx, i in enumerate(indices):
-                    i_as_str = str(i)
+                    i_as_str = self.get_symbol_str(i)
                     assert i_as_str in loops, f"Index is not in loops: {i}: {loops}, Codelet: {cdlt.op_name}"
                     max_vals[i] = loops[i_as_str] - 1
 
