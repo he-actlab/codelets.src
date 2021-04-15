@@ -80,30 +80,30 @@ def test_genesys_model():
     model_name = 'resnet18'
 
     # Determines whether to compile a training model or not
-    train = True
+    train = False
 
     # GENESYS_DTYPES['SIMD'] = 'FXP16'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP16'
     # If you update the genesys datatypes above, set 'update_cfg_dtypes' to 'True'
-    update_cfg_dtypes = False
+    update_cfg_dtypes = True
 
     # If there is an existing tiling file for this particular model, set the tiling path here
     # If this is set to None, then it will re-tile.
     # NOTE: if you are compiling a training program, the filename should be f"{model_name}_train_tiling_info.json"
 
-    tiling_path = f"{model_name}_train_training_tiling_info_checkpoint0.json"
-    # tiling_path = None
+    # tiling_path = f"{model_name}_train_training_tiling_info_checkpoint0.json"
+    tiling_path = None
 
     # If this is changed, the batch size will updated for the model
     batch_size = 1
 
     # If you had previously never stored tiling for this program, store it
-    store_tiling = True
+    store_tiling = False
 
     # Whether or not to store the compiler output as json.
     # If you want to specify the filename, set 'json_output_filename' to a string name
-    store_json_output = True
+    store_json_output = False
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
 
@@ -117,5 +117,6 @@ def test_genesys_model():
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
                               verbose=True,
-                              benchmark_path=BENCH_DIR
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default'
                               )

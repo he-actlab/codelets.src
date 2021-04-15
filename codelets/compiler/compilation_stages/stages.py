@@ -266,7 +266,7 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
 
     return cdlt
 
-def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
+def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
@@ -284,7 +284,7 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', heuristic_fn=None, checkpoint_
 
     bands = cdlt.extract_bands()
 
-    cdlt = set_codelet_tiling(cdlt, hag, heuristic_fn)
+    cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
 
     for start, end in bands:
         idx = start
