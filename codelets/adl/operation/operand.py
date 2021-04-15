@@ -1,7 +1,8 @@
 from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union, ClassVar
 from collections import namedtuple
 from functools import partial
-from pytools import memoize
+
+from pytools import memoize, memoize_method
 from collections import defaultdict
 import numpy as np
 from . import pairwise
@@ -97,6 +98,7 @@ class DataMovement:
                 for oth in others:
                     self.symbol_str_map[oth] = str(oth)
 
+    @memoize_method
     def get_symbol_str(self, obj):
         return self.symbol_str_map[obj]
 

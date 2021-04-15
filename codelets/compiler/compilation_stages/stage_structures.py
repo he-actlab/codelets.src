@@ -52,6 +52,12 @@ class TilingInfo:
         hint = FlexParam(f"{loop_name}_lvl{level}_hint", ["size", "split"], hint_str)
         self.tile_hints[level][loop_name] = hint
 
+    def add_level_hint(self, level: int, hint_str):
+        name = f"LEVEL{level}_hint"
+        hint = FlexParam(name, ["sizes", "splits"], hint_str)
+        assert name not in self.tile_hints
+        self.tile_hints[name] = hint
+
     def check_tile_hints(self, level, loop_deps, sizes, splits):
 
         for l, th in self.tile_hints[level].items():
@@ -61,6 +67,14 @@ class TilingInfo:
             valid = th.evaluate_fn(size, split)
             if not valid:
                 return False
+        level_name = f"LEVEL{level}_hint"
+        if level_name in self.tile_hints:
+            sizes = {self.loop_dim_map[l]: sizes[i] for i, l in enumerate(loop_deps)}
+            splits = {self.loop_dim_map[l]: splits[i] for i, l in enumerate(loop_deps)}
+            valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
+            if not valid:
+                return False
+
         return True
 
 
