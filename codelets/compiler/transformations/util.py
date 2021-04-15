@@ -22,4 +22,4 @@ def factors_reversed(n):
 
 @memoize
 def get_sorted_perms(perms):
-    return sorted(perms, key=lambda x: np.prod(x), reverse=True)
+    return sorted(list(perms), key=lambda x: np.prod(x), reverse=True)

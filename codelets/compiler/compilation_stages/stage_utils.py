@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
 from codelets.adl.flex_param import FlexParam
 
-
+from . import TilingInfo
 from codelets.compiler.transformations import factors, factors_rand_sort,\
     factors_reversed, get_sorted_perms
 import numpy as np
@@ -35,7 +35,6 @@ def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn):
             out_factors[l] = factor_fn(out_shapes[l])
 
     perms = product(*tuple(out_factors.values()))
-    perms = get_sorted_perms(perms)
     # Need to skip past the first tiling because its all 1's
     # next(perms)
     return out_shapes, out_factors, perms
@@ -138,7 +137,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     if 0 in cdlt.domain_tiling:
         first_perm = [tuple(cdlt.domain_tiling[0][ld] for ld in loop_dependencies)]
     else:
-        first_perm = get_sorted_perms(product(*tuple(level_factors[0].values())))
+        first_perm = product(*tuple(level_factors[0].values()))
 
     perm_stack.append(first_perm)
     max_level = 1
@@ -393,38 +392,32 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode'):
         for access in o.data_moves:
             if (access.src_node, access.dst_node) in path_constraints or access.src_node == access.dst_node:
                 continue
+
             src_node = hag.get_subgraph_node(access.src_node)
             dst_node = hag.get_subgraph_node(access.dst_node)
             edge = hag.get_subgraph_edge(access.src_node, access.dst_node)
-            # if isinstance(dst_node, ComputeNode):
             if dst_node.node_type == 'compute':
-                # constraint = f"size <= {edge.bandwidth} and size >= 0"
                 constraint = f"size == {edge.bandwidth}"
 
-                # print(f"Bandwidht is {src_node.name} -> {dst_node.name}: {edge.bandwidth}")
                 pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
                 assert src_node.node_type == 'storage'
                 # TODO: Need to add something which adds padding function here and uses a function constraint
-            # elif isinstance(dst_node, StorageNode):
             elif dst_node.node_type == 'storage':
-                # if isinstance(src_node, ComputeNode):
                 if src_node.node_type == 'compute':
-                    # constraint = f"size <= {edge.bandwidth} and size >= 0"
                     constraint = f"size == {edge.bandwidth}"
                     pad_constraints[(access.src_node, access.dst_node)] = edge.bandwidth
 
                 else:
                     assert src_node.node_type == 'storage'
                     constraint = f"size <= {dst_node.size} and size >= 0"
-
                     max_size = dst_node.size
                     min_size = 0
-                    # min_size = edge.bandwidth
             else:
                 raise TypeError(f"Unable to handle architecture node type {type(dst_node)}")
-
             path_constraints[(access.src_node, access.dst_node)] = FlexParam(f"constraint_{(access.src_node)}_{(access.dst_node)}",
                                                                               ["size"], constraint)
+            # path_constraints[(access.src_node, access.dst_node)] = TilingInfo(f"constraint_{(access.src_node)}_{(access.dst_node)}",
+            #                                                                   )
 
 
     return path_constraints, pad_constraints
