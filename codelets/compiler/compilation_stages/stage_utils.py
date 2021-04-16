@@ -11,10 +11,12 @@ from codelets.adl.flex_param import FlexParam
 
 from . import TilingInfo
 from codelets.compiler.transformations import factors, factors_rand_sort,\
-    factors_reversed, get_sorted_perms
+    factors_reversed, get_sorted_perms, level_factors
 import numpy as np
 
-FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed}
+FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed,
+                 'level': level_factors
+                 }
 
 @memoize
 def get_sizes_from_splits(loops, shapes, splits):
@@ -25,7 +27,7 @@ def get_sizes_from_splits(loops, shapes, splits):
 
     return tuple(out_shapes)
 
-def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn):
+def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn, level):
     out_shapes = {}
     out_factors = {}
 
@@ -41,7 +43,7 @@ def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn):
         if cdlt.domain_loop_map[l] in fixed_dims:
             out_factors[l] = [1]
         else:
-            out_factors[l] = factor_fn(out_shapes[l])
+            out_factors[l] = factor_fn(out_shapes[l], level)
 
     perms = product(*tuple(out_factors.values()))
     # Need to skip past the first tiling because its all 1's
@@ -121,6 +123,12 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
 
         loop_dependencies += [dp for dp in o.dependencies if dp not in loop_dependencies and "loop" in dp]
 
+    if "LOOP_TILE_ORDER" in cdlt.compilation_params:
+        dim_order = cdlt.compilation_params["LOOP_TILE_ORDER"]
+        reversed_dom_map = {v:k for k, v in cdlt.domain_loop_map.items()}
+        loop_order = [reversed_dom_map[d] for d in dim_order]
+        assert set(loop_order) == set(loop_dependencies)
+        loop_dependencies = loop_order
     # Find all starting loop factors
     shapes = defaultdict(dict)
     level_factors = defaultdict(dict)
@@ -137,7 +145,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         if cdlt.domain_loop_map[l] in fixed_dims:
             level_factors[0][loop.op_str] = [1]
         else:
-            level_factors[0][loop.op_str] = factor_fn(loop.iter_count)
+            level_factors[0][loop.op_str] = factor_fn(loop.iter_count, 0)
 
         shapes[0][loop.op_str] = loop.iter_count
         selected_splits[0][loop.op_str] = 1
@@ -227,7 +235,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
             parent_perms.append(prev_perm)
             selected_splits[level] = valid_splits.copy()
             accumulated_splits = {k: v*selected_splits[level][k] for k, v in accumulated_splits.items()}
-            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits, factor_fn)
+            shapes[level], level_factors[level], new_perms = get_level_tiling(cdlt, loop_dependencies, shapes[prev_level], valid_splits, factor_fn, level)
             perm_stack.append(new_perms)
             level += 1
 
@@ -255,7 +263,6 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     # TODO: Store all information int he codelet
     cdlt._domain_tiling = selected_splits
     cdlt._domain_loop_map = shapes
-
 
     return cdlt
 
