@@ -268,6 +268,8 @@ def compile_genesys(model_name,
         graph = batch_size_pass(graph)
 
     if train:
+        if verbose:
+            print(f"Generating training graph for {model_name}")
         graph = pm.create_training_graph(graph)
 
     layout_pass = pm.UpdateLayout('nchw', 'nhwc')

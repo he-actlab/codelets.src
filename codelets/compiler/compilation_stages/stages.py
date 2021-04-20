@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
 
-
-from .stage_utils import default_tile_heuristic, set_codelet_tiling, update_shape_from_arch, store_tile_checkpoint
+from .tiling_utils import set_codelet_tiling
+from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint
 import polymath as pm
 import json
 
@@ -311,7 +311,6 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
 
-                # if isinstance(op, Transfer):
                 if op.op_type == 'transfer':
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
@@ -320,7 +319,6 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             outgoing = True
                             cdlt.insert_op(op, target_idx)
-                        # op.operand.update_op_accesses(cdlt, op, dep_mapping)
                         op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):

@@ -43,7 +43,7 @@ def store_layer(layer_name, model_name, model: ModelProto = None):
 
 
 def convert_model_to_polymath(model_path):
-    graph = pm.from_onnx(model_path)
+    graph = pm.from_onnx(model_path, verbose=True)
     root_path = Path(model_path).parent
     pm.pb_store(graph, f"{root_path}/srdfg/")
 
