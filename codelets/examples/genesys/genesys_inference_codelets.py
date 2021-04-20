@@ -105,11 +105,12 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
+    # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
     wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
     obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "OH", "OW", "N"])
     cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
     cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
@@ -161,9 +162,7 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    # cdlt.add_compilation_param("KH_hint1", f"split == 1 or size == 28")
-    # cdlt.add_compilation_param("KW_hint1", f"split == 1 or size == 28")
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
     wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
     obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
@@ -464,7 +463,7 @@ def global_average_pool_grad(hag: ArchitectureNode):
                             with Loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy, ix], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, oy, ox], ["DRAM", "VMEM1"])
-                                cdlt.compute("MAX", [data, grad], [data_grad], target="SIMD")
+                                cdlt.compute("MEAN", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, iy, ix], ["VMEM1", "DRAM"])
     return cdlt
 
@@ -487,7 +486,7 @@ def global_avg_pool(hag: ArchitectureNode):
                         with Loop(0, "OH") as oy:
                             with Loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy + oy, ix + ox], ["DRAM", "VMEM1"])
-                                cdlt.compute("MAX", [data, data], [out], target="SIMD")
+                                cdlt.compute("MEAN", [data, data], [out], target="SIMD")
                                 cdlt.transfer(out[n, c, oy, ox], ["VMEM1", "DRAM"])
     return cdlt
 

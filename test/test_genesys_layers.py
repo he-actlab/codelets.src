@@ -145,7 +145,7 @@ def test_genesys_conv_bias():
     print(res)
 
 def test_genesys_conv_resnet50():
-    layer_name = "resnet50_add"
+    layer_name = "resnet50_conv"
     batch_size = 16
     update_cfg_dtypes = False
     tiling_path = None

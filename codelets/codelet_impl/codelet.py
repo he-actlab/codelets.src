@@ -185,6 +185,9 @@ class Codelet(object):
     def tile_levels(self):
         return self._tile_levels
 
+    def is_tiling_set(self, level: int):
+        return level in self.domain_tiling
+
     def is_noop(self):
         return len(self.operands) == 0 and len(self.operations) == 0
 
@@ -670,7 +673,6 @@ class Codelet(object):
             shape_dims.update(o.shape_symbols)
 
         return shape_dims
-
 
 
 
