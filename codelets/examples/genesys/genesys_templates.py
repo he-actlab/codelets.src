@@ -194,6 +194,7 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "IMEM")
     instr.set_field_by_name("BUFFER", "IBUF")
     instr.set_field_value("LOOP_ID", 0)
+
     instr.set_field_flex_param("REQUEST_SIZE", "cdlt.num_instr")
     instructions.append(instr)
 

@@ -1,5 +1,6 @@
 from codelets.adl.operation import OperandTemplate, Loop
 from codelets.codelet_impl.codelet import Codelet
+from codelets.adl.flex_param import FlexParam
 
 from codelets.adl.graph import ArchitectureNode
 from . import OP_DTYPES
@@ -477,8 +478,10 @@ def global_avg_pool(hag: ArchitectureNode):
     with Codelet("global_avg_pool", [data], [out], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0)
-
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        denom = FlexParam("denom", ["IH", "IW"], "IH*IW")
+        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
+        temp_op = cdlt.create_temp_operand([1], "IMM")
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
                 with Loop(0, "IH") as iy:
@@ -486,8 +489,10 @@ def global_avg_pool(hag: ArchitectureNode):
                         with Loop(0, "OH") as oy:
                             with Loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy + oy, ix + ox], ["DRAM", "VMEM1"])
-                                cdlt.compute("MEAN", [data, data], [out], target="SIMD")
-                                cdlt.transfer(out[n, c, oy, ox], ["VMEM1", "DRAM"])
+                                cdlt.transfer(out[n, c, oy, ox], ["DRAM", "VMEM2"])
+                                cdlt.compute("ADD", [data, out], [out], target="SIMD")
+                                # cdlt.compute("DIV", [out, temp_op], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
     return cdlt
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):

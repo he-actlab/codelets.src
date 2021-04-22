@@ -12,7 +12,6 @@ FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': fa
                  'level': level_factors
                  }
 
-
 def default_tile_heuristic(hag: 'ArchitectureNode', cdlt: 'Codelet', tiling_splits):
     total_accesses = 0
     for l, splits in tiling_splits.items():
