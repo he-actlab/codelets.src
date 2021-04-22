@@ -278,6 +278,7 @@ def compile_genesys(model_name,
     graph = layout_pass(graph)
     genesys = define_genesys(def_cfg)
     mode = "training" if train else "inference"
+    # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})

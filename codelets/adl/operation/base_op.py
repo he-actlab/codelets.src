@@ -22,7 +22,7 @@ class Operation(object):
 
 
     def __init__(self, operation_type: str,
-                 required_params: List[str],
+                 required_params: Dict[str, Union[FlexParam, int, None]],
                  codelet=None,
                  target: str = None,
                  instructions: List[FlexTemplate] = None,
@@ -55,9 +55,9 @@ class Operation(object):
         if add_codelet:
             codelet.add_op(self)
 
-        for r in self.required_params:
+        for r, v in self.required_params.items():
             if r not in codelet.required_params:
-                codelet.add_required_param(r)
+                codelet.add_required_param(r, value=v)
 
     @property
     def loop_id(self) -> int:
@@ -68,7 +68,7 @@ class Operation(object):
         self._loop_id = loop_id
 
     @property
-    def required_params(self) -> List[str]:
+    def required_params(self) -> Dict[str, Union[FlexParam, int, None]]:
         return self._required_params
 
     @property
@@ -139,6 +139,8 @@ class Operation(object):
     def dependencies(self, dependencies):
         self._dependencies = dependencies
 
+    def unique_param_name(self, local_param_name):
+        return f"{self.op_str}{local_param_name}"
 
     def __str__(self):
         op_str = f"{self.op_type}{self.op_id} -> {self.target}, PARAMS: {list(self.required_params)}, " \

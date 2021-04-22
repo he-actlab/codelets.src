@@ -31,21 +31,22 @@ class Loop(Operation):
         self._stride = stride
         self._offset = offset
 
-        req_params = []
+        req_params = {}
         if loop_op_params:
-            req_params += loop_op_params
+            req_params.update({l: None for l in loop_op_params})
 
         if isinstance(self.start, str):
-            req_params.append(self.start)
+            req_params[self.start] = None
 
         if isinstance(self.end, str):
-            req_params.append(self.end)
+            req_params[self.end] = None
+
 
         if isinstance(stride, str):
-            req_params.append(stride)
+            req_params[stride] = None
 
         if isinstance(offset, str):
-            req_params.append(stride)
+            req_params[offset] = None
 
         super(Loop, self).__init__("loop", req_params,
                                    add_codelet=add_codelet,

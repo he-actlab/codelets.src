@@ -1,6 +1,7 @@
 from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union, ClassVar
 from collections import namedtuple
 from functools import partial
+from codelets.adl.flex_param import FlexParam
 
 from pytools import memoize, memoize_method
 from collections import defaultdict
@@ -309,7 +310,7 @@ class OperandTemplate:
     evaluated_tiling: List[Tuple[str, List]] = field(default_factory=list, init=False)
     dependencies: List[str] = field(default_factory=list)
     data_moves: List[DataMovement] = field(default_factory=list)
-    required_params: List[str] = field(default_factory=list)
+    required_params: Dict[str, Union[FlexParam, int, None]] = field(default_factory=dict)
     current_codelet: ClassVar = field(default=None)
     compute_pad_dim: int = field(default=-1)
     permutation: tuple = field(default=tuple([]))
@@ -352,7 +353,6 @@ class OperandTemplate:
             for dim in dm.shape_symbols:
                 val = dm.offset_map.pop(dim)
                 dm.update_offset_map(dim, val)
-
 
 
     @property
@@ -445,7 +445,8 @@ class OperandTemplate:
                 self.dependencies += [str(l) for l in list(loop_idx) if str(l) not in self.dependencies]
             elif isinstance(idx, str):
                 off = symbols(idx, integer=True)
-                self.required_params.append(idx)
+                self.required_params[idx] = None
+                # self.required_params.append(idx)
             elif isinstance(idx, int):
                 off = idx
             else:

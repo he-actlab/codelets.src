@@ -13,7 +13,7 @@ class Compute(Operation):
         self._op_name = op_name
         self._sources = []
         self._dests = []
-        req_params = []
+        req_params = {}
         assert target is not None
 
         # TODO: Need to figure out if these need to be added

@@ -32,12 +32,12 @@ class Transfer(Operation):
         # For each pair of nodes in the path, there needs to be a size
         assert len(path) == (len(sizes) + 1)
         self._access_indices = []
-        req_params = []
+        req_params = {}
         dependencies = []
 
         for s in sizes:
             if isinstance(s, str):
-                req_params.append(s)
+                req_params[s] = None
 
         super(Transfer, self).__init__('transfer', req_params,
                                        add_codelet=add_codelet,
@@ -50,7 +50,10 @@ class Transfer(Operation):
 
         self._operand = operand
         self._dependencies += [d for d in self._operand.dependencies if d not in self.dependencies]
-        self._required_params += [r for r in self.operand.required_params if r not in self.required_params]
+        for r, v in self.operand.required_params.items():
+            if r not in self.resolved_params:
+                self._required_params[r] = None
+        # self._required_params += [r for r in self.operand.required_params if r not in self.required_params]
 
     @property
     def path(self):
@@ -137,7 +140,8 @@ class Transfer(Operation):
                 loop_idx = idx.atoms(Idx)
                 self.dependencies += [str(l) for l in list(loop_idx) if str(l) not in self.dependencies]
             elif isinstance(idx, str):
-                self.required_params.append(idx)
+                # self.required_params.append(idx)
+                self._required_params[idx] = None
                 arr_idx_symbol = symbols(idx, integer=True)
             elif isinstance(idx, int):
                 arr_idx_symbol = idx

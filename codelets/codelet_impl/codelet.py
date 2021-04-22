@@ -26,6 +26,7 @@ class Codelet(object):
         self._op_name = op_name
         self._inputs = inputs
         self._outputs = outputs
+        self._temps = []
         self._ops = []
         self._op_map = {}
         self._global_op_map = {}
@@ -114,6 +115,10 @@ class Codelet(object):
     @property
     def inputs(self):
         return self._inputs
+
+    @property
+    def temps(self):
+        return self._temps
 
     @property
     def outputs(self):
@@ -213,9 +218,12 @@ class Codelet(object):
         return unset_params
 
     def get_operand(self, op_name: str):
-        for o in (self.inputs + self.outputs):
+        for o in self.operands:
             if o.name == op_name:
                 return o
+        for t in self.temps:
+            if t.name == op_name:
+                return t
         raise KeyError(f"Unable to find operand {op_name}: {self.inputs + self.outputs}")
 
     def get_ops_by_type(self, op_type):
@@ -266,6 +274,7 @@ class Codelet(object):
         obj._cdlt_id = self.cdlt_id
         obj._inputs = [i.copy() for i in self.inputs]
         obj._outputs = [o.copy() for o in self.outputs]
+        obj._temps = [t.copy() for t in self.temps]
         obj._required_params = self.copy_required_params()
         obj._hag = self.hag
         obj._ops = []
@@ -458,11 +467,6 @@ class Codelet(object):
                                f"Key: {key}")
         self.required_params[key].value = value
 
-    def configure(self, start_end, target_name, **kwargs):
-        cfg = Configure(start_end, target_name,
-                        add_codelet=False, **kwargs)
-        self.add_op(cfg)
-
     def is_loop_node_target(self, loop, hag_node):
         for o in self.ops:
             if o.op_type == 'compute' and o.target == hag_node and loop.loop_level <= o.loop_level:
@@ -493,15 +497,46 @@ class Codelet(object):
                 count += 1
         return count
 
+    def create_temp_operand(self, shape_list, location,
+                            reference_operand: OperandTemplate=None,
+                            **kwargs):
+        name = f"temp{len(self.temps)}"
+        operand_type = "temp"
+        if reference_operand:
+            supported_dtypes = reference_operand.supported_dtypes
+            dependencies = reference_operand.dependencies
+        else:
+            # TODO: Infer supported dtypes somehow
+            supported_dtypes = None
+            dependencies = []
+
+        # TODO: Fix check for node existance
+        temp_op = OperandTemplate(name, supported_dtypes,
+                                  shape_list,
+                                  data_path=[location],
+                                  dependencies=dependencies,
+                                  operand_type=operand_type,
+                                  **kwargs)
+        self._temps.append(temp_op)
+        return temp_op
+
+    def configure(self, start_end, target_name, **kwargs):
+        cfg = Configure(start_end, target_name,
+                        add_codelet=False, **kwargs)
+        self.add_op(cfg)
+        return cfg
+
     def compute(self, op_name, sources, dests, **kwargs):
         comp = Compute(op_name, sources, dests,
                         add_codelet=False, **kwargs)
         self.add_op(comp)
+        return comp
 
     def transfer(self, operand, path, sizes=None, **kwargs):
         xfer = Transfer(operand, path, sizes=sizes,
                         add_codelet=False, **kwargs)
         self.add_op(xfer)
+        return xfer
 
     def set_domain_tile(self, tile_level: str, domain_key: str, split_factor: int):
 
