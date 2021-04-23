@@ -330,8 +330,11 @@ def compile_genesys_layer(layer_file,
                     dtypes=None,
                     print_config=True,
                     store_ops=False,
-                          store_checkpoint=False,factor_fn='default',
-                          batch_size=1):
+                    store_checkpoint=False,
+                  do_tile_stage=True,
+                  do_hoist_stage=True,
+                  factor_fn='default',
+                  batch_size=1):
     LAYER_DIR = f"{benchmark_path}/layers/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -362,13 +365,23 @@ def compile_genesys_layer(layer_file,
     tile_kwargs = {'factor_fn_name': factor_fn}
     if store_tiling and store_checkpoint:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
-    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+
+    finalize_instructions = True
+    if do_tile_stage:
+        program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    else:
+        finalize_instructions = False
+
+
+    if do_hoist_stage:
+        program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    else:
+        finalize_instructions = False
 
     if tiling_path is not None:
-        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
+        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)
     else:
-        program.compile(verbose=verbose)
+        program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
 
     if store_tiling:
         program.store_tiling(f"{TILING_DIR}")

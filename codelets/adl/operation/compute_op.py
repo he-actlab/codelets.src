@@ -32,6 +32,7 @@ class Compute(Operation):
             self._sources.append(s)
 
         for d_call in dests:
+            # assert d_call.write_destination is not None
             d = d_call.add_compute_access(target, self.op_str, "dest")
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies]
             d.dependencies.append(self.op_str)

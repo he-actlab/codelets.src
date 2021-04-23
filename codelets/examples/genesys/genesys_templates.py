@@ -248,7 +248,7 @@ def imm_start_template(hag: ComputeNode):
     instructions = []
     instr = hag.get_primitive_template("IMM_SIGN_EXT")
     instr.set_field_by_name("NS_ID", "IMM")
-    instr.set_field_value("NS_INDEX_ID", 0)
+    instr.set_field_flex_param("NS_INDEX_ID", f"op.get_config_param_value('index')")
     instr.set_field_flex_param("IMM", f"op.get_config_param_value('immediate_value')")
     instructions.append(instr)
 

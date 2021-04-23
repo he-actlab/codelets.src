@@ -113,7 +113,6 @@ class TilingInfo:
         size_map = {}
 
         for level_access in self.accesses[level]:
-
             size = level_access.get_size_from_splits(cdlt, perm_map)
             key = (level_access.src_node, level_access.dst_node)
 

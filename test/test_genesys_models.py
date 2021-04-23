@@ -120,3 +120,5 @@ def test_genesys_model():
                               benchmark_path=BENCH_DIR,
                               factor_fn='default'
                               )
+    res = program.emit("string_final")
+    print(res)

@@ -289,6 +289,9 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
+        llevels = [o.loop_level for o in cdlt.ops[start: end + 1]]
+        max_level = max(llevels)
+        min_level = min(llevels)
         dep_mapping = {}
         for split in range(splits):
             op_band = cdlt.ops[start: end + 1]
@@ -298,12 +301,7 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                 i = cdlt.ops.index(op)
                 target_idx = offset + i
 
-                # if isinstance(cdlt.ops[target_idx], Loop):
-                if cdlt.ops[target_idx].op_type == 'loop':
-                    inner_loop_level = cdlt.ops[target_idx].loop_level + 1
-                else:
-                    inner_loop_level = cdlt.ops[target_idx].loop_level
-
+                inner_loop_level = (max_level - min_level) + op.loop_level
                 if inner_loop_level < op.loop_level:
                     raise RuntimeError
 
@@ -366,7 +364,6 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                     extra_kwargs['start'] = 0
                     extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
                     extra_kwargs['stride'] = 1
-
                     inner_op = op.copy(cdlt, loop_level=inner_loop_level,
                                                     op_id=new_op_id,
                                                     loop_id=new_op_id,
@@ -397,9 +394,7 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
 
                     inner_idx = target_idx
                     num_splits += 1
-
                 cdlt.insert_op(inner_op, inner_idx)
-
 
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:

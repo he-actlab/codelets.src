@@ -240,6 +240,40 @@ class Codelet(object):
                 max_level = l.loop_level
         return max_level
 
+    def extract_bands_(self):
+        bands = []
+
+        idx = -1
+        loop_level = -1
+        for i, o in enumerate(self.ops):
+            if o.op_type == "loop":
+                idx = i + 1
+                loop_level = o.loop_level
+                break
+
+        if idx < 0:
+            return bands
+
+        while idx < len(self.ops):
+
+            op = self.ops[idx]
+            if op.op_type != 'loop':
+                idx += 1
+                continue
+            start_band_idx = idx - 1
+            loop_level = op.loop_level
+
+            while op.loop_level >= loop_level:
+                idx += 1
+                if len(self.ops) <= idx:
+                    break
+                loop_level = op.loop_level
+                op = self.ops[idx]
+
+            bands.append((start_band_idx, idx - 1))
+
+        return bands
+
     def extract_bands(self):
         bands = []
         start_idx = None
@@ -263,7 +297,10 @@ class Codelet(object):
         if found_band:
             assert start_idx >= 0
             bands.append((start_idx, len(self.ops) - 1))
-
+        # test_bands = self.extract_bands_()
+        # print(f"Actual bands: {bands}\n"
+        #       f"Test bands: {test_bands}")
+        # return test_bands
         return bands
 
     def copy(self, pre_increment=False):
