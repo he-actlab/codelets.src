@@ -283,7 +283,9 @@ class CodeletProgram(object):
                     c._domain_tiling[int(level)] = tiling_values
 
 
-    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None, **compile_kwargs):
+    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
+                finalize_instructions=True,
+                **compile_kwargs):
         start = time()
         if verbose:
             print(f"Sequencing nodes")
@@ -369,18 +371,19 @@ class CodeletProgram(object):
                     cdlt = fn.run(self, n, cdlt)
                 codelets[n.name] = cdlt
 
-        if verbose:
-            print(f"\nCompilation stages took {time() - stage_start} seconds")
-            print(f"\nFinalizing instruction templates")
-        for n in node_sequence:
-            cdlt = codelets[n.name]
-            if codelets[n.name].is_noop():
-                if verbose:
-                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
-                continue
+        if finalize_instructions:
             if verbose:
-                print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
-            self.instantiate_instructions_templates(n, codelets[n.name])
+                print(f"\nCompilation stages took {time() - stage_start} seconds")
+                print(f"\nFinalizing instruction templates")
+            for n in node_sequence:
+                cdlt = codelets[n.name]
+                if codelets[n.name].is_noop():
+                    if verbose:
+                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                    continue
+                if verbose:
+                    print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
+                self.instantiate_instructions_templates(n, codelets[n.name])
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")

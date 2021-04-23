@@ -26,6 +26,7 @@ def gemm(hag: ArchitectureNode):
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(bias[p], ["DRAM", "BBUF"])
                     cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    out.set_write_destination("OBUF")
                     cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
                     cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
 
@@ -60,6 +61,7 @@ def gemm_no_bias(hag: ArchitectureNode):
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    out.set_write_destination("OBUF")
                     cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
                     cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
 
@@ -97,6 +99,7 @@ def conv2d(hag: ArchitectureNode):
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    out.set_write_destination("OBUF")
                                     cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
                                     cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
 
@@ -152,6 +155,7 @@ def conv2d_bias(hag: ArchitectureNode):
                                     cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    out.set_write_destination("OBUF")
                                     cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
                                     # cdlt.compute("MVMUL", [data[n, ic, y*"stride" + kh, x*"stride" + kw], weight[oc, ic, kh, kw], bias[oc]], [out[n, oc, y, x]], target="pe_array")
                                     cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
@@ -193,6 +197,7 @@ def elem_add(hag: ArchitectureNode):
                     with Loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
                         cdlt.compute("ADD", [op1, op2], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -212,6 +217,8 @@ def elem_add_grad(hag: ArchitectureNode):
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
+                        op1_grad.set_write_destination("VMEM1")
+                        op2_grad.set_write_destination("VMEM1")
                         cdlt.compute("MULADD", [op1, op2, grad], [op1_grad, op2_grad], target="SIMD")
                         cdlt.transfer(op1_grad[n, c, h, w], ["VMEM1", "DRAM"])
                         cdlt.transfer(op2_grad[n, c, h, w], ["VMEM1", "DRAM"])
@@ -227,6 +234,7 @@ def sgd1d(hag: ArchitectureNode):
         with Loop(0, "N") as n:
             cdlt.transfer(param[n], ["DRAM", "VMEM1"])
             cdlt.transfer(grad[n], ["DRAM", "VMEM2"])
+            updated_param.set_write_destination("VMEM1")
             cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
             cdlt.transfer(updated_param[n], ["VMEM1", "DRAM"])
     return cdlt
@@ -241,6 +249,7 @@ def sgd2d(hag: ArchitectureNode):
             with Loop(0, "C") as c:
                 cdlt.transfer(param[n, c], ["DRAM", "VMEM1"])
                 cdlt.transfer(grad[n, c], ["DRAM", "VMEM2"])
+                updated_param.set_write_destination("VMEM1")
                 cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
                 cdlt.transfer(updated_param[n, c], ["VMEM1", "DRAM"])
     return cdlt
@@ -256,6 +265,7 @@ def sgd3d(hag: ArchitectureNode):
                 with Loop(0, "W") as w:
                     cdlt.transfer(param[c, h, w], ["DRAM", "VMEM1"])
                     cdlt.transfer(grad[c, h, w], ["DRAM", "VMEM2"])
+                    updated_param.set_write_destination("VMEM1")
                     cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
                     cdlt.transfer(updated_param[c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -272,6 +282,7 @@ def sgd4d(hag: ArchitectureNode):
                     with Loop(0, "W") as w:
                         cdlt.transfer(param[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
+                        updated_param.set_write_destination("VMEM1")
                         cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
                         cdlt.transfer(updated_param[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -290,6 +301,7 @@ def batch_norm(hag: ArchitectureNode):
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
                         cdlt.compute("MULADD", [data, scale, offset], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -317,6 +329,9 @@ def batchnorm_grad(hag: ArchitectureNode):
                         cdlt.transfer(mean[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(var[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
+                        data_grad.set_write_destination("VMEM1")
+                        scale_grad.set_write_destination("VMEM1")
+                        offset_grad.set_write_destination("VMEM1")
                         cdlt.compute("MULADD", [data, scale, offset, mean, var, grad], [data_grad, scale_grad, offset_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
                         cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
@@ -342,6 +357,7 @@ def reduce_sum(hag: ArchitectureNode):
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
                 cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                out.set_write_destination("VMEM1")
                 cdlt.compute("ADD", [data, data], [out], target="SIMD")
                 cdlt.transfer(out[c], ["VMEM1", "DRAM"])
 
@@ -358,6 +374,7 @@ def cross_entropy_loss(hag: ArchitectureNode):
                 with Loop(0, "C") as c:
                     cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
                     cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                    loss.set_write_destination("VMEM1")
                     cdlt.compute("ADD", [res, target], [loss], target="SIMD")
                     cdlt.transfer(loss[d], ["VMEM1", "DRAM"])
     return cdlt
@@ -365,7 +382,7 @@ def cross_entropy_loss(hag: ArchitectureNode):
 
 def relu(hag: ArchitectureNode):
     op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out_relu", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("relu", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
@@ -374,6 +391,7 @@ def relu(hag: ArchitectureNode):
                 with Loop(0, "H") as h:
                     with Loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -391,6 +409,7 @@ def relu_grad(hag: ArchitectureNode):
                     with Loop(0, "W") as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM1"])
+                        data_grad.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
@@ -405,7 +424,7 @@ def maxpool2d(hag: ArchitectureNode):
     with Codelet("max_pool", [data], [out], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0)
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
@@ -414,6 +433,7 @@ def maxpool2d(hag: ArchitectureNode):
                         with Loop(0, "OH") as y:
                             with Loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
+                                out.set_write_destination("VMEM1")
                                 cdlt.compute("MAX", [data, data], [out], target="SIMD")
                                 cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
     return cdlt
@@ -428,7 +448,7 @@ def max_pool_grad(hag: ArchitectureNode):
     with Codelet("max_pool_grad", [data, grad], [data_grad], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0)
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
@@ -438,6 +458,7 @@ def max_pool_grad(hag: ArchitectureNode):
                             with Loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, y, x], ["DRAM", "VMEM1"])
+                                data_grad.set_write_destination("VMEM1")
                                 cdlt.compute("MAX", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, y*"sy" + kh, x*"sx" + kw], ["VMEM1", "DRAM"])
     return cdlt
@@ -454,7 +475,7 @@ def global_average_pool_grad(hag: ArchitectureNode):
     with Codelet("global_average_pool_grad", [data, grad], [data_grad], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0)
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
@@ -464,6 +485,7 @@ def global_average_pool_grad(hag: ArchitectureNode):
                             with Loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy, ix], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, oy, ox], ["DRAM", "VMEM1"])
+                                data_grad.set_write_destination("VMEM1")
                                 cdlt.compute("MEAN", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, iy, ix], ["VMEM1", "DRAM"])
     return cdlt
@@ -478,10 +500,10 @@ def global_avg_pool(hag: ArchitectureNode):
     with Codelet("global_avg_pool", [data], [out], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
         denom = FlexParam("denom", ["IH", "IW"], "IH*IW")
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        temp_op = cdlt.create_temp_operand([1], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=denom, index=0)
+        cdlt.configure("start", "IMM", immediate_value=0, index=1)
+        denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
         with Loop(0, "N") as n:
             with Loop(0, "C") as c:
                 with Loop(0, "IH") as iy:
@@ -489,10 +511,12 @@ def global_avg_pool(hag: ArchitectureNode):
                         with Loop(0, "OH") as oy:
                             with Loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy + oy, ix + ox], ["DRAM", "VMEM1"])
+                                # TODO: Zero out output data at compile time
                                 cdlt.transfer(out[n, c, oy, ox], ["DRAM", "VMEM2"])
+                                out.set_write_destination("VMEM2")
                                 cdlt.compute("ADD", [data, out], [out], target="SIMD")
-                                # cdlt.compute("DIV", [out, temp_op], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
+                cdlt.compute("DIV", [out, denom_op], [out], target="SIMD")
+                cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
     return cdlt
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):
@@ -508,6 +532,8 @@ def cross_entropy_loss_grad(hag: ArchitectureNode):
                     cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                     cdlt.transfer(target[n], ["DRAM", "VMEM2"])
                     cdlt.transfer(grad[d], ["DRAM", "VMEM2"])
+                    data_grad.set_write_destination("VMEM1")
+
                     cdlt.compute("ADD", [data, target, grad], [data_grad], target="SIMD")
                     cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt

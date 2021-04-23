@@ -307,6 +307,7 @@ class OperandTemplate:
     data_path: List[str] = field(default_factory=list)
     dtype: Datatype = field(default=None)
     node_name: str = field(default=None)
+    write_destination: str = field(default=None)
     evaluated_tiling: List[Tuple[str, List]] = field(default_factory=list, init=False)
     dependencies: List[str] = field(default_factory=list)
     data_moves: List[DataMovement] = field(default_factory=list)
@@ -459,6 +460,9 @@ class OperandTemplate:
         assert len(offsets) == len(self.shape_list)
         return IndexedOperandTemplate(self, offsets)
 
+    def set_write_destination(self, location):
+        self.write_destination = location
+
     def get_access_offsets(self, offsets):
         if len(offsets) == 0 and len(self.data_moves) > 0:
             a_offsets = {}
@@ -506,8 +510,8 @@ class OperandTemplate:
                     else:
                         self.data_moves[-1].dst_node = src
 
-                    if self.data_moves[-1].unset_offsets:
-                        self.data_moves[-1].reinit_offset_map(self.get_access_offsets(offsets))
+            if len(self.data_moves) > 0 and self.data_moves[-1].unset_offsets:
+                self.data_moves[-1].reinit_offset_map(self.get_access_offsets(offsets))
 
             dm_offsets = self.get_access_offsets(offsets)
             shape = self.get_shape_map(sizes[i])
@@ -528,15 +532,21 @@ class OperandTemplate:
         if operand_type == "source":
             src = self.current_location
             dst = target
+            if self.current_location != target:
+                self.data_path.append(target)
         else:
             src = target
-            dst = None
+            # assert self.write_destination is not None
+
+            dst = self.write_destination
+
+            if self.current_location != target:
+                self.data_path.append(target)
+            if self.current_location != self.write_destination and self.write_destination is not None:
+                self.data_path.append(self.write_destination)
 
         movement = DataMovement(src, dst, self.name, self.shape_list.copy(), op_name, shape, offsets)
         self.data_moves.append(movement)
-
-        if self.current_location != target:
-            self.data_path.append(target)
 
         return self
 
@@ -708,7 +718,6 @@ class OperandTemplate:
         level_shapes = {}
         assert len(hag.node_levels[0]) == 1
         level_shapes[0] = initial_size
-
         for i, access in enumerate(self.data_moves):
             access_level = hag.get_node_level(access.dst_node)
 
@@ -717,7 +726,6 @@ class OperandTemplate:
             else:
                 #TODO: Come back to this code
                 access.resolve_offsets(cdlt)
-
 
         first_tile = True
         # TODO: Add checks here
@@ -749,7 +757,8 @@ class OperandTemplate:
                                   node_name=self.node_name,
                                   permutation=self.permutation,
                                   data_moves=deepcopy(self.data_moves),
-                                  operand_type=self.operand_type)
+                                  operand_type=self.operand_type,
+                                  write_destination=self.write_destination)
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
         return op_temp
 

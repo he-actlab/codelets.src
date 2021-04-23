@@ -53,7 +53,6 @@ class Transfer(Operation):
         for r, v in self.operand.required_params.items():
             if r not in self.resolved_params:
                 self._required_params[r] = None
-        # self._required_params += [r for r in self.operand.required_params if r not in self.required_params]
 
     @property
     def path(self):

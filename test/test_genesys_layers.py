@@ -145,8 +145,10 @@ def test_genesys_conv_bias():
     print(res)
 
 def test_genesys_conv_resnet50():
-    layer_name = "resnet50_conv"
-    batch_size = 16
+    # layer_name = "resnet50_conv"
+    layer_name = "resnet50_globalaveragepool"
+    # layer_name = "resnet50_relu"
+    batch_size = 1
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -162,13 +164,17 @@ def test_genesys_conv_resnet50():
                               store_checkpoint=False,
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
-                              verbose=True,
+                              verbose=False,
                               benchmark_path=BENCH_DIR,
                               factor_fn='default',
-                                    batch_size=batch_size
+                            batch_size=batch_size,
+                            do_hoist_stage=True,
+                            do_tile_stage=True,
+                            print_config=False
                               )
-    res = program.emit("json_no_ops")
-    pprint(res)
+    res = program.emit("operations_idx")
+    print(res)
+    # pprint(res)
 
 
 @pytest.mark.parametrize('filtered_layers',[
