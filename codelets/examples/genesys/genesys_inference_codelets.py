@@ -144,6 +144,7 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
+
         with Loop(0, "OC") as oc:
             with Loop(0, "N") as n:
                 with Loop(0, "IC") as ic:
@@ -167,16 +168,16 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "OH", "OW", "N", "KH", "KW"])
     wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
     obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
-    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
-    cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
+    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
+    # cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
     cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
-    cdlt.add_compilation_param("OH_hint2", f"size == 1")
-    cdlt.add_compilation_param("OW_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
     cdlt.add_compilation_param("KH_hint2", f"size == 1")
     cdlt.add_compilation_param("KW_hint2", f"size == 1")
     cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
@@ -394,6 +395,8 @@ def relu(hag: ArchitectureNode):
                         out.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
+
     return cdlt
 
 def relu_grad(hag: ArchitectureNode):
@@ -433,8 +436,10 @@ def maxpool2d(hag: ArchitectureNode):
                         with Loop(0, "OH") as y:
                             with Loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
+                                # TODO: Initialize output as negative infinity at compile time
+                                cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM1")
-                                cdlt.compute("MAX", [data, data], [out], target="SIMD")
+                                cdlt.compute("MAX", [data, out], [out], target="SIMD")
                                 cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
     return cdlt
 

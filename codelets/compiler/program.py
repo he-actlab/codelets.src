@@ -21,6 +21,7 @@ class CompilationStage:
     compilation_fn: Callable
     dependencies: List[str]
     fn_kwargs: Dict[str, Any] = field(default_factory=dict)
+    skip_noops: bool = field(default=True)
 
     def __post_init__(self):
         # TODO: Check function signature
@@ -71,7 +72,7 @@ class CodeletProgram(object):
         return self._compilation_pipeline
 
     @property
-    def preproc_steps(self) -> Dict[int, List]:
+    def preproc_steps(self) -> Dict[int, List[CompilationStage]]:
         return self._preproc_steps
 
     @property
@@ -134,6 +135,7 @@ class CodeletProgram(object):
                              level='codelet',
                              dependencies=None,
                              stage_kwargs=None,
+                             skip_noops=True,
                              insert_idx=-1,
                              preproc=False
                              ):
@@ -150,7 +152,7 @@ class CodeletProgram(object):
         for d in dependencies:
             assert d in level_names
 
-        fn_obj = CompilationStage(name, level, compilation_fn, dependencies, stage_kwargs)
+        fn_obj = CompilationStage(name, level, compilation_fn, dependencies, fn_kwargs=stage_kwargs, skip_noops=skip_noops)
         if preproc:
             if insert_idx >= 0:
                 self._preproc_steps[level].insert(insert_idx, fn_obj)
@@ -324,12 +326,16 @@ class CodeletProgram(object):
         for level, fns in self.preproc_steps.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-                if cdlt.is_noop():
-                    if verbose:
-                        print(f"Skipping NOOP {cdlt.op_name}")
-                    continue
+                # if cdlt.is_noop():
+                #     if verbose:
+                #         print(f"Skipping NOOP {cdlt.op_name}")
+                #     continue
 
                 for fn in fns:
+                    if cdlt.is_noop() and fn.skip_noops:
+                        if verbose:
+                            print(f"Skipping NOOP {cdlt.op_name}")
+                        continue
                     if verbose:
                         print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)
@@ -360,12 +366,16 @@ class CodeletProgram(object):
         for level, fns in self.compilation_pipeline.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-                if cdlt.is_noop():
-                    if verbose:
-                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
-                    continue
+                # if cdlt.is_noop():
+                #     if verbose:
+                #         print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                #     continue
 
                 for fn in fns:
+                    if cdlt.is_noop() and fn.skip_noops:
+                        if verbose:
+                            print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                        continue
                     if verbose:
                         print(f"Applying stage {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)

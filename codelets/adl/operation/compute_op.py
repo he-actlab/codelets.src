@@ -167,7 +167,6 @@ class Compute(Operation):
         #     path_key = (self.target)
         #     src_shape, dst_shape = get_transfer_dim_sizes(d, path_key)
 
-
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":

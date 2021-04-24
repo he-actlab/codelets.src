@@ -16,7 +16,7 @@ FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': fa
                  'level': level_factors
                  }
 
-@memoize
+# @memoize
 def get_sizes_from_splits(loops, shapes, splits):
     out_shapes = []
 
@@ -43,7 +43,8 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: Ti
                 # TODO: Need to add something which adds padding function here and uses a function constraint
             elif dst_node.node_type == 'storage':
                 if src_node.node_type == 'compute':
-                    constraint = f"size == {edge.bandwidth}"
+                    # constraint = f"size == {edge.bandwidth}"
+                    constraint = f"size <= {dst_node.size}"
                 else:
                     assert src_node.node_type == 'storage'
                     constraint = f"size <= {dst_node.size} and size >= 0"

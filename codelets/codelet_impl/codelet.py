@@ -274,6 +274,9 @@ class Codelet(object):
 
         return bands
 
+    def execute(self, program, operand_mappings):
+        pass
+
     def extract_bands(self):
         bands = []
         start_idx = None
@@ -737,6 +740,12 @@ class Codelet(object):
         for operand in self.operands:
             operand.evaluate_operand(node, hag, self)
 
+    def get_operand_by_node_name(self, node_name):
+        for o in self.operands:
+            if o.node_name == node_name:
+                return o
+        raise KeyError(f"Unable to find operand with node name {node_name}\n"
+                       f"Operand node names: {[o.node_name for o in self.operands]}")
 
     def get_operand_shapes(self):
         shape_dims = {}

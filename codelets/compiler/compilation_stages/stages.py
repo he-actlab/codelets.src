@@ -23,6 +23,17 @@ NOOPS = ['coarse_flatten']
 STANDARD_SHAPE_OPS = ['elem_add', 'relu', 'global_avg_pool', 'batch_norm', 'sgd4d',
                       'max_pool_grad', 'global_average_pool_grad', 'relu_grad', 'elem_add_grad']
 
+INTERMEDIATE_INPUT_INDICES = {
+    "conv": [0],
+    "conv_bias": [0],
+    "relu": [0],
+    "max_pool": [0],
+    "global_avg_pool": [0],
+    "batch_normalization": [0],
+    "elem_add": [0, 1],
+    "gemm": [0]
+}
+
 def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
     if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
         cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
@@ -34,6 +45,25 @@ def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=Non
         for o in cdlt.operands:
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
+
+def add_simd_typecast(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
+    if cdlt.is_noop():
+        assert node.op_name == "coarse_flatten"
+        dtype_map[node.outputs[0].name] = dtype_map[node.inputs[0].name]
+        codelet_output_map[node.outputs[0].name] = codelet_output_map[node.inputs[0].name]
+    else:
+        if cdlt.instance_id != 1:
+            assert cdlt.op_name in INTERMEDIATE_INPUT_INDICES
+            for idx in INTERMEDIATE_INPUT_INDICES[cdlt.op_name]:
+                i = node.inputs[idx]
+                operand = cdlt.get_operand_by_node_name(i.name)
+                if i.name not in dtype_map:
+                    print(f"Node {i.name}, Operand {operand.name} for {cdlt.op_name} not in dtype map.")
+        for o in node.outputs:
+            dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
+            codelet_output_map[o.name] = f"{cdlt.op_name}{cdlt.instance_id}"
+    return cdlt
+
 
 def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     assert isinstance(shaped_nodes, dict)
