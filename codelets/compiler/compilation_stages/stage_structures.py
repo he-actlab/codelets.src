@@ -34,6 +34,7 @@ class TilingInfo:
     accumulated_splits: Dict[str, int] = field(default_factory=dict)
     level_factors: Dict[int, Dict] = field(default_factory=lambda: defaultdict(dict))
     factor_fn_name: str = field(default='default')
+    print_debug: bool = field(default=True)
 
     def __post_init__(self):
         for i in range(self.levels):
@@ -133,7 +134,7 @@ class TilingInfo:
             if not constraint_sat:
                 valid_splits = None
                 break
-
+        self.print_debug = False
         return valid_splits
 
     def update_loop_order(self, cdlt):

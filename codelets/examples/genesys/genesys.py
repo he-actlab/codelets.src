@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets.adl.flex_template import Instruction
-from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
+from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, add_simd_typecast
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
 from .genesys_inference_codelets import GENESYS_CODELETS
@@ -254,9 +254,7 @@ def compile_genesys(model_name,
     else:
         def_cfg = GENESYS_CFG
 
-    if print_config:
-        print(f"Compiling model with the following config:\n")
-        pprint(def_cfg)
+
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
@@ -276,7 +274,16 @@ def compile_genesys(model_name,
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
     graph = layout_pass(graph)
+
     genesys = define_genesys(def_cfg)
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        sizes_cfg = def_cfg.copy()
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        pprint(sizes_cfg)
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
@@ -287,6 +294,9 @@ def compile_genesys(model_name,
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
+                                 skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
@@ -345,10 +355,6 @@ def compile_genesys_layer(layer_file,
     else:
         def_cfg = GENESYS_CFG
 
-    if print_config:
-        print(f"Compiling model with the following config:\n")
-        pprint(def_cfg)
-
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
@@ -358,6 +364,14 @@ def compile_genesys_layer(layer_file,
     graph = multi_dim_pass(graph)
     graph = layout_pass(graph)
     genesys = define_genesys(def_cfg)
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        sizes_cfg = def_cfg.copy()
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
@@ -377,6 +391,8 @@ def compile_genesys_layer(layer_file,
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     else:
         finalize_instructions = False
+    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)

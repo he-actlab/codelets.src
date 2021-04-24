@@ -116,9 +116,10 @@ def test_genesys_model():
                               store_tiling=store_tiling,
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
-                              verbose=True,
+                              verbose=False,
                               benchmark_path=BENCH_DIR,
-                              factor_fn='default'
+                              factor_fn='default',
+                              print_config=True
                               )
-    res = program.emit("string_final")
-    print(res)
+    res = program.emit("json_no_ops")
+    pprint(res)
