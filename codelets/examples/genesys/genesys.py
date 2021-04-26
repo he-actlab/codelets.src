@@ -294,9 +294,9 @@ def compile_genesys(model_name,
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
-                                 skip_noops=False)
+    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
+    #                              skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
@@ -391,8 +391,8 @@ def compile_genesys_layer(layer_file,
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     else:
         finalize_instructions = False
-    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
+    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)
