@@ -286,7 +286,7 @@ def create_simd_ops():
             instr_temp = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
             instructions.append(instr_temp)
 
-    LD_ST_NS = {"VMEM1": 1, "VMEM2": 2}
+    LD_ST_NS = {"VMEM1": 1, "VMEM2": 2, "OBUF": 3}
     for op_type_list in [LD_ST_OPS]:
         op_code = op_type_list[0]
         op_fnctions = op_type_list[1]

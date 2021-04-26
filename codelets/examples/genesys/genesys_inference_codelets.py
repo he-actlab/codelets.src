@@ -391,10 +391,16 @@ def relu(hag: ArchitectureNode):
             with Loop(0, "C") as c:
                 with Loop(0, "H") as h:
                     with Loop(0, "W") as w:
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        # cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        # out.set_write_destination("VMEM1")
+                        # cdlt.compute("RELU", [op1], [out], target="SIMD")
+                        # cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "OBUF"])
                         out.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
 
     return cdlt
