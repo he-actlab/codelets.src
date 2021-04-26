@@ -15,7 +15,7 @@ SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias']
 SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization',
               'sgd4', 'elem_add_grad', 'sgd4d']
 POOL_OPS = ['max_pool', 'global_avg_pool']
-BINARY_SIMD = ['elem_add', 'sgd4d', 'relu_grad', 'elem_add_grad', 'global_average_pool_grad', 'relu_grad',
+BINARY_SIMD = ['elem_add', 'sgd4d', 'elem_add_grad', 'global_average_pool_grad', 'relu_grad',
                'sgd4d', 'max_pool_grad']
 
 UNARY_SIMD = ['relu', 'max_pool', 'global_avg_pool']
@@ -183,6 +183,9 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
         elif cdlt.op_name == 'global_avg_pool':
             cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
             cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
+        else:
+            cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+            cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
 
     elif cdlt.op_name in ['sgd1d', 'sgd2d']:
         simd_constraint = program.hag.get_subgraph_node("SIMD").dimensions[0]

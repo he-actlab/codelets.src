@@ -7,34 +7,6 @@ from codelets.adl.flex_param import FlexParam
 CodeletOperand = namedtuple('OperandTemplate', ['field_name', 'supported_dtypes'])
 
 
-INSTR_TEMPLATE = """
-<%inherit file="{OP_NAME}"/>
-<%def field_name="emit_single(output_type{ITER_ARGS})">
-% if {CONDITIONAL_STATEMENT}:
-    % if output_type == "binary":
-        ${{instruction.bin()}}\
-        % for field in instruction.fields:
-            ${{field.emit(output_type{ITER_ARGS})}}\
-        % endfor
-    % else:
-        ${{instruction.opname}} \
-        % for field in instruction.fields:
-            ${{field.emit(output_type)}}${{'' if loop.last else ','}}\
-        % endfor  
-    % endif
-% endif
-</%def>
-<%def field_name="emit(output_type)">
-    % if len(instruction.iter_args) == 0:
-        ${{emit_single(output_type{ITER_ARGS})}}
-    % else:    
-        % for iter_val in instruction.iter_args:
-            ${{emit_single(output_type{ITER_ARGS})}}
-        % endfor 
-    % endif 
-</%def>
-"""
-
 
 
 class Instruction(object):
@@ -79,6 +51,9 @@ class Instruction(object):
 
     def bin(self) -> str:
         return np.binary_repr(self.opcode, self.opcode_width)
+
+    def decimal(self) -> str:
+        return str(self.opcode)
 
     @property
     def latency(self) -> Union[int, Callable]:
@@ -216,12 +191,15 @@ class Instruction(object):
     # TODO: perform check for evaluated params
     def emit(self, output_type):
         instruction = []
-        if output_type == "binary":
+        if output_type in ["binary", "decimal"]:
             instruction.append(self.bin())
             for f in self.fields:
                 f_bin = f.emit(output_type)
                 instruction.append(f_bin)
-            return "".join(instruction)
+            if output_type == "decimal":
+                return str(int("".join(instruction), 2))
+            else:
+                return "".join(instruction)
         else:
             start = f"{self.opname} "
             for f in self.fields:

@@ -94,13 +94,11 @@ class Field:
                 return f"${{{self.param_fn}}}"
         elif output_type == "string_placeholders":
             return f"$({self.field_name})"
-        elif output_type == "decimal":
-            assert self.isset
-            return f"{self.value}"
         else:
-            assert output_type == "binary"
+            assert output_type in ["binary", "decimal"]
             assert self.isset
             bin_rep = np.binary_repr(self.value, self.bitwidth)
+            # assert len(bin_rep) == self.bitwidth
             return f"{bin_rep}"
 
     def copy(self):

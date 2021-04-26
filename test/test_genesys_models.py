@@ -80,7 +80,7 @@ def test_genesys_model():
     model_name = 'resnet18'
 
     # Determines whether to compile a training model or not
-    train = False
+    train = True
 
     # GENESYS_DTYPES['SIMD'] = 'FXP16'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'

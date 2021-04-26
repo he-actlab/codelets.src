@@ -145,7 +145,7 @@ def test_genesys_conv_bias():
     print(res)
 
 def test_genesys_conv_resnet50():
-    layer_name = "resnet50_conv"
+    layer_name = "resnet50_relu"
     # layer_name = "resnet50_globalaveragepool"
     # layer_name = "resnet50_maxpool"
     batch_size = 1
