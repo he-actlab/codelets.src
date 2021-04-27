@@ -11,7 +11,8 @@ CodeletOperand = namedtuple('OperandTemplate', ['field_name', 'supported_dtypes'
 
 class Instruction(object):
     STR_FN_ARGS = "program, hag, relocation_table, cdlt, op{OTHERS}"
-    DEFAULT_FN_ARGS = ["program", "hag", "relocation_table", "cdlt", "op"]
+    DEFAULT_FN_ARGS = ["program", "hag", "relocation_table", "cdlt", "op", "template"]
+    SELF_ARG = ["instruction"]
     # TODO: Add test for
     def __init__(self, opname, opcode, opcode_width, fields,
                  target=None,
@@ -27,6 +28,7 @@ class Instruction(object):
         self._fields = fields
         self._field_values = field_values or {}
         self._field_map = {f.field_name: f for f in fields}
+        self._tabs = None
 
 
     @property
@@ -42,6 +44,10 @@ class Instruction(object):
         return self._target
 
     @property
+    def tabs(self):
+        return self._tabs
+
+    @property
     def opcode_width(self) -> int:
         return self._opcode_width
 
@@ -54,6 +60,10 @@ class Instruction(object):
 
     def decimal(self) -> str:
         return str(self.opcode)
+
+    def set_tabs(self, tabs: int):
+        assert self.tabs is None and tabs >= 0
+        self._tabs = tabs
 
     @property
     def latency(self) -> Union[int, Callable]:
@@ -167,7 +177,7 @@ class Instruction(object):
             raise ValueError(f"Param function for {field_name} is already set:\n"
                              f"Set param fn: {field.param_fn}\n"
                              f"New param fn: {param_fn}")
-        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS, param_fn)
+        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param)
 
     def set_field_flex_param_str(self, field_name: str, param_fn: str):
@@ -179,11 +189,12 @@ class Instruction(object):
             raise ValueError(f"Param function for {field_name} is already set:\n"
                              f"Set param fn: {field.param_fn}\n"
                              f"New param fn: {param_fn}")
-        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS, param_fn)
+        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param, eval_type="string")
 
 
     def evaluate_fields(self, fn_args: tuple, iter_args: dict):
+        fn_args = fn_args + (self,)
         for f in self.fields:
             if not f.isset:
                 f.set_value_from_param_fn(*fn_args, **iter_args)
@@ -201,7 +212,8 @@ class Instruction(object):
             else:
                 return "".join(instruction)
         else:
+            assert self.tabs is not None
             start = f"{self.opname} "
             for f in self.fields:
                 instruction.append(f.emit(output_type))
-            return start + ", ".join(instruction)
+            return self.tabs*"\t" + start + ", ".join(instruction)

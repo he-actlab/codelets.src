@@ -22,59 +22,6 @@ def parse_cfg():
         genesys = json.load(f)
     return genesys
 
-def test_genesys_resnet18():
-    graph = pm.pb_load(f"{MODEL_DIR}/resnet18.srdfg")
-    genesys = define_genesys(GENESYS_CFG)
-    program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    program.add_compilation_step("tile", tile)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    program.compile(tiling_path=f"{TILING_DIR}/resnet18_tiling_info.json")
-
-    # program.compile()
-    # program.store_tiling(f"{TILING_DIR}")
-
-    res = program.emit("json_no_ops")
-    pprint(res)
-
-def test_genesys_resnet50():
-    graph = pm.pb_load(f"{MODEL_DIR}/resnet50.srdfg")
-    genesys = define_genesys(GENESYS_CFG)
-    program = initialize_program(graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    program.add_compilation_step("tile", tile)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    # program.compile(tiling_path=f"{TILING_DIR}/resnet18_tiling_info.json")
-
-    program.compile()
-    program.store_tiling(f"{TILING_DIR}")
-
-    res = program.emit("json_no_ops")
-    pprint(res)
-
-def test_genesys_resnet18_train():
-    graph = pm.pb_load(f"{MODEL_DIR}/resnet18_train.srdfg")
-
-    train_graph = pm.create_training_graph(graph)
-    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    multi_dim_pass = pm.RenameMultiDimOps()
-
-    train_graph = multi_dim_pass(train_graph)
-    train_graph = layout_pass(train_graph)
-
-    genesys = define_genesys(GENESYS_CFG)
-    #
-    program = initialize_program(train_graph, genesys, mode="training")
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    program.add_compilation_step("tile", tile)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    # program.compile(tiling_path=f"{TILING_DIR}/resnet18_tiling_info.json")
-    #
-    program.compile(verbose=True)
-    program.store_tiling(f"{TILING_DIR}")
-    #
-    res = program.emit("json_no_ops")
-    # pprint(res)
 
 def test_genesys_model():
     model_name = 'resnet18'
@@ -116,7 +63,7 @@ def test_genesys_model():
                               store_tiling=store_tiling,
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
-                              verbose=False,
+                              verbose=True,
                               benchmark_path=BENCH_DIR,
                               factor_fn='default',
                               print_config=True

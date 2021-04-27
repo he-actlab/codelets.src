@@ -139,6 +139,27 @@ class Operation(object):
     def dependencies(self, dependencies):
         self._dependencies = dependencies
 
+    def loop_dependencies(self):
+        deps = []
+        for d in self.dependencies:
+            if d[:4] == "loop":
+                deps.append(d)
+        return deps
+
+    def compute_dependencies(self):
+        deps = []
+        for d in self.dependencies:
+            if d[:7] == "compute":
+                deps.append(d)
+        return deps
+
+    def transfer_dependencies(self):
+        deps = []
+        for d in self.dependencies:
+            if d[:8] == "transfer":
+                deps.append(d)
+        return deps
+
     def unique_param_name(self, local_param_name):
         return f"{self.op_str}{local_param_name}"
 

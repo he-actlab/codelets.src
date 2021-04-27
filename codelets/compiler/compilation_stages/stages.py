@@ -498,6 +498,7 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
         if loop_level < i_loop_level and loop_level > 0:
             cdlt.ops[idx].loop_level = loop_level
+    compute_ops = cdlt.get_ops_by_type("compute")
     return cdlt
 
 

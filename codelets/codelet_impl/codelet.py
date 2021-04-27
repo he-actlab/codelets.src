@@ -423,10 +423,8 @@ class Codelet(object):
             for o in self.ops:
                 instr_list = o.emit(output_type)
                 if len(instr_list) > 0:
-                    ostr = f"\t" * (o.loop_level + 1)
-                    instr_list = f"\n{ostr}".join(instr_list)
-                    ostr += f"{instr_list}\n"
-                    op_str += ostr
+                    instr_list = f"\n".join(instr_list) + "\n"
+                    op_str += instr_list
         else:
             op_str = []
             for o in self.ops:
