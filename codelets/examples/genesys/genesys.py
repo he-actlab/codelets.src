@@ -27,68 +27,6 @@ INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
            "'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7}}"
 LD_ST_MAP = "{'LD': 0, 'ST': 1}"
 
-def generate_genesys(genesys_cfg):
-    genesys = ComputeNode("Genesys1")
-    compute = genesys_cfg['compute']
-    storage = genesys_cfg['storage']
-    sys_array_nodes = ["IBUF", "WBUF", "BBUF", "OBUF", "pe_array"]
-    # simd_caps = generate_simd_capabilities()
-    # sa_caps = generate_systolic_array_capabilities()
-    systolic_array = ComputeNode("systolic_array")
-
-    for name, attr in storage.items():
-        if "primitives" in attr:
-            attr.pop("primitives")
-        mem = StorageNode(name, **attr)
-
-        if name == "DRAM":
-            mem.on_chip = False
-
-        if name in sys_array_nodes:
-            systolic_array.add_subgraph_node(mem)
-        else:
-            genesys.add_subgraph_node(mem)
-
-    for name, attr in compute.items():
-        if "primitives" in attr:
-            attr.pop("primitives")
-        comp = ComputeNode(name, **attr)
-        if name in sys_array_nodes:
-            systolic_array.add_subgraph_node(comp)
-
-        else:
-            genesys.add_subgraph_node(comp)
-
-    systolic_array.add_subgraph_edge('IBUF', 'pe_array')
-    systolic_array.add_subgraph_edge('WBUF', 'pe_array')
-    systolic_array.add_subgraph_edge('BBUF', 'pe_array')
-    systolic_array.add_subgraph_edge('OBUF', 'pe_array')
-    systolic_array.add_subgraph_edge('pe_array', 'OBUF')
-    genesys.add_subgraph_node(systolic_array)
-
-    for p in GENESYS_INSTRUCTIONS['systolic_array']:
-        systolic_array.add_primitive(p)
-
-
-    simd = genesys.get_subgraph_node("SIMD")
-    #
-    # for c in simd_caps:
-    #     simd.add_primitive(c)
-
-    genesys.add_subgraph_edge('VMEM', 'SIMD')
-    genesys.add_subgraph_edge('SIMD', 'VMEM')
-    genesys.add_subgraph_edge('IMM', 'SIMD')
-    genesys.add_subgraph_edge('SIMD', 'IMM')
-
-    genesys.add_subgraph_edge('SIMD', 'DRAM')
-    genesys.add_subgraph_edge('DRAM', 'SIMD')
-    genesys.add_subgraph_edge('OBUF', 'SIMD')
-    add_genesys_templates(genesys)
-    add_genesys_codelets(genesys)
-
-    genesys.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
-    return genesys
-
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
 
@@ -157,9 +95,9 @@ def define_genesys(cfg):
         hag.add_subgraph_edge('SIMD', 'VMEM1', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('VMEM2', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('SIMD', 'VMEM2', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'OBUF', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        # hag.add_subgraph_edge('SIMD', 'DRAM', bandwidth=GENESYS_CFG['SIMD_WIDTH']*GENESYS_CFG['ACC_WIDTH'])
         hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=cfg['SIMD_CHANNEL_BW'])
         hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=cfg['SIMD_CHANNEL_BW'])
 

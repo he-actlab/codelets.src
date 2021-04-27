@@ -199,8 +199,10 @@ def elem_add(hag: ArchitectureNode):
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
                         out.set_write_destination("VMEM1")
+                        # out.set_write_destination("OBUF")
                         cdlt.compute("ADD", [op1, op2], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+                        # cdlt.transfer(out[n, c, h, w], ["OBUF", "DRAM"])
     return cdlt
 
 def elem_add_grad(hag: ArchitectureNode):
