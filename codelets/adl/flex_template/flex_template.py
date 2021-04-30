@@ -140,6 +140,11 @@ class FlexTemplate:
         instructions = self.evaluate_iterable_instructions(fn_args, 0, {})
         self.set_instructions(instructions)
 
+    def lazy_evaluate(self, program, hag, op_idx, cdlt_id):
+        fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
+        self.lazy_evaluate_iterable_instructions(fn_args, 0, {}, 0)
+
+
     def set_field_by_name(self, field_name, field_value, instr_name=None):
         if len(self.base_instructions) > 1 and instr_name is None:
             raise RuntimeError(f"Instruction name is a required parameter for setting field names in "
@@ -156,7 +161,7 @@ class FlexTemplate:
             base_instr = self.get_base_instr_by_index(instr_name)
         base_instr.set_field_by_name(field_name, field_value)
 
-    def set_field_flex_param(self, field_name, param_fn_str, instr_name=None):
+    def set_field_flex_param(self, field_name, param_fn_str, instr_name=None, lazy_eval=False):
 
         if len(self.base_instructions) > 1 and instr_name is None:
             raise RuntimeError(f"Instruction name is a required parameter for setting flex params in "
@@ -172,7 +177,7 @@ class FlexTemplate:
         else:
             assert isinstance(instr_name, int)
             base_instr = self.get_base_instr_by_index(instr_name)
-        base_instr.set_field_flex_param(field_name, param_fn_str)
+        base_instr.set_field_flex_param(field_name, param_fn_str, lazy_eval=lazy_eval)
 
 
     def set_field_value(self, field_name, value, value_str=None, instr_name=None):
@@ -264,6 +269,33 @@ class FlexTemplate:
                 instructions += self.evaluate_iterable_instructions(fn_args, iter_idx, iter_args)
 
         return instructions
+
+    def lazy_evaluate_iterable_instructions(self, fn_args: tuple, iter_idx: int, iter_args: dict, instr_idx: int):
+
+        if len(self.instructions) <= instr_idx:
+            return instr_idx
+        elif iter_idx >= len(self.iterables):
+            for bi_idx in range(len(self.base_instructions)):
+                bi_instr = self.base_instructions[bi_idx]
+                instruction = self.instructions[instr_idx]
+                condition = self.evaluate_conditional(fn_args + (bi_instr,), iter_args)
+
+                if condition:
+                    field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
+                    instruction.evaluate_lazy_fields(fn_args, field_args)
+                    self.evaluate_side_effects(fn_args, iter_args)
+                    instr_idx += 1
+        else:
+            iter_arg_name = self.iter_args[iter_idx]
+            iterable_fnc = self.iterables[iter_idx]
+            # TODO: Add checks for validation here
+            iterable = iterable_fnc.evaluate_fn(*fn_args)
+            iter_idx += 1
+
+            for i in iterable:
+                iter_args[iter_arg_name] = i
+                instr_idx = self.lazy_evaluate_iterable_instructions(fn_args, iter_idx, iter_args, instr_idx)
+        return instr_idx
 
     def template_copy(self):
         return FlexTemplate([bi.instruction_copy() for bi in self.base_instructions],

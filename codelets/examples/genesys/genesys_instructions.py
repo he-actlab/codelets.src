@@ -33,11 +33,21 @@ SIMD_LOOP_OPS = (7, SIMD_LOOP_NAMES, "LOOP")
 PERM_OPS = (8, PERM_OP_NAMES, "PERMUTATION")
 
 # LOOP INSTR
-def loop_instr():
-    llevel = Field("LOOP_LEVEL", 6)
+def loop_cfg_instr():
+    cfg = Field("LOOP_CFG", 6)
+    cfg.set_value(0)
     loop_id = Field("LOOP_ID", 6)
     iterations = Field("NUM_ITERATIONS", 16)
-    instr_temp = Instruction("SA_LOOP", 9, OPCODE_WIDTH, (llevel, loop_id, iterations))
+    instr_temp = Instruction("SA_LOOP_CFG", 9, OPCODE_WIDTH, (cfg, loop_id, iterations))
+
+    return instr_temp
+
+def specific_loop_instr():
+    ic_loop = Field("IC_LOOP", 6)
+    ic_loop.set_value(1 << 5)
+    loop_id = Field("LOOP_ID", 6)
+    loop_type = Field("LOOP_TYPE", 16, value_names={"INNER": 1, "OUTER": 0})
+    instr_temp = Instruction("SA_LOOP_IC", 9, OPCODE_WIDTH, (ic_loop, loop_id, loop_type))
 
     return instr_temp
 
@@ -423,6 +433,6 @@ def create_simd_ops():
 
 
 GENESYS_INSTRUCTIONS = {
-    "systolic_array": [loop_instr(), loop_stride_instr(), group_instr(), base_addr_instr(), block_instr(), load_store()],
+    "systolic_array": [specific_loop_instr(), loop_cfg_instr(), loop_stride_instr(), group_instr(), base_addr_instr(), block_instr(), load_store()],
     "SIMD": create_simd_ops()
 }

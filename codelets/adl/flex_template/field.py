@@ -26,6 +26,7 @@ class Field:
     value_str: str = field(default=None)
     param_fn: FlexParam = field(default=None, init=False)
     param_fn_type: str = field(default="int")
+    lazy_eval: bool = field(default=False)
 
 
     @property
@@ -107,4 +108,5 @@ class Field:
 
         flex_param = None if not self.param_fn else self.param_fn.copy()
         field.param_fn = flex_param
+        field.lazy_eval = self.lazy_eval
         return field

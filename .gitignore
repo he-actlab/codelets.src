@@ -124,6 +124,7 @@ mldata/
 
 # Scratch code
 test/scratch/
+test/compilation_output
 
 # TODO info
 TODO*

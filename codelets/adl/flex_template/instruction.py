@@ -168,7 +168,7 @@ class Instruction(object):
         if value_str:
             self.field_map[name] = value_str
 
-    def set_field_flex_param(self, field_name: str, param_fn: str):
+    def set_field_flex_param(self, field_name: str, param_fn: str, lazy_eval=False):
         if field_name not in self.field_names:
             raise ValueError(f"{field_name} is not a field for instruction  {self.name}:\n"
                              f"Fields: {self.fields}")
@@ -179,6 +179,7 @@ class Instruction(object):
                              f"New param fn: {param_fn}")
         flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param)
+        field.lazy_eval = lazy_eval
 
     def set_field_flex_param_str(self, field_name: str, param_fn: str):
         if field_name not in self.field_names:
@@ -197,6 +198,12 @@ class Instruction(object):
         fn_args = fn_args + (self,)
         for f in self.fields:
             if not f.isset:
+                f.set_value_from_param_fn(*fn_args, **iter_args)
+
+    def evaluate_lazy_fields(self, fn_args: tuple, iter_args: dict):
+        fn_args = fn_args + (self,)
+        for f in self.fields:
+            if f.lazy_eval:
                 f.set_value_from_param_fn(*fn_args, **iter_args)
 
     # TODO: perform check for evaluated params

@@ -169,8 +169,9 @@ class Transfer(Operation):
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
-            op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}," \
-                     f"OFFSETS: {self.offsets}"
+            # op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}," \
+            #          f"OFFSETS: {self.offsets}"
+            op_str = f"{self.op_str}: OPERAND: {self.operand.name}[{'->'.join(self.path)}], SIZES: {self.sizes}"
         elif output_type == "json":
             transfer_info = {}
             for move in self.operand.data_moves:
