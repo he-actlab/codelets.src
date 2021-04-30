@@ -193,7 +193,7 @@ def compile_genesys(model_name,
         def_cfg = GENESYS_CFG
 
 
-    if model_name not in ['resnet50', 'resnet18', 'maskrcnn']:
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"

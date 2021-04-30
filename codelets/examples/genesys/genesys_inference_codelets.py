@@ -393,17 +393,47 @@ def relu(hag: ArchitectureNode):
             with Loop(0, "C") as c:
                 with Loop(0, "H") as h:
                     with Loop(0, "W") as w:
-                        # cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
-                        # out.set_write_destination("VMEM1")
-                        # cdlt.compute("RELU", [op1], [out], target="SIMD")
-                        # cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
-
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "OBUF"])
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
 
+
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
+
+    return cdlt
+
+def elem_tanh(hag: ArchitectureNode):
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out_tanh", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("elem_tanh", [op1], [out], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "H") as h:
+                    with Loop(0, "W") as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("TANH", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
+
+    return cdlt
+
+def elem_tanh2d(hag: ArchitectureNode):
+    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out_tanh", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    with Codelet("elem_tanh2d", [op1], [out], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                cdlt.transfer(op1[n, c], ["DRAM", "VMEM1"])
+                out.set_write_destination("VMEM1")
+                cdlt.compute("TANH", [op1], [out], target="SIMD")
+                cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
+
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C"])
 
     return cdlt
 
@@ -423,6 +453,40 @@ def relu_grad(hag: ArchitectureNode):
                         data_grad.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+def elem_tanh_grad(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("elem_tanh_grad", [data, grad], [data_grad], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        # cdlt.configure("start", "VMEM")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "H") as h:
+                    with Loop(0, "W") as w:
+                        cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM1"])
+                        data_grad.set_write_destination("VMEM1")
+                        cdlt.compute("TANH", [data, grad], [data_grad], target="SIMD")
+                        cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+def elem_tanh_grad2d(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    with Codelet("elem_tanh_grad2d", [data, grad], [data_grad], hag) as cdlt:
+        cdlt.configure("start", "SIMD")
+        # cdlt.configure("start", "VMEM")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(grad[n, c], ["DRAM", "VMEM1"])
+                data_grad.set_write_destination("VMEM1")
+                cdlt.compute("TANH", [data, grad], [data_grad], target="SIMD")
+                cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
 # TODO: Implement valid operation sequence
@@ -451,6 +515,34 @@ def maxpool2d(hag: ArchitectureNode):
                                 cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
     return cdlt
 
+def averagepool2d(hag: ArchitectureNode):
+    #
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    #
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    # # TODO: Add option to create operand
+    with Codelet("avg_pool", [data], [out], hag) as cdlt:
+
+        cdlt.configure("start", "SIMD")
+        denom = FlexParam("denom", ["IH", "IW"], "IH*IW")
+        cdlt.configure("start", "IMM", immediate_value=denom, index=0)
+        cdlt.configure("start", "IMM", immediate_value=0, index=1)
+        denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "KH") as kh:
+                    with Loop(0, "KW") as kw:
+                        with Loop(0, "OH") as y:
+                            with Loop(0, "OW") as x:
+                                cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
+                                # TODO: Initialize output as negative infinity at compile time
+                                cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
+                                out.set_write_destination("VMEM2")
+                                cdlt.compute("ADD", [data, out], [out], target="SIMD")
+                cdlt.compute("DIV", [out, denom_op], [out], target="SIMD")
+                cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
+    return cdlt
+
 def max_pool_grad(hag: ArchitectureNode):
     #
     data = OperandTemplate("max_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
@@ -477,6 +569,30 @@ def max_pool_grad(hag: ArchitectureNode):
     return cdlt
 
 
+def average_pool_grad(hag: ArchitectureNode):
+    #
+    data = OperandTemplate("avg_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    #
+    data_grad = OperandTemplate("avg_pool_data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    # # TODO: Add option to create operand
+    with Codelet("average_pool_grad", [data, grad], [data_grad], hag) as cdlt:
+
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+
+        with Loop(0, "N") as n:
+            with Loop(0, "C") as c:
+                with Loop(0, "KH") as kh:
+                    with Loop(0, "KW") as kw:
+                        with Loop(0, "OH") as y:
+                            with Loop(0, "OW") as x:
+                                cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
+                                cdlt.transfer(grad[n, c, y, x], ["DRAM", "VMEM1"])
+                                data_grad.set_write_destination("VMEM1")
+                                cdlt.compute("MAX", [data, grad], [data_grad], target="SIMD")
+                                cdlt.transfer(data_grad[n, c, y*"sy" + kh, x*"sx" + kw], ["VMEM1", "DRAM"])
+    return cdlt
 
 def global_average_pool_grad(hag: ArchitectureNode):
     #
@@ -553,12 +669,15 @@ def cross_entropy_loss_grad(hag: ArchitectureNode):
 
 GENESYS_CODELETS = {
     "max_pool": maxpool2d,
+    "avg_pool": averagepool2d,
     "global_avg_pool": global_avg_pool,
     "coarse_flatten": coarse_flatten,
     "conv_bias": conv2d_bias,
     "conv": conv2d,
     "gemm": gemm,
     "elem_add": elem_add,
+    "elem_tanh": elem_tanh,
+    "elem_tanh2d": elem_tanh2d,
     "relu": relu,
     "batch_norm": batch_norm,
     "batchnorm_grad": batchnorm_grad,
@@ -570,7 +689,10 @@ GENESYS_CODELETS = {
     "sgd2d": sgd2d,
     "sgd3d": sgd3d,
     "sgd4d": sgd4d,
+    'elem_tanh_grad': elem_tanh_grad,
+    'elem_tanh_grad2d': elem_tanh_grad2d,
     'elem_add_grad': elem_add_grad,
+    'average_pool_grad': average_pool_grad,
     'max_pool_grad': max_pool_grad,
     'gemm_no_bias': gemm_no_bias,
     'relu_grad': relu_grad,

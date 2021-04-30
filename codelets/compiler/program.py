@@ -11,6 +11,7 @@ import numpy as np
 import polymath as pm
 from sympy import Basic
 from .relocation_table import RelocationTable
+import networkx as nx
 
 EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "binary"]
 
@@ -29,6 +30,23 @@ class CompilationStage:
 
     def run(self, *args):
         return self.compilation_fn(*args, **self.fn_kwargs)
+
+@dataclass
+class OperandDataflow:
+    node_name: str
+    node_type: str
+    cdlt_read: List[int] = field(default_factory=list)
+    cdlt_write: List[int] = field(default_factory=list)
+    read_operand_names: List[str] = field(default_factory=list)
+    write_operand_names: List[str] = field(default_factory=list)
+
+    def add_read(self, cdlt: Codelet, operand: OperandTemplate):
+        self.read_operand_names.append(operand.name)
+        self.cdlt_read.append(cdlt.instance_id)
+
+    def add_write(self, cdlt: Codelet, operand: OperandTemplate):
+        self.write_operand_names.append(operand.name)
+        self.cdlt_write.append(cdlt.instance_id)
 
 class CodeletProgram(object):
 
@@ -61,7 +79,7 @@ class CodeletProgram(object):
         return self._graph
 
     @property
-    def operand_mapping(self):
+    def operand_mapping(self) -> Dict[str, OperandDataflow]:
         return self._operand_mapping
 
     @property
@@ -193,11 +211,11 @@ class CodeletProgram(object):
 
         for i, operand in enumerate(cdlt.inputs):
             n = node.inputs[i]
-            self.add_operand_mapping(n, operand, "input")
+            self.add_operand_mapping(cdlt, n, operand, "input")
 
         for o, operand in enumerate(cdlt.outputs):
             n = node.outputs[o]
-            self.add_operand_mapping(n, operand, "output")
+            self.add_operand_mapping(cdlt, n, operand, "output")
 
         return cdlt
 
@@ -224,16 +242,37 @@ class CodeletProgram(object):
             for ft in o.instructions:
                 ft.lazy_evaluate(*args)
 
-    def add_operand_mapping(self, node: pm.Node, operand: OperandTemplate, operand_type):
+    def add_operand_mapping(self, cdlt: Codelet, node: pm.Node, operand: OperandTemplate, operand_type):
+
+        if node.name not in self.operand_mapping:
+            self.operand_mapping[node.name] = OperandDataflow(node.name, node.__class__.__name__)
+
         if operand_type == "output":
-            # if node.name in self.operand_mapping:
-            # assert node.name not in self.operand_mapping, f"{node.name}"
-            self.operand_mapping[node.name] = {'output': operand, 'input': []}
+            self.operand_mapping[node.name].add_write(cdlt, operand)
         else:
-            assert operand_type == "input"
-            if node.name not in self.operand_mapping:
-                self.operand_mapping[node.name] = {'output': None, 'input': []}
-            self.operand_mapping[node.name][operand_type].append(operand)
+            self.operand_mapping[node.name].add_read(cdlt, operand)
+
+    def create_cdlt_dfg(self):
+        dfg = nx.DiGraph()
+
+        for cdlt in self.codelets:
+            dfg.add_node(cdlt.instance_id, label=f"op[{cdlt.op_name}{cdlt.instance_id}]", color="blue")
+
+        for node_name, dataflow in self.operand_mapping.items():
+            dfg.add_node(node_name, label=f"data[{node_name}]", color="red", operand_type=dataflow.node_type)
+
+            for rcdlt in dataflow.cdlt_read:
+                dfg.add_edge(node_name, rcdlt)
+
+            for wcdlt in dataflow.cdlt_write:
+                dfg.add_edge(wcdlt, node_name)
+        return dfg
+
+    def check_connectivity(self):
+        for node_name, dataflow in self.operand_mapping.items():
+            if len(dataflow.cdlt_write) == 0 and dataflow.node_type != "state":
+                print(f"Initializer: {dataflow.node_name} - {dataflow.node_type}")
+
 
     # TODO: Fix these
     def save_json(self, full_path):
@@ -259,11 +298,12 @@ class CodeletProgram(object):
                 if self.hag.has_codelet(node.op_name):
                     node_list.append(node)
                 elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
-                    missing_ops.append(node.op_name)
+                    missing_ops.append(node)
+
             if len(missing_ops) > 0 and validate_lowered:
                 raise RuntimeError(
                     f"Input graph includes operations which are unsupported by the target architecture.\n"
-                    f"Unsupported Operations: {missing_ops}\n"
+                    f"Unsupported Operations: {[mo.op_name for mo in missing_ops]}\n"
                     f"HAG-supported Operations: {self.hag.all_codelet_names}")
         elif sequence_algorithm == 'filtered':
             assert 'filtered_layers' in sequence_kwargs

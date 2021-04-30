@@ -675,6 +675,7 @@ class Codelet(object):
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
+            operand.operand_type = n.__class__.__name__
 
         for i, operand in enumerate(self.outputs):
             n = node.outputs[i]
@@ -685,6 +686,7 @@ class Codelet(object):
             self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
+            operand.operand_type = n.__class__.__name__
 
 
     def instantiate_node_params(self, node, hag):
