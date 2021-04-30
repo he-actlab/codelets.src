@@ -42,6 +42,7 @@ class CodeletProgram(object):
         self._preproc_steps = defaultdict(list)
         self._program_mode = program_mode
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
+        self._operand_mapping = {}
 
     @property
     def name(self) -> str:
@@ -58,6 +59,10 @@ class CodeletProgram(object):
     @property
     def graph(self):
         return self._graph
+
+    @property
+    def operand_mapping(self):
+        return self._operand_mapping
 
     @property
     def codelets(self) -> List[Codelet]:
@@ -175,16 +180,7 @@ class CodeletProgram(object):
             o.set_template(template_copy)
 
     def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
-        # TODO: Replace this with evaluate
-        cdlt._num_instr = 0
-        for o in cdlt.ops:
-            args = (self, self.hag, o.global_op_id, cdlt.instance_id)
-            for flex_temp in o.instructions:
-                flex_temp.set_instruction_length(*args)
-                cdlt._num_instr += flex_temp.num_instructions
-
         self.relocatables.add_instr_relocation(cdlt)
-
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
 
@@ -194,6 +190,15 @@ class CodeletProgram(object):
     def instantiate_codelet(self, node):
         cdlt = self.hag.get_codelet_template(node.op_name)
         self.add_codelet(cdlt)
+
+        for i, operand in enumerate(cdlt.inputs):
+            n = node.inputs[i]
+            self.add_operand_mapping(n, operand, "input")
+
+        for o, operand in enumerate(cdlt.outputs):
+            n = node.outputs[o]
+            self.add_operand_mapping(n, operand, "output")
+
         return cdlt
 
     def emit(self, output_type):
@@ -213,6 +218,22 @@ class CodeletProgram(object):
         self.relocatables.add_data_relocation(node)
         self.instantiate_instructions(cdlt)
 
+    def evaluate_lazy_instruction_templates(self, cdlt):
+        for o in cdlt.ops:
+            args = (self, self.hag, o.global_op_id, cdlt.instance_id)
+            for ft in o.instructions:
+                ft.lazy_evaluate(*args)
+
+    def add_operand_mapping(self, node: pm.Node, operand: OperandTemplate, operand_type):
+        if operand_type == "output":
+            # if node.name in self.operand_mapping:
+            # assert node.name not in self.operand_mapping, f"{node.name}"
+            self.operand_mapping[node.name] = {'output': operand, 'input': []}
+        else:
+            assert operand_type == "input"
+            if node.name not in self.operand_mapping:
+                self.operand_mapping[node.name] = {'output': None, 'input': []}
+            self.operand_mapping[node.name][operand_type].append(operand)
 
     # TODO: Fix these
     def save_json(self, full_path):
@@ -295,6 +316,7 @@ class CodeletProgram(object):
 
         if verbose:
             print(f"Sequencing took {time() - start} seconds")
+
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
         # 2. Generate operands/operations within codelets
@@ -304,9 +326,11 @@ class CodeletProgram(object):
         stage_start = time()
         if verbose:
             print(f"\nInstantiating codelets")
+
         for n in node_sequence:
             if verbose:
                 print(f"Instantiating {n.op_name}")
+
             cdlt = self.instantiate_codelet(n)
             assert n.name not in codelets
             codelets[n.name] = cdlt
@@ -326,10 +350,6 @@ class CodeletProgram(object):
         for level, fns in self.preproc_steps.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-                # if cdlt.is_noop():
-                #     if verbose:
-                #         print(f"Skipping NOOP {cdlt.op_name}")
-                #     continue
 
                 for fn in fns:
                     if cdlt.is_noop() and fn.skip_noops:
@@ -355,6 +375,7 @@ class CodeletProgram(object):
             if verbose:
                 print(f"Instantiating codelet {cdlt.op_name}{cdlt.instance_id}")
             cdlt.instantiate_operations(n, self.hag)
+
             # TODO: Check if certain optimizations are necessary
             codelets[n.name] = cdlt
 
@@ -366,10 +387,6 @@ class CodeletProgram(object):
         for level, fns in self.compilation_pipeline.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-                # if cdlt.is_noop():
-                #     if verbose:
-                #         print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
-                #     continue
 
                 for fn in fns:
                     if cdlt.is_noop() and fn.skip_noops:
@@ -394,6 +411,19 @@ class CodeletProgram(object):
                 if verbose:
                     print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
                 self.instantiate_instructions_templates(n, codelets[n.name])
+
+            if verbose:
+                print(f"\nEvaluating post-processed FlexParams")
+
+            for n in node_sequence:
+                cdlt = codelets[n.name]
+                if codelets[n.name].is_noop():
+                    if verbose:
+                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                    continue
+                if verbose:
+                    print(f"Evaluating lazy FlexParams for {cdlt.op_name}{cdlt.instance_id}")
+                self.evaluate_lazy_instruction_templates(codelets[n.name])
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")

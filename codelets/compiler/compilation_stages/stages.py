@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
+    from codelets.compiler.program import CodeletProgram
 
 from .tiling_utils import set_codelet_tiling
 from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint
@@ -34,7 +35,7 @@ INTERMEDIATE_INPUT_INDICES = {
     "gemm": [0]
 }
 
-def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
+def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
     if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
         cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
         cdlt.inputs[1].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
@@ -46,7 +47,7 @@ def update_operand_dtypes(program, node: pm.Node, cdlt: 'Codelet', dtype_map=Non
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
-def add_simd_typecast(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
+def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
     if cdlt.is_noop():
         assert node.op_name == "coarse_flatten"
         dtype_map[node.outputs[0].name] = dtype_map[node.inputs[0].name]
@@ -65,7 +66,7 @@ def add_simd_typecast(program, node: pm.Node, cdlt: 'Codelet', dtype_map=None, c
     return cdlt
 
 
-def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
+def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     assert isinstance(shaped_nodes, dict)
     if cdlt.op_name in ['conv', 'conv_bias']:
         activation = node.inputs[0]
@@ -299,8 +300,9 @@ def pad_operands(program, node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 
 
     return cdlt
 
-def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
+def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
     hag = program.hag
+
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
     # Find amount of splits for each loop by looking at dependencies
@@ -316,7 +318,6 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
 
 
     bands = cdlt.extract_bands()
-
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
 
     for start, end in bands:
@@ -411,6 +412,7 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                     dep_mapping[op.op_str] = inner_op.op_str
                     inner_idx = target_idx + 1
                     num_splits += 1
+                    cdlt.loop_param_map[inner_op.op_str] = cdlt.loop_param_map[op.op_str]
                 else:
                     assert op.op_type == 'compute'
                     dep_mapping[op.op_str] = op.op_str
@@ -460,7 +462,6 @@ def tile(program, node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heur
                                f"Tiling keys: {list(o.tiling.keys())}\n"
                                f"Unique data path locations: {o.unique_data_locations()}\n"
                                f"Data path: {o.data_path}")
-
     if checkpoint_file is not None:
         store_tile_checkpoint(cdlt, checkpoint_file)
 
@@ -498,11 +499,27 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
         if loop_level < i_loop_level and loop_level > 0:
             cdlt.ops[idx].loop_level = loop_level
-    compute_ops = cdlt.get_ops_by_type("compute")
+    # for o in cdlt.get_ops_by_type("loop"):
+    #     str_name = cdlt.domain_loop_map[o.op_str]
+    #     print(f"Loop {o.op_str} - {str_name}")
+    # for i in cdlt.inputs:
+    #     if i.node_name not in program.operand_mapping:
+    #         raise RuntimeError
+    #     elif program.operand_mapping[i.node_name]["output"] is None:
+    #         print(f"Node: {i.node_name}\n"
+    #               f"Type: input\n"
+    #               f"Codelet {cdlt.op_name}: {i.name}\n")
+    #
+    # for o in cdlt.outputs:
+    #     if o.node_name not in program.operand_mapping:
+    #         raise RuntimeError
+    #     elif len(program.operand_mapping[o.node_name]["input"]) == 0:
+    #         print(f"Node: {o.node_name}\n"
+    #               f"Type: output\n"
+    #               f"Codelet {cdlt.op_name}: {o.name}\n")
     return cdlt
 
-
-def insert_dtype_cast(program, n, cdlt):
+def insert_dtype_cast(program: 'CodeletProgram', n, cdlt):
     pass
 
 

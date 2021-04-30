@@ -30,7 +30,6 @@ class Codelet(object):
         self._ops = []
         self._op_map = {}
         self._global_op_map = {}
-        self._num_instr = -1
         self._hag = hag
         # Added, possibly need to consolidate
         self._domain_tiling = {}
@@ -41,7 +40,7 @@ class Codelet(object):
         self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
-        self._size_map = {}
+        self._loop_param_map = {}
 
         if required_params is not None:
             self._required_params = {}
@@ -141,8 +140,8 @@ class Codelet(object):
         return self._global_op_map
 
     @property
-    def size_map(self):
-        return self._size_map
+    def loop_param_map(self):
+        return self._loop_param_map
 
     # TODO: Memoize this method
     @property
@@ -155,7 +154,10 @@ class Codelet(object):
 
     @property
     def num_instr(self):
-        return self._num_instr
+        ilen = 0
+        for o in self.ops:
+            ilen += sum([len(ft.instructions) for ft in o.instructions])
+        return ilen
 
     @property
     def op_id_counters(self):
@@ -320,7 +322,6 @@ class Codelet(object):
         obj._ops = []
         obj._op_map = {}
         obj._global_op_map = {}
-        obj._num_instr = self._num_instr
         obj._cdlt_id = self._cdlt_id
         obj._instance_id = Codelet.codelet_instance_id
         obj._domain_tiling = deepcopy(self._domain_tiling)
@@ -330,6 +331,7 @@ class Codelet(object):
         obj._id_counter = self._id_counter
         obj._loop_ctxt_level = self._loop_ctxt_level
         obj._compilation_params = deepcopy(self._compilation_params)
+        obj._loop_param_map = deepcopy(self._loop_param_map)
         for o in self.ops:
             obj.add_op(o.copy(obj))
         return obj
@@ -663,8 +665,7 @@ class Codelet(object):
         operand.set_node_name(node.name)
 
     def instantiate_operands(self, node: pm.Node):
-        all_cdlt_ops = self.inputs + self.outputs
-        all_node_ops = node.inputs + node.outputs
+
         for i, operand in enumerate(self.inputs):
             n = node.inputs[i]
             for rp_key in operand.required_params:
@@ -730,7 +731,6 @@ class Codelet(object):
                 o.dependencies.remove(o.op_str)
 
             assert isinstance(o, Operation)
-
         # Now set the required parameters in each operation, as specified
         for o in self.ops:
             o.evaluate_parameters(node, hag, self)
