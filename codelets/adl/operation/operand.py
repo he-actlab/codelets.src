@@ -318,7 +318,7 @@ class OperandTemplate:
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
-    operand_type: str = field(default='variable')
+    operand_type: str = field(default='intermediate')
 
     def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
         if isinstance(dimension, str):
