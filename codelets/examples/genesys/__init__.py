@@ -58,4 +58,4 @@ SIMD_FNCODE_BITWIDTH = 4
 NS_BITWIDTH = 5
 NS_IDX_BITWIDTH = 3
 
-from .genesys import define_genesys, compile_genesys, compile_genesys_layer
+from .genesys import define_genesys, compile_genesys, compile_genesys_layer, get_transformed_srdfg

@@ -1,4 +1,4 @@
-from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES
+from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, get_transformed_srdfg
 import polymath as pm
 from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
@@ -22,6 +22,26 @@ def parse_cfg():
         genesys = json.load(f)
     return genesys
 
+
+def test_srdfg_creation():
+    model_name = 'lenet'
+
+    # Determines whether to compile a training model or not
+    train = True
+
+    # If this is changed, the batch size will updated for the model
+    batch_size = 1
+
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+    graph = get_transformed_srdfg(model_name,
+                              train=train,
+                              batch_size=batch_size,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR)
+
+    for name, node in graph.nodes.items():
+        if not isinstance(node, (pm.placeholder, pm.write)):
+            print(f"{name}: {node.op_name}")
 
 def test_genesys_model():
     model_name = 'resnet18'
@@ -66,7 +86,17 @@ def test_genesys_model():
                               verbose=False,
                               benchmark_path=BENCH_DIR,
                               factor_fn='default',
-                              print_config=True
+                              print_config=False
                               )
-    res = program.emit("json_no_ops")
-    pprint(res)
+    # program.check_connectivity()
+    # import networkx as nx
+    # import matplotlib.pyplot as plt
+    # dfg = program.create_cdlt_dfg()
+    # colors = list(nx.get_node_attributes(dfg, 'color').values())
+    # labels = nx.get_node_attributes(dfg, 'label')
+    #
+    # nx.draw(dfg, pos=nx.spring_layout(dfg), node_color=colors, font_weight='bold', labels=labels)
+    # plt.savefig(f"{model_name}.png")
+
+    # res = program.emit("json_no_ops")
+    # pprint(res)

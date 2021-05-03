@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from codelets.compiler.program import CodeletProgram
 
 from .tiling_utils import set_codelet_tiling
-from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint
+from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint, find_node_key
 import polymath as pm
 import json
 
@@ -30,11 +30,14 @@ INTERMEDIATE_INPUT_INDICES = {
     "conv_bias": [0],
     "relu": [0],
     "elem_tanh": [0],
+    "elem_tanh2d": [0],
     "max_pool": [0],
     "avg_pool": [0],
     "global_avg_pool": [0],
     "batch_normalization": [0],
     "elem_add": [0, 1],
+    "cross_entropy_loss": [0, 1],
+    "cross_entropy_loss_grad": [0, 1, 2],
     "gemm": [0]
 }
 
@@ -52,20 +55,32 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
     if cdlt.is_noop():
-        assert node.op_name == "coarse_flatten"
-        dtype_map[node.outputs[0].name] = dtype_map[node.inputs[0].name]
-        codelet_output_map[node.outputs[0].name] = codelet_output_map[node.inputs[0].name]
+        output_key = node.outputs[0].name
+        input_key = node.inputs[0].name
+
+        if input_key not in dtype_map:
+            input_key = find_node_key(node.inputs[0], dtype_map)
+
+        dtype_map[output_key] = dtype_map[input_key]
+        codelet_output_map[output_key] = f"{cdlt.op_name}{cdlt.instance_id}"
+
     else:
-        if cdlt.instance_id != 1:
-            assert cdlt.op_name in INTERMEDIATE_INPUT_INDICES
-            for idx in INTERMEDIATE_INPUT_INDICES[cdlt.op_name]:
-                i = node.inputs[idx]
-                operand = cdlt.get_operand_by_node_name(i.name)
-                if i.name not in dtype_map:
-                    print(f"Node {i.name}, Operand {operand.name} for {cdlt.op_name} not in dtype map.")
+        for idx, operand in enumerate(cdlt.inputs):
+            i = node.inputs[idx]
+            if not isinstance(i, (pm.input, pm.state)):
+                i_key = i.name
+                if i_key not in dtype_map:
+                    i_key = find_node_key(i, dtype_map)
+                    dtype_map[i.name] = dtype_map[i_key]
+                    codelet_output_map[i.name] = codelet_output_map[i_key]
+            else:
+                dtype_map[i.name] = cdlt.get_operand_by_node_name(i.name).dtype
+                codelet_output_map[i.name] = f"{cdlt.op_name}{cdlt.instance_id}"
+
         for o in node.outputs:
             dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
             codelet_output_map[o.name] = f"{cdlt.op_name}{cdlt.instance_id}"
+
     return cdlt
 
 
@@ -98,6 +113,17 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
             bias = node.inputs[2]
             bias_shape = update_shape_from_arch(bias, shaped_nodes, sys_array_dims[1], 0)
             assert bias_shape[0] == out_shape[3]
+    elif cdlt.op_name == "tensor_transpose":
+        # TODO: Need to add operations once an instruction for this is supported
+        activation = node.inputs[0]
+        out = node.outputs[0]
+        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
+        act_shape = update_shape_from_arch(activation, shaped_nodes, simd_dims[0], 3)
+        out_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 3)
+
+        cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+        cdlt.inputs[1].set_dim_order(['ON', 'OW', 'OH', 'OC'])
+
     elif cdlt.op_name in ['batchnorm_grad', 'batch_norm']:
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
 
@@ -221,6 +247,7 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
                                             f"output {out.name} shape: {out.shape}\n"
         if program.program_mode == 'training':
             out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, len(out.shape) - 1)
+            out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, len(out.shape) - 2, force_reshape=True)
             assert data.shape == out_shape, f"Invalid shapes for {cdlt.op_name}{cdlt.instance_id}:\n" \
                                             f"Input {data.name} shape: {data.shape} ({data_shape})\n" \
                                             f"Grad {grad.name} shape: {grad.shape} ()\n" \

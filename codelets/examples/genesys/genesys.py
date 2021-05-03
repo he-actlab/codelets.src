@@ -167,6 +167,33 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
     return out_cfg
 
 
+def get_transformed_srdfg(model_name,
+                    train=False,
+                    batch_size=1,
+                    verbose=False,
+                    benchmark_path=None):
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+        raise RuntimeError(f"Invalid model name for compilation")
+    if train:
+        model_name = f"{model_name}_train"
+    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        if verbose:
+            print(f"Generating training graph for {model_name}")
+        graph = pm.create_training_graph(graph)
+
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+    return graph
+
 def compile_genesys(model_name,
                     train=False,
                     update_cfg_dtypes=False,
@@ -232,9 +259,9 @@ def compile_genesys(model_name,
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
-    #                              skip_noops=False)
+    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
+                                 skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
@@ -329,8 +356,8 @@ def compile_genesys_layer(layer_file,
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     else:
         finalize_instructions = False
-    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
+    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)
