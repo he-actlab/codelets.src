@@ -342,14 +342,48 @@ def batchnorm_grad(hag: ArchitectureNode):
     return cdlt
 
 def coarse_flatten(hag: ArchitectureNode):
-
-    with Codelet("coarse_flatten", [], [], hag) as cdlt:
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    with Codelet("coarse_flatten", [data], [out], hag) as cdlt:
         pass
     return cdlt
 
-def flatten_grad(hag: ArchitectureNode):
+def tensor_transpose(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("tensor_transpose", [data], [out], hag) as cdlt:
+        pass
 
-    with Codelet("flatten_grad", [], [], hag) as cdlt:
+    return cdlt
+
+def tensor_reshape(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("tensor_reshape", [data], [out], hag) as cdlt:
+        pass
+
+    return cdlt
+
+def tensor_pad(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("tensor_pad", [data], [out], hag) as cdlt:
+        pass
+    return cdlt
+
+def tensor_flip(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("tensor_flip", [data], [out], hag) as cdlt:
+        pass
+
+    return cdlt
+
+def flatten_grad(hag: ArchitectureNode):
+    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    with Codelet("flatten_grad", [data, grad], [out], hag) as cdlt:
         pass
     return cdlt
 
@@ -696,5 +730,9 @@ GENESYS_CODELETS = {
     'max_pool_grad': max_pool_grad,
     'gemm_no_bias': gemm_no_bias,
     'relu_grad': relu_grad,
-    'global_average_pool_grad': global_average_pool_grad
+    'global_average_pool_grad': global_average_pool_grad,
+    'tensor_transpose': tensor_transpose,
+    'tensor_reshape': tensor_reshape,
+    'tensor_flip': tensor_flip,
+    'tensor_pad': tensor_pad,
 }

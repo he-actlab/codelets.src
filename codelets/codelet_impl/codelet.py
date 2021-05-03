@@ -171,6 +171,8 @@ class Codelet(object):
     def id_counter(self, id_counter):
         self._id_counter = id_counter
 
+    def __repr__(self):
+        return f"codelet {self.op_name}{self.instance_id}"
 
     @memoize_method
     def operand_dimensions(self) -> List[str]:
@@ -196,7 +198,7 @@ class Codelet(object):
         return level in self.domain_tiling
 
     def is_noop(self):
-        return len(self.operands) == 0 and len(self.operations) == 0
+        return len(self.ops) == 0
 
     def operand_dim_mapping(self):
         operands = self.inputs + self.outputs
@@ -302,10 +304,6 @@ class Codelet(object):
         if found_band:
             assert start_idx >= 0
             bands.append((start_idx, len(self.ops) - 1))
-        # test_bands = self.extract_bands_()
-        # print(f"Actual bands: {bands}\n"
-        #       f"Test bands: {test_bands}")
-        # return test_bands
         return bands
 
     def copy(self, pre_increment=False):

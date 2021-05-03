@@ -54,13 +54,18 @@ def test_genesys_conv_resnet50():
                             batch_size=batch_size,
                             do_hoist_stage=True,
                             do_tile_stage=True,
-                            print_config=False
+                            print_config=True
                               )
-    # res = program.emit("operations_idx")
-    # print(res)
+    import networkx as nx
+    import matplotlib.pyplot as plt
+    dfg = program.create_cdlt_dfg()
+    colors = list(nx.get_node_attributes(dfg, 'color').values())
+    labels = nx.get_node_attributes(dfg, 'label')
 
-    res = program.emit("string_final")
-    print(res)
+    nx.draw(dfg, pos=nx.spring_layout(dfg), node_color=colors, font_weight='bold', labels=labels)
+    plt.savefig(f"{layer_name}.png")
+    # res = program.emit("json_no_ops")
+    # pprint(res)
 
     # store_compilation_output(program, "json_no_ops", extension="json")
     # store_compilation_output(program, "string_final", extension="txt")

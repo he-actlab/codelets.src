@@ -211,11 +211,11 @@ class CodeletProgram(object):
 
         for i, operand in enumerate(cdlt.inputs):
             n = node.inputs[i]
-            self.add_operand_mapping(cdlt, n, operand, "input")
+            self.add_operand_mapping(cdlt, node, n, operand, "input")
 
         for o, operand in enumerate(cdlt.outputs):
             n = node.outputs[o]
-            self.add_operand_mapping(cdlt, n, operand, "output")
+            self.add_operand_mapping(cdlt, node, n, operand, "output")
 
         return cdlt
 
@@ -242,7 +242,7 @@ class CodeletProgram(object):
             for ft in o.instructions:
                 ft.lazy_evaluate(*args)
 
-    def add_operand_mapping(self, cdlt: Codelet, node: pm.Node, operand: OperandTemplate, operand_type):
+    def add_operand_mapping(self, cdlt: Codelet, parent_node: pm.Node, node: pm.Node, operand: OperandTemplate, operand_type):
 
         if node.name not in self.operand_mapping:
             self.operand_mapping[node.name] = OperandDataflow(node.name, node.__class__.__name__)
@@ -250,6 +250,17 @@ class CodeletProgram(object):
         if operand_type == "output":
             self.operand_mapping[node.name].add_write(cdlt, operand)
         else:
+            if node.op_name not in ["state", "input"] and len(self.operand_mapping[node.name].cdlt_write) == 0:
+                if node.graph is None:
+                    raise RuntimeError
+                node_dfgs = node.name.split("/")
+                if len(node_dfgs) > 1:
+                    node_dfgs = node.name.split("/")
+                    if node_dfgs[-1] in self.operand_mapping:
+                        self.operand_mapping[node.name] = self.operand_mapping[node_dfgs[-1]]
+                else:
+                    raise RuntimeError(f"No write node for {parent_node.op_name}/{parent_node.name}: {node.name} - {node.op_name} - {cdlt.op_name} - Graph: {node.graph}")
+
             self.operand_mapping[node.name].add_read(cdlt, operand)
 
     def create_cdlt_dfg(self):
@@ -270,9 +281,8 @@ class CodeletProgram(object):
 
     def check_connectivity(self):
         for node_name, dataflow in self.operand_mapping.items():
-            if len(dataflow.cdlt_write) == 0 and dataflow.node_type != "state":
+            if len(dataflow.cdlt_write) == 0 and dataflow.node_type not in ["state", "input"]:
                 print(f"Initializer: {dataflow.node_name} - {dataflow.node_type}")
-
 
     # TODO: Fix these
     def save_json(self, full_path):

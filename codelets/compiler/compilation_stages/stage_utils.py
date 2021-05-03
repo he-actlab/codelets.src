@@ -65,3 +65,12 @@ def store_tile_checkpoint(cdlt, checkpoint_path):
 
     with open(f'{abs_path}', "w") as outfile:
         json.dump(tiling, outfile, indent=4)
+
+
+def find_node_key(node, mapping):
+    node_dfgs = node.name.split("/")
+    if len(node_dfgs) > 1:
+        node_dfgs = node.name.split("/")
+        if node_dfgs[-1] in mapping:
+            return node_dfgs[-1]
+    raise RuntimeError(f"No write node for {node.op_name}/{node.name}")
