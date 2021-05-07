@@ -1,9 +1,13 @@
 from codelets.adl.graph import ComputeNode, StorageNode
-from codelets.adl.flex_template import Instruction
-from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, add_simd_typecast
+from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
+    add_simd_typecast, template_layout_pass
+import inspect
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
-from .genesys_inference_codelets import GENESYS_CODELETS
+
+# from .genesys_inference_codelets import GENESYS_CODELETS
+from .genesys_codelets import GENESYS_CODELETS
+
 from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
 from pathlib import Path
@@ -49,7 +53,7 @@ def define_genesys(cfg):
                                 latency=1, input_ports=2, output_ports=2)
 
         dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
-                            width=cfg['ACC_WIDTH'], depth=cfg['DRAM_DEPTH'],
+                            width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'],
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
 
@@ -127,11 +131,8 @@ def define_genesys(cfg):
         for op_name, cdlt in GENESYS_CODELETS.items():
             cdlt_instance = cdlt(hag)
             hag.add_codelet(cdlt_instance)
-
-        hag.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
         hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"], f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
     return hag
-
 
 def add_genesys_templates(hag: ComputeNode):
     # Config
@@ -146,9 +147,16 @@ def add_genesys_templates(hag: ComputeNode):
     # Compute
     for hag_node, template in GENESYS_TEMPLATES['compute'].items():
         hag.add_compute_template(*hag_node, template(hag))
-
     # Loop
     hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
+
+    # Program start and end
+    hag.add_program_start_template("Genesys", GENESYS_TEMPLATES['program']['start'](hag))
+    hag.add_program_end_template("Genesys", GENESYS_TEMPLATES['program']['end'](hag))
+
+    # Codelet start and end
+    hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
+    hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
 def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
     if inp_cfg:
@@ -252,6 +260,7 @@ def compile_genesys(model_name,
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -339,6 +348,7 @@ def compile_genesys_layer(layer_file,
         pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -354,10 +364,11 @@ def compile_genesys_layer(layer_file,
 
     if do_hoist_stage:
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+        program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                     stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
     else:
         finalize_instructions = False
-    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
+
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)

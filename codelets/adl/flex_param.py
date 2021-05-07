@@ -75,8 +75,15 @@ class FlexParam:
         self.fn_args = args
         self.create_function_from_str(self.fn_args, self.fn_body_str)
 
+    def update_fn_code(self, new_fn_code):
+        self.fn_body_str = new_fn_code
+        self.create_function_from_str(self.fn_args, self.fn_body_str)
+
     def evaluate_fn(self, *fn_args, force_evaluate=False):
-        assert len(fn_args) == len(self.fn_args)
+        if len(fn_args) != len(self.fn_args):
+            raise RuntimeError(f"Unequal arguments for FlexParam {self.name}\n"
+                               f"FlexParam Args: {self.fn_args}\n"
+                               f"Input argument types: {[type(ia) for ia in fn_args]}")
 
         # TODO: Important--> this assumes that iter_args are iterated over in the correct order
         try:

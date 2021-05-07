@@ -2,7 +2,8 @@ import json
 from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
 from time import time
-from codelets.adl.operation import OperandTemplate, Loop, Compute, Transfer, Configure, Operation
+from codelets.templates.codelet_template import CodeletTemplate
+from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
 from codelets.codelet_impl import Codelet
 from pathlib import Path
@@ -40,24 +41,28 @@ class OperandDataflow:
     read_operand_names: List[str] = field(default_factory=list)
     write_operand_names: List[str] = field(default_factory=list)
 
-    def add_read(self, cdlt: Codelet, operand: OperandTemplate):
+    def add_read(self, cdlt: Codelet, operand: Operand):
         self.read_operand_names.append(operand.name)
         self.cdlt_read.append(cdlt.instance_id)
 
-    def add_write(self, cdlt: Codelet, operand: OperandTemplate):
+    def add_write(self, cdlt: Codelet, operand: Operand):
         self.write_operand_names.append(operand.name)
         self.cdlt_write.append(cdlt.instance_id)
 
 class CodeletProgram(object):
 
     def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference"):
+        Operation.reset()
+        Codelet.reset()
         self._name = graph.name
         self._hag = hag
         self._graph = graph
         self._codelets = []
-        self._relocatables = RelocationTable()
+        self._codelet_templates = {}
+        self._relocatables = RelocationTable(hag.get_off_chip_storage())
         self._compilation_pipeline = defaultdict(list)
-        self._preproc_steps = defaultdict(list)
+        self._preproc_stages = defaultdict(list)
+        self._template_stages = defaultdict(list)
         self._program_mode = program_mode
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
@@ -95,12 +100,20 @@ class CodeletProgram(object):
         return self._compilation_pipeline
 
     @property
-    def preproc_steps(self) -> Dict[int, List[CompilationStage]]:
-        return self._preproc_steps
+    def preproc_stages(self) -> Dict[int, List[CompilationStage]]:
+        return self._preproc_stages
+
+    @property
+    def template_stages(self) -> Dict[int, List[CompilationStage]]:
+        return self._template_stages
 
     @property
     def side_effect_params(self):
         return self._side_effect_params
+
+    @property
+    def codelet_templates(self):
+        return self._codelet_templates
 
     def add_side_effect_param(self, name, scope, init_val):
         if scope == 'program':
@@ -119,6 +132,9 @@ class CodeletProgram(object):
         elif scope == 'codelet':
             assert codelet_id in self.side_effect_params['codelet']
             self._side_effect_params[scope][codelet_id][name] = value
+
+    def extract_bits(self, value: int, num_bits: int, pos: int):
+        return ((((1 << num_bits) - 1) << pos) & value) >> pos
 
     def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)
@@ -149,7 +165,7 @@ class CodeletProgram(object):
     def save_binary(self, full_path):
         raise NotImplementedError
 
-    def get_tiling_dims(self, inputs: List[OperandTemplate], outputs: List[OperandTemplate]):
+    def get_tiling_dims(self, inputs: List[Operand], outputs: List[Operand]):
         assert all([i.is_instantiated() for i in inputs])
         assert all([o.is_instantiated() for o in outputs])
 
@@ -160,7 +176,8 @@ class CodeletProgram(object):
                              stage_kwargs=None,
                              skip_noops=True,
                              insert_idx=-1,
-                             preproc=False
+                             preproc=False,
+                             template=False
                              ):
         if not callable(compilation_fn):
             raise TypeError(f"Compilation step must be a callable function:\n"
@@ -176,11 +193,17 @@ class CodeletProgram(object):
             assert d in level_names
 
         fn_obj = CompilationStage(name, level, compilation_fn, dependencies, fn_kwargs=stage_kwargs, skip_noops=skip_noops)
+        assert not (preproc and template)
         if preproc:
             if insert_idx >= 0:
-                self._preproc_steps[level].insert(insert_idx, fn_obj)
+                self._preproc_stages[level].insert(insert_idx, fn_obj)
             else:
-                self._preproc_steps[level].append(fn_obj)
+                self._preproc_stages[level].append(fn_obj)
+        elif template:
+            if insert_idx >= 0:
+                self._template_stages[level].insert(insert_idx, fn_obj)
+            else:
+                self._template_stages[level].append(fn_obj)
         else:
             if insert_idx >= 0:
                 self._compilation_pipeline[level].insert(insert_idx, fn_obj)
@@ -198,24 +221,34 @@ class CodeletProgram(object):
             o.set_template(template_copy)
 
     def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
-        self.relocatables.add_instr_relocation(cdlt)
+
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
-
             for ft in o.instructions:
                 ft.evaluate(*args)
 
     def instantiate_codelet(self, node):
-        cdlt = self.hag.get_codelet_template(node.op_name)
+        cdlt_template = self.codelet_templates[node.op_name]
+
+        if isinstance(cdlt_template, Codelet):
+            cdlt = cdlt_template.copy(pre_increment=True)
+        else:
+            assert isinstance(cdlt_template, CodeletTemplate)
+            cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
             n = node.inputs[i]
             self.add_operand_mapping(cdlt, node, n, operand, "input")
+            if operand.node_name is None:
+                operand.node_name = n.name
 
         for o, operand in enumerate(cdlt.outputs):
             n = node.outputs[o]
             self.add_operand_mapping(cdlt, node, n, operand, "output")
+            if operand.node_name is None:
+                operand.node_name = n.name
 
         return cdlt
 
@@ -230,10 +263,9 @@ class CodeletProgram(object):
             res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
             return res
 
-
     def instantiate_instructions_templates(self, node, cdlt):
         self.set_instruction_templates(cdlt)
-        self.relocatables.add_data_relocation(node)
+        self.relocatables.add_data_relocation(node, cdlt)
         self.instantiate_instructions(cdlt)
 
     def evaluate_lazy_instruction_templates(self, cdlt):
@@ -242,7 +274,7 @@ class CodeletProgram(object):
             for ft in o.instructions:
                 ft.lazy_evaluate(*args)
 
-    def add_operand_mapping(self, cdlt: Codelet, parent_node: pm.Node, node: pm.Node, operand: OperandTemplate, operand_type):
+    def add_operand_mapping(self, cdlt: Codelet, parent_node: pm.Node, node: pm.Node, operand: Operand, operand_type):
 
         if node.name not in self.operand_mapping:
             self.operand_mapping[node.name] = OperandDataflow(node.name, node.__class__.__name__)
@@ -277,6 +309,7 @@ class CodeletProgram(object):
 
             for wcdlt in dataflow.cdlt_write:
                 dfg.add_edge(wcdlt, node_name)
+
         return dfg
 
     def check_connectivity(self):
@@ -296,8 +329,13 @@ class CodeletProgram(object):
         with open(full_path, 'w') as outfile:
             outfile.write(instructions)
 
-    def sequence_nodes(self, sequence_algorithm, validate_lowered=True, **sequence_kwargs):
+    def sequence_nodes(self, sequence_algorithm, validate_lowered=True, verbose=False, **sequence_kwargs):
         # TODO: Add support for different sequencing algos
+
+        if verbose:
+            print(f"Sequencing nodes")
+
+        start = time()
         node_list = []
         all_ops = []
         missing_ops = []
@@ -329,6 +367,9 @@ class CodeletProgram(object):
         else:
             raise RuntimeError(f"{sequence_algorithm} is not a valid sequencing algorithm")
 
+        if verbose:
+            print(f"Sequencing took {time() - start} seconds")
+
         return node_list
 
     def store_tiling(self, path):
@@ -355,22 +396,52 @@ class CodeletProgram(object):
                 for level, tiling_values in tiling[tile_key].items():
                     c._domain_tiling[int(level)] = tiling_values
 
+    def get_required_templates(self, nodes: List[pm.Node]):
+        node_ops = list(set([n.op_name for n in nodes]))
+        cdlt_templates = {name: self.hag.get_codelet_template(name) for name in node_ops}
+        return cdlt_templates
 
-    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
-                finalize_instructions=True,
-                **compile_kwargs):
-        start = time()
+    def run_template_stages(self, node_sequence, verbose=False):
+
+        if verbose and len(self.template_stages.keys()) > 0:
+            print(f"Running template stages")
+
+        self._codelet_templates = self.get_required_templates(node_sequence)
+
+        for level, fns in self.template_stages.items():
+            for template_name in list(self.codelet_templates.keys()):
+                cdlt_tmplt = self.codelet_templates[template_name]
+                for fn in fns:
+                    cdlt_tmplt = fn.run(cdlt_tmplt)
+                self.codelet_templates[template_name] = cdlt_tmplt
+
+    def run_preprocessing_stages(self, node_sequence, codelets, verbose=False):
         if verbose:
-            print(f"Sequencing nodes")
-        node_sequence = self.sequence_nodes(sequence_algorithm, **compile_kwargs)
+            print(f"\nRunning Preprocessing functions")
+
+        stage_start = time()
+        for level, fns in self.preproc_stages.items():
+            for n in node_sequence:
+                cdlt = codelets[n.name]
+
+                for fn in fns:
+                    if cdlt.is_noop() and fn.skip_noops:
+                        if verbose:
+                            print(f"Skipping NOOP {cdlt.op_name}")
+                        continue
+                    if verbose:
+                        print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
+                    cdlt = fn.run(self, n, cdlt)
+
+                assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
+                codelets[n.name] = cdlt
 
         if verbose:
-            print(f"Sequencing took {time() - start} seconds")
+            print(f"\nPreprocessing took {time() - stage_start} seconds")
 
-        # This function performs breadth-first compilation, with coarsest abstractions first:
-        # 1. Generate codelets from nodes
-        # 2. Generate operands/operations within codelets
-        # 3. Generate instruction templates within operations
+        return codelets
+
+    def instantiate_all_codelets(self, node_sequence, verbose=False):
         codelets = {}
 
         stage_start = time()
@@ -388,33 +459,12 @@ class CodeletProgram(object):
         if verbose:
             print(f"\nInstantiating codelets took {time() - stage_start} seconds")
 
-        if tiling_path is not None:
-            if verbose:
-                print(f"\nLoading predefined tiling at {tiling_path}")
-            self.load_tiling(tiling_path)
+        return codelets
 
+    def instantiate_all_operations(self, node_sequence, codelets, verbose=False):
         if verbose:
-            print(f"\nRunning Preprocessing functions")
-
-        stage_start = time()
-        for level, fns in self.preproc_steps.items():
-            for n in node_sequence:
-                cdlt = codelets[n.name]
-
-                for fn in fns:
-                    if cdlt.is_noop() and fn.skip_noops:
-                        if verbose:
-                            print(f"Skipping NOOP {cdlt.op_name}")
-                        continue
-                    if verbose:
-                        print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
-                    cdlt = fn.run(self, n, cdlt)
-
-                assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
-                codelets[n.name] = cdlt
-        if verbose:
-            print(f"\nPreprocessing took {time() - stage_start} seconds")
             print(f"\nInstantiating Codelet Operations")
+
         stage_start = time()
         for n in node_sequence:
             cdlt = codelets[n.name]
@@ -425,12 +475,15 @@ class CodeletProgram(object):
             if verbose:
                 print(f"Instantiating codelet {cdlt.op_name}{cdlt.instance_id}")
             cdlt.instantiate_operations(n, self.hag)
-
             # TODO: Check if certain optimizations are necessary
             codelets[n.name] = cdlt
 
         if verbose:
             print(f"\nCodelet instantiation took {time() - stage_start}")
+        return codelets
+
+    def run_compilation_stages(self, node_sequence, codelets, verbose=False):
+        if verbose:
             print(f"\nRunning compilation stages")
 
         stage_start = time()
@@ -448,32 +501,81 @@ class CodeletProgram(object):
                     cdlt = fn.run(self, n, cdlt)
                 codelets[n.name] = cdlt
 
-        if finalize_instructions:
-            if verbose:
-                print(f"\nCompilation stages took {time() - stage_start} seconds")
-                print(f"\nFinalizing instruction templates")
-            for n in node_sequence:
-                cdlt = codelets[n.name]
-                if codelets[n.name].is_noop():
-                    if verbose:
-                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
-                    continue
+        if verbose:
+            print(f"\nCompilation stages took {time() - stage_start} seconds")
+
+        return codelets
+
+    def finalize_instructions(self, node_sequence, codelets, verbose=False):
+        if verbose:
+            print(f"\nFinalizing instruction templates")
+        for n in node_sequence:
+            cdlt = codelets[n.name]
+            if codelets[n.name].is_noop():
                 if verbose:
-                    print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
-                self.instantiate_instructions_templates(n, codelets[n.name])
+                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                continue
+            if verbose:
+                print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
+            self.instantiate_instructions_templates(n, codelets[n.name])
+
+    def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
+        if verbose:
+            print(f"Finalizing Instruction memory")
+
+        for n in node_sequence:
+            cdlt = codelets[n.name]
+            if codelets[n.name].is_noop():
+                if verbose:
+                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                continue
+            self.relocatables.update_relocation_offset('INSTR_MEM',
+                                                       cdlt.cdlt_uid,
+                                                       cdlt.num_instr * self.hag.instr_length)
+
+    def finalize_flex_params(self, node_sequence, codelets, verbose=False):
+        if verbose:
+            print(f"\nEvaluating post-processed FlexParams")
+
+        for n in node_sequence:
+            cdlt = codelets[n.name]
+            if codelets[n.name].is_noop():
+                if verbose:
+                    print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
+                continue
 
             if verbose:
-                print(f"\nEvaluating post-processed FlexParams")
+                print(f"Evaluating lazy FlexParams for {cdlt.op_name}{cdlt.instance_id}")
+            self.evaluate_lazy_instruction_templates(codelets[n.name])
 
-            for n in node_sequence:
-                cdlt = codelets[n.name]
-                if codelets[n.name].is_noop():
-                    if verbose:
-                        print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
-                    continue
-                if verbose:
-                    print(f"Evaluating lazy FlexParams for {cdlt.op_name}{cdlt.instance_id}")
-                self.evaluate_lazy_instruction_templates(codelets[n.name])
+    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
+                finalize=True,
+                **compile_kwargs):
+        # This function performs breadth-first compilation, with coarsest abstractions first:
+        # 1. Generate codelets from nodes
+        # 2. Generate operands/operations within codelets
+        # 3. Generate instruction templates within operations
+        start = time()
+        node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+        self.run_template_stages(node_sequence, verbose=verbose)
+
+        codelets = self.instantiate_all_codelets(node_sequence, verbose=verbose)
+
+        if tiling_path is not None:
+            if verbose:
+                print(f"\nLoading predefined tiling at {tiling_path}")
+            self.load_tiling(tiling_path)
+
+        codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
+
+        codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
+
+        codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
+
+        if finalize:
+            self.finalize_instructions(node_sequence, codelets, verbose=verbose)
+            self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
+            self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")

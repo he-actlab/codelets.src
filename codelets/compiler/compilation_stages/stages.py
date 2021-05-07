@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING
 
-
-if TYPE_CHECKING:
-    from codelets.codelet_impl import Codelet
-    from codelets.compiler.program import CodeletProgram
+from codelets.templates.codelet_template import CodeletTemplate
+from codelets.codelet_impl import Codelet
+from codelets.compiler.program import CodeletProgram
 
 from .tiling_utils import set_codelet_tiling
-from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint, find_node_key
+from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint, \
+    find_node_key, insert_simd_typecast
 import polymath as pm
 import json
 
@@ -53,6 +53,14 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
+def template_layout_pass(template: 'CodeletTemplate') -> 'CodeletTemplate':
+    if not isinstance(template, CodeletTemplate):
+        return template
+    else:
+        if template.op_name == "avg_pool":
+            template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+        return template
+
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
     if cdlt.is_noop():
         output_key = node.outputs[0].name
@@ -62,7 +70,8 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
             input_key = find_node_key(node.inputs[0], dtype_map)
 
         dtype_map[output_key] = dtype_map[input_key]
-        codelet_output_map[output_key] = f"{cdlt.op_name}{cdlt.instance_id}"
+        codelet_output_map[output_key] = (cdlt.op_name, cdlt.instance_id)
+        insert_simd_typecast(program, node, cdlt.inputs[0], cdlt, dtype_map, codelet_output_map, input_key)
 
     else:
         for idx, operand in enumerate(cdlt.inputs):
@@ -73,13 +82,14 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
                     i_key = find_node_key(i, dtype_map)
                     dtype_map[i.name] = dtype_map[i_key]
                     codelet_output_map[i.name] = codelet_output_map[i_key]
+                insert_simd_typecast(program, node, operand, cdlt, dtype_map, codelet_output_map, i_key)
             else:
                 dtype_map[i.name] = cdlt.get_operand_by_node_name(i.name).dtype
-                codelet_output_map[i.name] = f"{cdlt.op_name}{cdlt.instance_id}"
+                codelet_output_map[i.name] = (cdlt.op_name, cdlt.instance_id)
 
         for o in node.outputs:
             dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
-            codelet_output_map[o.name] = f"{cdlt.op_name}{cdlt.instance_id}"
+            codelet_output_map[o.name] = (cdlt.op_name, cdlt.instance_id)
 
     return cdlt
 
@@ -464,7 +474,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     num_splits += 1
                     cdlt.loop_param_map[inner_op.op_str] = cdlt.loop_param_map[op.op_str]
                 else:
-                    assert op.op_type == 'compute'
+                    assert op.op_type == 'compute', f"Invalid op type: {op.op_type}"
                     dep_mapping[op.op_str] = op.op_str
                     op.dependencies = inner_deps
                     op.loop_level = inner_loop_level

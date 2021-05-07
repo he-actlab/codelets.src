@@ -22,7 +22,6 @@ class StorageNode(ArchitectureNode):
         self.set_attr("node_color", self.viz_color)
         self.access_type = access_type
         self.banks = banks
-        # self.size = size
         self.width = width
         self.depth = depth
         self.input_ports = input_ports

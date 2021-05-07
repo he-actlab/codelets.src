@@ -1,6 +1,6 @@
 from .base_op import Operation
 from typing import List, Union, Dict, Tuple, Callable
-from codelets.adl.operation.operand import OperandTemplate, Offset, IndexedOperandTemplate
+from codelets.adl.operation.operand import Operand, Offset, IndexedOperandTemplate
 from . import Loop
 import numpy as np
 from itertools import chain
@@ -16,7 +16,7 @@ OffsetType = Union[str, Integral, Basic]
 # TODO: Check to make sure there are edges for the entire path
 class Transfer(Operation):
 
-    def __init__(self, operand: Union[OperandTemplate, IndexedOperandTemplate], path: List[str],
+    def __init__(self, operand: Union[Operand, IndexedOperandTemplate], path: List[str],
                  sizes=None,
                  add_codelet=True,
                  **kwargs):
@@ -86,7 +86,7 @@ class Transfer(Operation):
         return [np.prod(s) for s in self.sizes]
 
     @property
-    def operand(self) -> OperandTemplate:
+    def operand(self) -> Operand:
         return self._operand
 
     @property
