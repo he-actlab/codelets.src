@@ -11,6 +11,7 @@ from codelets.adl.flex_template import Instruction, FlexTemplate
 
 
 if TYPE_CHECKING:
+    from codelets.templates.codelet_template import CodeletTemplate
     from .compute_node import ComputeNode
     from .storage_node import StorageNode
     from .communication_node import CommunicationNode
@@ -77,6 +78,7 @@ class ArchitectureNode(Node):
         super(ArchitectureNode, self).__init__(index=index)
         self._has_parent = None
         self._subgraph = ArchitectureGraph()
+        self._instr_length = None
         self._name = name
         if self.name:
             self.set_attr("field_name", self.name)
@@ -114,6 +116,8 @@ class ArchitectureNode(Node):
         raise NotImplementedError
 
     def __enter__(self):
+        if len(ArchitectureNode.graph_stack) == 1 and ArchitectureNode.graph_stack[0] is None:
+            ArchitectureNode.reset()
         ArchitectureNode.graph_stack.append(self)
         ArchitectureNode.sub_graph_ctx_nodes.append([])
         ArchitectureNode.sub_graph_ctx_edges.append({})
@@ -140,6 +144,11 @@ class ArchitectureNode(Node):
     
     # two categories of operand
     # modifying anode type arbitrarily should not be permitted
+    @staticmethod
+    def reset():
+        ArchitectureNode.graph_stack = deque([None])
+        ArchitectureNode.sub_graph_ctx_nodes = deque([[]])
+        ArchitectureNode.sub_graph_ctx_edges = deque([{}])
 
     @property
     def parent_graph(self) -> Union[None, 'ArchitectureNode']:
@@ -186,6 +195,12 @@ class ArchitectureNode(Node):
         return self._util_fns
 
     @property
+    def instr_length(self):
+        if not self._instr_length:
+            raise RuntimeError(f"Instruction length is not set for {self.name}")
+        return self._instr_length
+
+    @property
     def node_levels(self):
         return self._node_levels
 
@@ -204,23 +219,16 @@ class ArchitectureNode(Node):
     def node_type(self):
         raise NotImplementedError
 
+    @property
+    def instr_length_set(self):
+        return self._instr_length is not None
+
     def get_node_level(self, node_name: str):
         for lev, names in self.node_levels.items():
             if node_name in names:
                 return lev
         raise KeyError(f"Unable to find node level for {node_name}")
 
-    # def networkx_visualize(self, filename):
-    #     dgraph = AGraph(strict=False, directed=True)
-    #
-    #     for n in self.subgraph.get_nodes():
-    #         self.subgraph._add_nx_subgraph(dgraph, n)
-    #
-    #     dgraph.add_edges_from(self.subgraph.get_viz_edge_list())
-    #
-    #     dgraph.layout("dot")
-    #     dgraph.draw(f"{filename}.pdf", format="pdf")
-    #
 
     def add_util_fn(self, name, arg_vars: List[str], body):
         self.util_fns.add_fn(name, arg_vars, body)
@@ -376,6 +384,18 @@ class ArchitectureNode(Node):
     def add_loop_template(self, target, template, template_fns=None):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
+    def add_program_start_template(self, target, template, template_fns=None):
+        self.operation_mappings['program_start'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_program_end_template(self, target, template, template_fns=None):
+        self.operation_mappings['program_end'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_codelet_start_template(self, target, template, template_fns=None):
+        self.operation_mappings['codelet_start'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_codelet_end_template(self, target, template, template_fns=None):
+        self.operation_mappings['codelet_end'] = OpTemplate(instructions=template, functions=template_fns)
+
     def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
         assert isinstance(name, str)
         if self.has_node(name):
@@ -414,8 +434,27 @@ class ArchitectureNode(Node):
         assert self.parent_graph != self
         self._node_levels = compute_node_levels(self.all_subgraph_nodes)
 
+    def get_off_chip_storage(self):
+        min_level = min(list(self.node_levels.keys()))
+        min_level_nodes = []
+        for n in self.node_levels[min_level]:
+            node = self.get_subgraph_node(n)
+            if node.node_type == 'storage':
+                min_level_nodes.append(node)
+
+        if len(min_level_nodes) > 1:
+            raise RuntimeError(f"Found more than one off-chip storage node:\n"
+                               f"{[n.name for n in min_level_nodes]}")
+        elif len(min_level_nodes) == 0:
+            raise RuntimeError(f"Unable to find any off-chip storage nodes")
+
+        return min_level_nodes[0]
+
     def get_node_depth(self, node_name: str):
-        node = self.get_subgraph_node(node_name)
+        for depth, nodes in self.node_levels.items():
+            if node_name in nodes:
+                return depth
+        raise RuntimeError(f"Unable to find node {node_name} in graph")
 
     def get_type(self):
         return self._anode_type
@@ -429,16 +468,38 @@ class ArchitectureNode(Node):
         self.subgraph._nodes.update(node.subgraph._nodes)
 
 
+    def set_all_instr_lengths(self, length):
+        # NOTE: This assumes that a context manager has been constructed
+        if len(ArchitectureNode.graph_stack) <= 1:
+            raise RuntimeError(f"Unable to find top level graph because graph stack is empty")
+        top_level_graph = ArchitectureNode.graph_stack[1]
+        assert isinstance(top_level_graph, ArchitectureNode)
+        top_level_graph._instr_length = length
+
+        for _, n in top_level_graph.all_subgraph_nodes.items():
+            if not n.instr_length_set:
+                n._instr_length = length
+            else:
+                assert n.instr_length == length
+
+
     def add_primitive(self, primitive: 'Instruction'):
         if primitive.target is None:
             primitive.target = self.name
+        if self.instr_length_set and primitive.instr_length != self.instr_length:
+            raise RuntimeError(f"Invalid instruction length for architecture:\n"
+                               f"Instruction: {primitive}\n"
+                               f"Instruction Length: {primitive.instr_length}\n"
+                               f"Required Instr length: {self.instr_length}")
+        elif not self.instr_length_set:
+            self.set_all_instr_lengths(primitive.instr_length)
+
         self._primitives[primitive.name] = primitive
 
     def get_primitive_template(self, name) -> 'FlexTemplate':
 
         if name in self.primitives:
             return FlexTemplate(self.primitives[name].instruction_copy())
-            # return FlexTemplate()
         elif self.parent_graph == self:
             for n in self.parent_ctx_nodes:
                 if n.has_primitive(name):
@@ -456,12 +517,11 @@ class ArchitectureNode(Node):
         # TODO: Validate memory paths
         if codelet.op_name in self._codelets:
             raise KeyError(f"Duplicate codelets for {codelet.op_name}")
-        self._codelets[codelet.op_name] = codelet.copy()
+        self._codelets[codelet.op_name] = codelet
 
-    def get_codelet_template(self, name) -> 'Codelet':
+    def get_codelet_template(self, name) -> Union['Codelet', 'CodeletTemplate']:
         if name in self.codelets:
-            # Codelet.codelet_instance_id += 1
-            return self.codelets[name].copy(pre_increment=True)
+            return self.codelets[name]
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_codelet(name):

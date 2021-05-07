@@ -65,16 +65,6 @@ class ComputeNode(ArchitectureNode):
         assert isinstance(dimensions, list)
         self._dimensions = dimensions
 
-    # def parse_capability_json(self, cap_dict):
-    #     name = cap_dict.pop("field_name")
-    #     cap = Codelet(name, **cap_dict)
-    #     return cap
-    #
-    # def parse_codelet_json(self, cdlt_dict):
-    #     name = cdlt_dict.pop("field_name")
-    #     cap = Codelet(name, **cdlt_dict)
-    #     return cap
-
     def get_viz_attr(self):
         caps = list(self.get_primitives())
         if len(caps) > 5:

@@ -1,6 +1,7 @@
 from . import Operation
 from copy import copy
 from sympy import symbols, Idx, Expr
+from contextlib import contextmanager
 
 ARITHMETIC_LOOP_EVAL = """
 """
@@ -78,18 +79,26 @@ class Loop(Operation):
             offset = self.offset
         self.param_symbols[self.op_str] = Idx(self.op_str, (start, end))*stride + offset
 
-
     def __enter__(self):
+        return self.enter_loop_body()
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        self.exit_loop_body()
+
+    def enter_loop_body(self):
         Operation.loop_ctxt_level += 1
         Operation.loop_stack.append(self.loop_id)
         Operation.loop_ctx_dependencies.append(self.op_str)
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_tb):
+    def exit_loop_body(self):
         Operation.loop_ctxt_level -= 1
         Operation.loop_stack.pop()
         Operation.loop_ctx_dependencies.pop()
 
+    @staticmethod
+    def reset():
+        Loop.loop_ids = 0
 
     def set_loop_level(self, level):
         pass

@@ -1,15 +1,17 @@
-from codelets.adl.operation import OperandTemplate, Loop
+from codelets.adl.operation import Operand
 from codelets.codelet_impl.codelet import Codelet
+from codelets.templates.operand_template import OperandTemplate
+from codelets.templates.operation_template import OperationTemplate
+from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.flex_param import FlexParam
-
 from codelets.adl.graph import ArchitectureNode
 from . import OP_DTYPES
 
 def gemm(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
+    bias = Operand("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("gemm", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
@@ -19,9 +21,9 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
-        with Loop(0, "P") as p:
-            with Loop(0, "N") as n:
-                with Loop(0, "M") as m:
+        with cdlt.loop(0, "P") as p:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "M") as m:
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(bias[p], ["DRAM", "BBUF"])
@@ -44,9 +46,9 @@ def gemm(hag: ArchitectureNode):
 
 
 def gemm_no_bias(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
-    out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
+    out = Operand("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("gemm_no_bias", [data, weight], [out], hag, required_params=required_params) as cdlt:
@@ -55,9 +57,9 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
-        with Loop(0, "P") as p:
-            with Loop(0, "N") as n:
-                with Loop(0, "M") as m:
+        with cdlt.loop(0, "P") as p:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "M") as m:
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
@@ -78,9 +80,9 @@ def gemm_no_bias(hag: ArchitectureNode):
 
 def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    out = Operand("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("conv", [data, weight], [out], hag, required_params=required_params) as cdlt:
@@ -89,13 +91,13 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
-        with Loop(0, "OC") as oc:
-            with Loop(0, "N") as n:
-                with Loop(0, "IC") as ic:
-                    with Loop(0, "KH") as kh:
-                        with Loop(0, "KW") as kw:
-                            with Loop(0, "OH") as y:
-                                with Loop(0, "OW") as x:
+        with cdlt.loop(0, "OC") as oc:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "IC") as ic:
+                    with cdlt.loop(0, "KH") as kh:
+                        with cdlt.loop(0, "KW") as kw:
+                            with cdlt.loop(0, "OH") as y:
+                                with cdlt.loop(0, "OW") as x:
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
@@ -131,10 +133,10 @@ def conv2d(hag: ArchitectureNode):
 
 def conv2d_bias(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    bias = Operand("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("conv_bias", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
@@ -145,13 +147,13 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with Loop(0, "OC") as oc:
-            with Loop(0, "N") as n:
-                with Loop(0, "IC") as ic:
-                    with Loop(0, "KH") as kh:
-                        with Loop(0, "KW") as kw:
-                            with Loop(0, "OH") as y:
-                                with Loop(0, "OW") as x:
+        with cdlt.loop(0, "OC") as oc:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "IC") as ic:
+                    with cdlt.loop(0, "KH") as kh:
+                        with cdlt.loop(0, "KW") as kw:
+                            with cdlt.loop(0, "OH") as y:
+                                with cdlt.loop(0, "OW") as x:
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
                                     cdlt.transfer(data[n, ic, y*"stride" + kh, x*"stride" + kw], ["DRAM", "IBUF"])
@@ -187,15 +189,15 @@ def conv2d_bias(hag: ArchitectureNode):
     return cdlt
 
 def elem_add(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("add_out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op2 = Operand("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("add_out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_add", [op1, op2], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
                         out.set_write_destination("VMEM1")
@@ -206,17 +208,17 @@ def elem_add(hag: ArchitectureNode):
     return cdlt
 
 def elem_add_grad(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    op1_grad = OperandTemplate("op1_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    op2_grad = OperandTemplate("op2_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op2 = Operand("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1_grad = Operand("op1_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op2_grad = Operand("op2_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_add_grad", [op1, op2, grad], [op1_grad, op2_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
@@ -229,12 +231,12 @@ def elem_add_grad(hag: ArchitectureNode):
 
 
 def sgd1d(hag: ArchitectureNode):
-    param = OperandTemplate("param", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
-    updated_param = OperandTemplate("updated", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    param = Operand("param", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
+    updated_param = Operand("updated", OP_DTYPES, ["N"], dtype=OP_DTYPES[2])
     with Codelet("sgd1d", [param, grad], [updated_param], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
+        with cdlt.loop(0, "N") as n:
             cdlt.transfer(param[n], ["DRAM", "VMEM1"])
             cdlt.transfer(grad[n], ["DRAM", "VMEM2"])
             updated_param.set_write_destination("VMEM1")
@@ -243,13 +245,13 @@ def sgd1d(hag: ArchitectureNode):
     return cdlt
 
 def sgd2d(hag: ArchitectureNode):
-    param = OperandTemplate("param", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    updated_param = OperandTemplate("updated", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    param = Operand("param", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    updated_param = Operand("updated", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("sgd2d", [param, grad], [updated_param], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
                 cdlt.transfer(param[n, c], ["DRAM", "VMEM1"])
                 cdlt.transfer(grad[n, c], ["DRAM", "VMEM2"])
                 updated_param.set_write_destination("VMEM1")
@@ -258,14 +260,14 @@ def sgd2d(hag: ArchitectureNode):
     return cdlt
 
 def sgd3d(hag: ArchitectureNode):
-    param = OperandTemplate("param", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
-    updated_param = OperandTemplate("updated", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
+    param = Operand("param", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
+    updated_param = Operand("updated", OP_DTYPES, ["C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("sgd3d", [param, grad], [updated_param], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "C") as c:
-            with Loop(0, "H") as h:
-                with Loop(0, "W") as w:
+        with cdlt.loop(0, "C") as c:
+            with cdlt.loop(0, "H") as h:
+                with cdlt.loop(0, "W") as w:
                     cdlt.transfer(param[c, h, w], ["DRAM", "VMEM1"])
                     cdlt.transfer(grad[c, h, w], ["DRAM", "VMEM2"])
                     updated_param.set_write_destination("VMEM1")
@@ -274,15 +276,15 @@ def sgd3d(hag: ArchitectureNode):
     return cdlt
 
 def sgd4d(hag: ArchitectureNode):
-    param = OperandTemplate("param", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    updated_param = OperandTemplate("updated", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    param = Operand("param", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    updated_param = Operand("updated", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("sgd4d", [param, grad], [updated_param], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(param[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
                         updated_param.set_write_destination("VMEM1")
@@ -291,16 +293,16 @@ def sgd4d(hag: ArchitectureNode):
     return cdlt
 
 def batch_norm(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    scale = OperandTemplate("scale", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    offset = OperandTemplate("offset", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    scale = Operand("scale", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    offset = Operand("offset", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("batch_norm", [data, scale, offset], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
@@ -311,21 +313,21 @@ def batch_norm(hag: ArchitectureNode):
 
 
 def batchnorm_grad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    scale = OperandTemplate("scale", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    offset = OperandTemplate("offset", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    mean = OperandTemplate("mean", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    var = OperandTemplate("var", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    scale_grad = OperandTemplate("scale_grad", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
-    offset_grad = OperandTemplate("offset_grad", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    scale = Operand("scale", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    offset = Operand("offset", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    mean = Operand("mean", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    var = Operand("var", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    scale_grad = Operand("scale_grad", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    offset_grad = Operand("offset_grad", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
     with Codelet("batchnorm_grad", [data, scale, offset, mean, var, grad], [data_grad, scale_grad, offset_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
@@ -342,57 +344,57 @@ def batchnorm_grad(hag: ArchitectureNode):
     return cdlt
 
 def coarse_flatten(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("coarse_flatten", [data], [out], hag) as cdlt:
         pass
     return cdlt
 
 def tensor_transpose(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("tensor_transpose", [data], [out], hag) as cdlt:
         pass
 
     return cdlt
 
 def tensor_reshape(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("tensor_reshape", [data], [out], hag) as cdlt:
         pass
 
     return cdlt
 
 def tensor_pad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("tensor_pad", [data], [out], hag) as cdlt:
         pass
     return cdlt
 
 def tensor_flip(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("tensor_flip", [data], [out], hag) as cdlt:
         pass
 
     return cdlt
 
 def flatten_grad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("flatten_grad", [data, grad], [out], hag) as cdlt:
         pass
     return cdlt
 
 def reduce_sum(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["C"], dtype=OP_DTYPES[2])
     with Codelet("reduce_sum", [data], [out], hag) as cdlt:
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
                 cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                 out.set_write_destination("VMEM1")
                 cdlt.compute("ADD", [data, data], [out], target="SIMD")
@@ -401,14 +403,14 @@ def reduce_sum(hag: ArchitectureNode):
     return cdlt
 
 def cross_entropy_loss(hag: ArchitectureNode):
-    res = OperandTemplate("res", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    target = OperandTemplate("target", OP_DTYPES, ["N",], dtype=OP_DTYPES[2])
-    loss = OperandTemplate("loss", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
+    res = Operand("res", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    target = Operand("target", OP_DTYPES, ["N", ], dtype=OP_DTYPES[2])
+    loss = Operand("loss", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
     with Codelet("cross_entropy_loss", [res, target], [loss], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "D") as d:
-            with Loop(0, "N") as n:
-                with Loop(0, "C") as c:
+        with cdlt.loop(0, "D") as d:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "C") as c:
                     cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
                     cdlt.transfer(target[n], ["DRAM", "VMEM2"])
                     loss.set_write_destination("VMEM1")
@@ -418,34 +420,58 @@ def cross_entropy_loss(hag: ArchitectureNode):
 
 
 def relu(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out_relu", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out_relu", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("relu", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
 
-
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
 
     return cdlt
 
+def relu_template(_):
+
+    with CodeletTemplate("relu") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("RELU", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
+    return cdlt
+
 def elem_tanh(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out_tanh", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out_tanh", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_tanh", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
                         cdlt.compute("TANH", [op1], [out], target="SIMD")
@@ -456,12 +482,12 @@ def elem_tanh(hag: ArchitectureNode):
     return cdlt
 
 def elem_tanh2d(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out_tanh", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    out = Operand("out_tanh", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("elem_tanh2d", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
                 cdlt.transfer(op1[n, c], ["DRAM", "VMEM1"])
                 out.set_write_destination("VMEM1")
                 cdlt.compute("TANH", [op1], [out], target="SIMD")
@@ -472,16 +498,16 @@ def elem_tanh2d(hag: ArchitectureNode):
     return cdlt
 
 def relu_grad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("relu_grad", [data, grad], [data_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM1"])
                         data_grad.set_write_destination("VMEM1")
@@ -490,16 +516,16 @@ def relu_grad(hag: ArchitectureNode):
     return cdlt
 
 def elem_tanh_grad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_tanh_grad", [data, grad], [data_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "H") as h:
-                    with Loop(0, "W") as w:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "H") as h:
+                    with cdlt.loop(0, "W") as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM1"])
                         data_grad.set_write_destination("VMEM1")
@@ -508,14 +534,14 @@ def elem_tanh_grad(hag: ArchitectureNode):
     return cdlt
 
 def elem_tanh_grad2d(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("elem_tanh_grad2d", [data, grad], [data_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
                 cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                 cdlt.transfer(grad[n, c], ["DRAM", "VMEM1"])
                 data_grad.set_write_destination("VMEM1")
@@ -526,21 +552,21 @@ def elem_tanh_grad2d(hag: ArchitectureNode):
 # TODO: Implement valid operation sequence
 def maxpool2d(hag: ArchitectureNode):
     #
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     #
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("max_pool", [data], [out], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "KH") as kh:
-                    with Loop(0, "KW") as kw:
-                        with Loop(0, "OH") as y:
-                            with Loop(0, "OW") as x:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "KH") as kh:
+                    with cdlt.loop(0, "KW") as kw:
+                        with cdlt.loop(0, "OH") as y:
+                            with cdlt.loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
                                 cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
@@ -551,9 +577,9 @@ def maxpool2d(hag: ArchitectureNode):
 
 def averagepool2d(hag: ArchitectureNode):
     #
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     #
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("avg_pool", [data], [out], hag) as cdlt:
 
@@ -562,12 +588,12 @@ def averagepool2d(hag: ArchitectureNode):
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "IMM", immediate_value=0, index=1)
         denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "KH") as kh:
-                    with Loop(0, "KW") as kw:
-                        with Loop(0, "OH") as y:
-                            with Loop(0, "OW") as x:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "KH") as kh:
+                    with cdlt.loop(0, "KW") as kw:
+                        with cdlt.loop(0, "OH") as y:
+                            with cdlt.loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
                                 cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
@@ -579,22 +605,22 @@ def averagepool2d(hag: ArchitectureNode):
 
 def max_pool_grad(hag: ArchitectureNode):
     #
-    data = OperandTemplate("max_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("max_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     #
-    data_grad = OperandTemplate("max_pool_data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data_grad = Operand("max_pool_data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("max_pool_grad", [data, grad], [data_grad], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "KH") as kh:
-                    with Loop(0, "KW") as kw:
-                        with Loop(0, "OH") as y:
-                            with Loop(0, "OW") as x:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "KH") as kh:
+                    with cdlt.loop(0, "KW") as kw:
+                        with cdlt.loop(0, "OH") as y:
+                            with cdlt.loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, y, x], ["DRAM", "VMEM1"])
                                 data_grad.set_write_destination("VMEM1")
@@ -605,22 +631,22 @@ def max_pool_grad(hag: ArchitectureNode):
 
 def average_pool_grad(hag: ArchitectureNode):
     #
-    data = OperandTemplate("avg_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("avg_pool_data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     #
-    data_grad = OperandTemplate("avg_pool_data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data_grad = Operand("avg_pool_data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("average_pool_grad", [data, grad], [data_grad], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "KH") as kh:
-                    with Loop(0, "KW") as kw:
-                        with Loop(0, "OH") as y:
-                            with Loop(0, "OW") as x:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "KH") as kh:
+                    with cdlt.loop(0, "KW") as kw:
+                        with cdlt.loop(0, "OH") as y:
+                            with cdlt.loop(0, "OW") as x:
                                 cdlt.transfer(data[n, c, y*"sy" + kh, x*"sx" + kw], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, y, x], ["DRAM", "VMEM1"])
                                 data_grad.set_write_destination("VMEM1")
@@ -630,22 +656,22 @@ def average_pool_grad(hag: ArchitectureNode):
 
 def global_average_pool_grad(hag: ArchitectureNode):
     #
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     #
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("global_average_pool_grad", [data, grad], [data_grad], hag) as cdlt:
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
 
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "IH") as iy:
-                    with Loop(0, "IW") as ix:
-                        with Loop(0, "OH") as oy:
-                            with Loop(0, "OW") as ox:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "IH") as iy:
+                    with cdlt.loop(0, "IW") as ix:
+                        with cdlt.loop(0, "OH") as oy:
+                            with cdlt.loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy, ix], ["DRAM", "VMEM1"])
                                 cdlt.transfer(grad[n, c, oy, ox], ["DRAM", "VMEM1"])
                                 data_grad.set_write_destination("VMEM1")
@@ -656,9 +682,9 @@ def global_average_pool_grad(hag: ArchitectureNode):
 # TODO: Implement valid operation sequence
 def global_avg_pool(hag: ArchitectureNode):
     #
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C", "IH", "IW"], dtype=OP_DTYPES[2])
     #
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "OH", "OW"], dtype=OP_DTYPES[2])
     # # TODO: Add option to create operand
     with Codelet("global_avg_pool", [data], [out], hag) as cdlt:
 
@@ -667,12 +693,12 @@ def global_avg_pool(hag: ArchitectureNode):
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "IMM", immediate_value=0, index=1)
         denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
-        with Loop(0, "N") as n:
-            with Loop(0, "C") as c:
-                with Loop(0, "IH") as iy:
-                    with Loop(0, "IW") as ix:
-                        with Loop(0, "OH") as oy:
-                            with Loop(0, "OW") as ox:
+        with cdlt.loop(0, "N") as n:
+            with cdlt.loop(0, "C") as c:
+                with cdlt.loop(0, "IH") as iy:
+                    with cdlt.loop(0, "IW") as ix:
+                        with cdlt.loop(0, "OH") as oy:
+                            with cdlt.loop(0, "OW") as ox:
                                 cdlt.transfer(data[n, c, iy + oy, ix + ox], ["DRAM", "VMEM1"])
                                 # TODO: Zero out output data at compile time
                                 cdlt.transfer(out[n, c, oy, ox], ["DRAM", "VMEM2"])
@@ -683,15 +709,15 @@ def global_avg_pool(hag: ArchitectureNode):
     return cdlt
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
-    grad = OperandTemplate("grad", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
-    target = OperandTemplate("target", OP_DTYPES, ["N",], dtype=OP_DTYPES[2])
-    data_grad = OperandTemplate("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
+    grad = Operand("grad", OP_DTYPES, ["D"], dtype=OP_DTYPES[2])
+    target = Operand("target", OP_DTYPES, ["N", ], dtype=OP_DTYPES[2])
+    data_grad = Operand("data_grad", OP_DTYPES, ["N", "C"], dtype=OP_DTYPES[2])
     with Codelet("cross_entropy_loss_grad", [data, target, grad], [data_grad], hag) as cdlt:
         cdlt.configure("start", "SIMD")
-        with Loop(0, "D") as d:
-            with Loop(0, "N") as n:
-                with Loop(0, "C") as c:
+        with cdlt.loop(0, "D") as d:
+            with cdlt.loop(0, "N") as n:
+                with cdlt.loop(0, "C") as c:
                     cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                     cdlt.transfer(target[n], ["DRAM", "VMEM2"])
                     cdlt.transfer(grad[d], ["DRAM", "VMEM2"])

@@ -1,10 +1,10 @@
-from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, get_transformed_srdfg
+from examples.genesys import compile_genesys, get_transformed_srdfg
+import pytest
 import polymath as pm
-from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
 import json
-from pprint import pprint
 from pathlib import Path
+from .util import validate_program
 
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
@@ -43,11 +43,19 @@ def test_srdfg_creation():
         if not isinstance(node, (pm.placeholder, pm.write)):
             print(f"{name}: {node.op_name}")
 
-def test_genesys_model():
-    model_name = 'resnet18'
+@pytest.mark.parametrize('model_name',[
+    "resnet18",
+    "resnet18_train",
+    "lenet",
+    "lenet_train"
+])
+def test_genesys_model(model_name):
+    train = False
 
+    if "train" in model_name:
+        model_name = model_name.split("_")[0]
+        train = True
     # Determines whether to compile a training model or not
-    train = True
 
     # GENESYS_DTYPES['SIMD'] = 'FXP16'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
@@ -88,15 +96,5 @@ def test_genesys_model():
                               factor_fn='default',
                               print_config=False
                               )
-    # program.check_connectivity()
-    # import networkx as nx
-    # import matplotlib.pyplot as plt
-    # dfg = program.create_cdlt_dfg()
-    # colors = list(nx.get_node_attributes(dfg, 'color').values())
-    # labels = nx.get_node_attributes(dfg, 'label')
-    #
-    # nx.draw(dfg, pos=nx.spring_layout(dfg), node_color=colors, font_weight='bold', labels=labels)
-    # plt.savefig(f"{model_name}.png")
 
-    # res = program.emit("json_no_ops")
-    # pprint(res)
+    validate_program(program, print_difference=True)

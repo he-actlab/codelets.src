@@ -1,14 +1,14 @@
-from codelets.adl.operation import OperandTemplate, Loop
+from codelets.adl.operation import Operand, Loop
 from codelets.codelet_impl.codelet import Codelet
 
 from codelets.adl.graph import ArchitectureNode
 from . import OP_DTYPES
 
 def gemm(hag: ArchitectureNode):
-    data = OperandTemplate("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["M", "N"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["N", "P"], dtype=OP_DTYPES[0])
+    bias = Operand("bias", OP_DTYPES, ["P"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["M", "P"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("gemm", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
@@ -40,9 +40,9 @@ def gemm(hag: ArchitectureNode):
 
 def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    out = Operand("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("conv", [data, weight], [out], hag, required_params=required_params) as cdlt:
@@ -73,10 +73,10 @@ def conv2d(hag: ArchitectureNode):
 
 def conv2d_bias(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-    data = OperandTemplate("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
-    weight = OperandTemplate("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
-    bias = OperandTemplate("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
+    data = Operand("data", OP_DTYPES, ["N", "IC", "IH", "IW"], dtype=OP_DTYPES[0])
+    weight = Operand("weight", OP_DTYPES, ["OC", "IC", "KH", "KW"], dtype=OP_DTYPES[0])
+    bias = Operand("bias", OP_DTYPES, ["OC"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "OC", "OH", "OW"], dtype=OP_DTYPES[2])
     required_params = {}
 
     with Codelet("conv_bias", [data, weight, bias], [out], hag, required_params=required_params) as cdlt:
@@ -110,9 +110,9 @@ def conv2d_bias(hag: ArchitectureNode):
     return cdlt
 
 def elem_add(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    op2 = OperandTemplate("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("add_out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op2 = Operand("op2", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("add_out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("elem_add", [op1, op2], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         with Loop(0, "N") as n:
@@ -126,8 +126,8 @@ def elem_add(hag: ArchitectureNode):
     return cdlt
 
 def relu(hag: ArchitectureNode):
-    op1 = OperandTemplate("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    op1 = Operand("op1", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
+    out = Operand("out", OP_DTYPES, ["N", "C", "H", "W"], dtype=OP_DTYPES[2])
     with Codelet("relu", [op1], [out], hag) as cdlt:
         cdlt.configure("start", "SIMD")
         # cdlt.configure("start", "VMEM")
@@ -144,9 +144,9 @@ def relu(hag: ArchitectureNode):
 def maxpool2d_nchw(hag: ArchitectureNode):
     # loop_order = ["n", "oc", "kh", "kh", "ow", "oh"]
     #
-    data = OperandTemplate("data", OP_DTYPES, ["N", "C", "IH", "IW"])
+    data = Operand("data", OP_DTYPES, ["N", "C", "IH", "IW"])
     #
-    out = OperandTemplate("out", OP_DTYPES, ["N", "C", "OH", "OW"])
+    out = Operand("out", OP_DTYPES, ["N", "C", "OH", "OW"])
     # # TODO: Add option to create operand
     # # 1. set IMM to negative infinity
     with Codelet("max_pool", [data], [out], hag) as cdlt:
