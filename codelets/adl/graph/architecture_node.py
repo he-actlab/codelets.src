@@ -7,8 +7,8 @@ from typing import List, Dict, Union, TYPE_CHECKING
 from collections import namedtuple, deque
 from dataclasses import dataclass, field
 import itertools
+import dill
 from codelets.adl.flex_template import Instruction, FlexTemplate
-
 
 if TYPE_CHECKING:
     from .compute_node import ComputeNode
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 # Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
 OpTemplate = namedtuple('OpTemplate', ['instructions', 'functions'])
+
 
 @dataclass
 class Edge:
@@ -31,6 +32,7 @@ class Edge:
     @property
     def attribute_names(self):
         return ["src", "src_id", "dst", "dst_id", "bandwidth", "attributes"]
+
 
 class UtilFuncs(object):
 
@@ -47,22 +49,34 @@ class UtilFuncs(object):
         return self._func_def_names
 
     def __getattr__(self, item):
-        return self.get_util_fnc(item)
+        try:
+            return self.get_util_fnc(item)
+        except KeyError:
+            raise AttributeError(item)
+
+    def __getstate__(self):
+        state = {"_funcs": self._funcs, "_func_def_names": self._func_def_names}
+        return state
+
+    def __setstate__(self, state):
+        self._funcs = state["_funcs"]
+        self._func_def_names = state["_func_def_names"]
 
     def add_fn(self, name, arg_vars: List[str], body):
         arg_str = ", ".join(arg_vars)
-        self.func_def_names[name] = f"util_fn{len(list(self.funcs.keys()))}"
-        self.funcs[name] = f"def {self.func_def_names[name]}({arg_str}):\n\t" \
-                           f"return {body}"
+        self._func_def_names[name] = f"util_fn{len(list(self._funcs.keys()))}"
+        self._funcs[name] = f"def {self._func_def_names[name]}({arg_str}):\n\t" \
+                            f"return {body}"
 
     def get_util_fnc(self, name):
-        util_fnc_code = compile(self.funcs[name], "<string>", "exec")
-        util_fnc = FunctionType(util_fnc_code.co_consts[0], globals(), self.func_def_names[name])
+        util_fnc_code = compile(self._funcs[name], "<string>", "exec")
+        util_fnc = FunctionType(util_fnc_code.co_consts[0], globals(), self._func_def_names[name])
         return util_fnc
 
     def run_param_fnc(self, fn_name, *args, **kwargs):
         util_fnc = self.get_util_fnc(fn_name)
         return util_fnc(*args, **kwargs)
+
 
 class ArchitectureNode(Node):
     """
@@ -78,7 +92,7 @@ class ArchitectureNode(Node):
         self._has_parent = None
         self._subgraph = ArchitectureGraph()
         self._name = name
-        if self.name:
+        if self._name:
             self.set_attr("field_name", self.name)
         # type
         self._anode_type = type(self).__name__
@@ -97,13 +111,12 @@ class ArchitectureNode(Node):
 
         # occupied: [(op_node, primitive, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
-        self._occupied = [] # NOTE state in TABLA compiler...
+        self._occupied = []  # NOTE state in TABLA compiler...
         self._operation_mappings = {"config": {},
                                     "transfer": {},
                                     "loop": None,
                                     "compute": {}}
         self._util_fns = UtilFuncs()
-        self._util_fns_ = {}
         if self.parent_graph is not None:
             ArchitectureNode.sub_graph_ctx_nodes[-1].append(self)
 
@@ -137,7 +150,7 @@ class ArchitectureNode(Node):
         return f'op {self.index} ({self.get_type()}): \
                  preds={self.get_preds_indices()} ({self._attrs["in_degree"]}), \
                  succs={self.get_succs_indices()} ({self._attrs["out_degree"]})'
-    
+
     # two categories of operand
     # modifying anode type arbitrarily should not be permitted
 
@@ -184,6 +197,10 @@ class ArchitectureNode(Node):
     @property
     def util_fns(self):
         return self._util_fns
+
+    @util_fns.setter
+    def util_fns(self, util_fns: UtilFuncs):
+        self._util_fns = util_fns
 
     @property
     def node_levels(self):
@@ -299,7 +316,7 @@ class ArchitectureNode(Node):
             template = []
             a, b = itertools.tee(op.path)
             next(b, None)
-            for key in zip(a,b):
+            for key in zip(a, b):
                 template += self.operation_mappings['transfer'][key].instructions
         elif op.op_type == 'config':
             template = self.operation_mappings['config'][op.target_name][op.start_or_finish].instructions
@@ -316,7 +333,6 @@ class ArchitectureNode(Node):
                 template = [self.operation_mappings['loop'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
-
 
         return template
 
@@ -409,7 +425,6 @@ class ArchitectureNode(Node):
         raise KeyError(f"{key} not found in subgraph or edges:"
                        f"Edges: {self.edge_map.keys()}")
 
-
     def set_node_depths(self):
         assert self.parent_graph != self
         self._node_levels = compute_node_levels(self.all_subgraph_nodes)
@@ -427,7 +442,6 @@ class ArchitectureNode(Node):
         for name, n in node._all_subgraph_nodes.items():
             self._all_subgraph_nodes[n.name] = n
         self.subgraph._nodes.update(node.subgraph._nodes)
-
 
     def add_primitive(self, primitive: 'Instruction'):
         if primitive.target is None:
@@ -473,9 +487,9 @@ class ArchitectureNode(Node):
 
     def is_compatible(self, op_name):
         return op_name in self._primitives.keys()
-    
+
     def set_occupied(self, op_code, primitive, begin_cycle, end_cycle):
-        
+
         # check for overlaps, "expr" is occupied and "n" is new
         n = (begin_cycle, end_cycle)
         overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
@@ -493,7 +507,6 @@ class ArchitectureNode(Node):
         n = (begin_cycle, end_cycle)
         overlaps = [o for o in self._occupied if o[2] > n[0] and o[2] < n[1] or o[3] > n[0] and o[3] < n[1]]
         return len(overlaps) == 0
-
 
     def edge_exists(self, src_node: str, dst_node: str):
         if dst_node not in self.get_subgraph_node(src_node).out_edges:
@@ -537,19 +550,22 @@ class ArchitectureNode(Node):
             for op, instr in node.primitives.items():
                 print(f"{name}{op}: {instr}")
 
-
     def print_subgraph_edges(self, tabs=""):
         edge_pairs = [f"SRC: {self.subgraph.get_node_by_index(e.src).name}\t" \
                       f"DST:{self.subgraph.get_node_by_index(e.dst).name}" for e in self.subgraph_edges]
         print(f"Total edges: {len(edge_pairs)}\n"
               f"Unique: {len(set(edge_pairs))}")
         print("\n".join(edge_pairs))
-        tabs = tabs+"\t"
+        tabs = tabs + "\t"
         for n in self.get_subgraph_nodes():
             n.print_subgraph_edges(tabs=tabs)
 
     def to_json(self):
-        raise NotImplementedError
+        blob = self.initialize_json()
+        return self.finalize_json(blob)
+
+    def from_json(self):
+        pass
 
     def initialize_json(self):
         blob = {}
@@ -560,6 +576,9 @@ class ArchitectureNode(Node):
         blob['attributes'] = {}
         return blob
 
+    def initialize_from_json(self, blob):
+        pass
+
     def finalize_json(self, blob):
         blob['subgraph'] = {}
         blob['subgraph']['nodes'] = [sg.to_json() for sg in self.get_subgraph_nodes()]
@@ -568,6 +587,21 @@ class ArchitectureNode(Node):
             e_attr = {k: v for k, v in e.attributes.items()}
             sub_edge = {'src': e.src, 'dest': e.dst, 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
+
+        codelets_dill_fname = "node-" + str(blob['node_id']) + "-codelets.dill"
+        with open(codelets_dill_fname, "wb") as f:
+            dill.dump(self.codelets, f)
+        blob['codelets'] = codelets_dill_fname
+
+        primitives_dill_fname = "node-" + str(blob['node_id']) + "-primitives.dill"
+        with open(primitives_dill_fname, "wb") as f:
+            dill.dump(self.primitives, f)
+        blob['primitives'] = primitives_dill_fname
+
+        utility_funcs_dill_fname = "node-" + str(blob['node_id']) + "-utility_functions.dill"
+        with open(utility_funcs_dill_fname, "wb") as f:
+            dill.dump(self.util_fns, f)
+        blob['utility_funcs'] = utility_funcs_dill_fname
         return blob
 
     # TODO: Finish filling this out
@@ -575,3 +609,4 @@ class ArchitectureNode(Node):
         src_node = self.get_subgraph_node(src)
         dst_node = self.get_subgraph_node(dst)
         edge = self.edge_map[(src, dst)]
+
