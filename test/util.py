@@ -104,6 +104,7 @@ def create_reference_outputs(names, batch_size=1, update_cfg_dtypes=False,
                                       )
         else:
             raise RuntimeError(f"Invalid layer name for compilation : {name}")
+        store_compilation_output(program, "operations_idx", extension="txt", verification=True)
         store_compilation_output(program, "json", extension="json", verification=True)
         store_compilation_output(program, "string_final", extension="txt", verification=True)
         store_compilation_output(program, "decimal", extension="txt", verification=True)
@@ -117,7 +118,7 @@ def ordered(obj):
     else:
         return obj
 
-def validate_program(program, check_instr=True, check_decimal=True, check_json=True, check_bin=True,
+def validate_program(program, check_ops=True, check_instr=True, check_decimal=True, check_json=True, check_bin=True,
                      print_difference=False):
 
     if program.name not in (ALL_MODEL_TRAIN_NAMES + ALL_MODEL_NAMES + ALL_LAYER_NAMES):
@@ -126,11 +127,26 @@ def validate_program(program, check_instr=True, check_decimal=True, check_json=T
     cwd = Path(f"{__file__}").parent
     base_path = f"{cwd}/compilation_output/reference_output/{program.name}"
 
+    if check_ops:
+        program_op_str = program.emit("operations_idx")
+        # Check string_instr
+        with open(f"{base_path}/{program.name}_operations_idx.txt", "r") as instr_file:
+            ref_op_str = instr_file.read()
+
+        if program_op_str != ref_op_str:
+            if print_difference:
+                print(f"Reference: {ref_op_str}\n\n"
+                      f"New: {program_op_str}")
+            raise RuntimeError(f"Instruction string outputs do not match for program {program.name}.\n"
+                               f"Difference:\n"
+                               f"Reference: {ref_op_str}\n"
+                               f"New: {program_op_str}")
     if check_instr:
         program_instr_str = program.emit("string_final")
         # Check string_instr
         with open(f"{base_path}/{program.name}_string_final.txt", "r") as instr_file:
             ref_instr_str = instr_file.read()
+
 
         if program_instr_str != ref_instr_str:
             d = difflib.Differ()

@@ -1,11 +1,13 @@
 from typing import TYPE_CHECKING
 
+from codelets.templates.operand_template import IndexOperandTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
 from codelets.compiler.program import CodeletProgram
 
 from .tiling_utils import set_codelet_tiling
-from .stage_utils import default_tile_heuristic, update_shape_from_arch, store_tile_checkpoint, \
+from .stage_utils import default_tile_heuristic, \
+    update_shape_from_arch, store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
 import polymath as pm
 import json
@@ -40,6 +42,10 @@ INTERMEDIATE_INPUT_INDICES = {
     "cross_entropy_loss_grad": [0, 1, 2],
     "gemm": [0]
 }
+TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
+                     ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
+                     ['ON', 'OC', 'OH', 'OW'], ['N', 'C', 'OH', 'OW']]
+FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
     if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
@@ -57,8 +63,45 @@ def template_layout_pass(template: 'CodeletTemplate') -> 'CodeletTemplate':
     if not isinstance(template, CodeletTemplate):
         return template
     else:
-        if template.op_name == "avg_pool":
+        if template.op_name in ["avg_pool", 'global_avg_pool']:
             template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+
+        if template.op_name in ["conv", "conv_bias"]:
+            template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
+            template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
+
+        reordered_operands = {}
+        for idx, i in enumerate(template.inputs):
+            if i.shape_list_names in TRANSPOSED_SHAPES:
+                i.reorder_shapes([0, 2, 3, 1])
+                reordered_operands[i.name] = [0, 2, 3, 1]
+            elif i.shape_list_names in FLIP_SHAPES:
+                i.reorder_shapes([2, 3, 0, 1])
+                reordered_operands[i.name] = [2, 3, 0, 1]
+
+
+        for idx, o in enumerate(template.outputs):
+            if o.shape_list_names in TRANSPOSED_SHAPES:
+                o.reorder_shapes([0, 2, 3, 1])
+                reordered_operands[o.name] = [0, 2, 3, 1]
+            elif o.shape_list_names in FLIP_SHAPES:
+                o.reorder_shapes([2, 3, 0, 1])
+                reordered_operands[o.name] = [2, 3, 0, 1]
+
+        for o in template.ops:
+            if o.op_type == 'transfer':
+                operand = o.param_map['operand']
+                if isinstance(operand, IndexOperandTemplate) and operand.name in reordered_operands:
+                    o.param_map['operand'].reorder_offsets(reordered_operands[operand.name])
+            elif o.op_type == 'compute':
+                for iop in o.param_map['sources']:
+                    if isinstance(iop, IndexOperandTemplate) and iop.name in reordered_operands:
+                        o.param_map['operand'].reorder_offsets(reordered_operands[iop.name])
+
+                for oop in o.param_map['dests']:
+                    if isinstance(oop, IndexOperandTemplate) and oop.name in reordered_operands:
+                        o.param_map['operand'].reorder_offsets(reordered_operands[oop.name])
+
         return template
 
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
@@ -114,11 +157,9 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
             raise RuntimeError(f"Weight and activation shapes are incorrect:"
                                f"Weight {weight.name} shape: {weight_shape}/{weight.shape}\n"
                                f"Activation {activation.name} shape: {act_shape}/{activation.shape}")
-        cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'IC'])
-        cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-        cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-        cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'OC'])
-        cdlt.inputs[1].set_dim_order(['KH', 'KW', 'OC', 'IC'])
+        # cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
+        # cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
+
         if len(node.inputs) == 3:
             bias = node.inputs[2]
             bias_shape = update_shape_from_arch(bias, shaped_nodes, sys_array_dims[1], 0)
@@ -130,24 +171,18 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
         act_shape = update_shape_from_arch(activation, shaped_nodes, simd_dims[0], 3)
         out_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 3)
-
-        cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-        cdlt.inputs[1].set_dim_order(['ON', 'OW', 'OH', 'OC'])
-
     elif cdlt.op_name in ['batchnorm_grad', 'batch_norm']:
         simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
 
         for idx, i in enumerate(node.inputs):
             if len(i.shape) == 4:
                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 3)
-                cdlt.inputs[idx].set_dim_order(['N', 'H', 'W', 'C'])
             elif program.program_mode == 'training':
                 assert len(i.shape) == 1
                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
         for idx, i in enumerate(node.outputs):
             if len(i.shape) == 4:
                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 3)
-                cdlt.outputs[idx].set_dim_order(['N', 'H', 'W', 'C'])
             elif program.program_mode == 'training':
                 assert len(i.shape) == 1
                 shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
@@ -211,10 +246,8 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
         out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, idx)
 
         if cdlt.op_name in ['max_pool', 'avg_pool']:
-            cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
             cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
             cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-            cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
             assert len(node.args) == 4 and isinstance(node.args[2], int)
             node.add_attribute('KH', node.kernel_size[0])
 
@@ -225,12 +258,6 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
             assert isinstance(sx, int)
             node.add_attribute('sy', sy)
             node.add_attribute('sx', sx)
-        elif cdlt.op_name == 'global_avg_pool':
-            cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'OH', 'OW', 'C'])
-        elif len(data.shape) == 4:
-            cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
 
     elif cdlt.op_name in ['sgd1d', 'sgd2d', 'elem_tanh_grad2d']:
         simd_constraint = program.hag.get_subgraph_node("SIMD").dimensions[0]
@@ -248,8 +275,6 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
         if grad.name not in shaped_nodes:
             raise RuntimeError(f"Gradient {grad.name} not found in shaped nodes for {node.op_name}")
         assert grad.name in shaped_nodes
-
-
 
         assert grad.shape == data.shape, f"Invalid shapes for {cdlt.op_name}{cdlt.instance_id}:\n" \
                                             f"Input {data.name} shape: {data.shape} ({data_shape})\n" \
@@ -308,22 +333,11 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
         op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_constraint, 3)
         out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, 3)
 
-
-        if cdlt.op_name == 'global_average_pool_grad':
-            cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-            cdlt.inputs[1].set_dim_order(['N', 'OH', 'OW', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-        elif cdlt.op_name == 'elem_add_grad':
+        if cdlt.op_name == 'elem_add_grad':
             op3 = node.inputs[2]
             op3_shape = update_shape_from_arch(op3, shaped_nodes, simd_constraint, 3)
             grad1 = node.outputs[1]
             grad1_shape = update_shape_from_arch(grad1, shaped_nodes, simd_constraint, 3)
-            cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.inputs[2].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.outputs[1].set_dim_order(['N', 'H', 'W', 'C'])
-
         elif cdlt.op_name in ['max_pool_grad', 'average_pool_grad']:
 
             node.add_attribute('KH', node.kernel_size[0])
@@ -333,13 +347,7 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
             assert isinstance(sx, int)
             node.add_attribute('sy', sy)
             node.add_attribute('sx', sx)
-            cdlt.inputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-            cdlt.inputs[1].set_dim_order(['N', 'OH', 'OW', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'IH', 'IW', 'C'])
-        else:
-            cdlt.inputs[0].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.inputs[1].set_dim_order(['N', 'H', 'W', 'C'])
-            cdlt.outputs[0].set_dim_order(['N', 'H', 'W', 'C'])
+
         if cdlt.op_name not in ['max_pool_grad', 'global_average_pool_grad', 'average_pool_grad']:
             if op1_shape != op2_shape:
                 raise RuntimeError(f"Operand1 and Operand2 shapes are incorrect for {cdlt.op_name}:\n"

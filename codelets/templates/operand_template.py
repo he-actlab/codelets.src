@@ -28,6 +28,10 @@ class OperandTemplate:
         offset = OffsetTemplate(item)
         return IndexOperandTemplate(self, offset)
 
+    def reorder_shapes(self, permutation: List[int]):
+        assert len(permutation) == len(self.shape_list)
+        self.shape_list = [self.shape_list[i] for i in permutation]
+
     @property
     def shape_list_names(self):
         slist = []
@@ -78,6 +82,14 @@ class IndexOperandTemplate:
         assert isinstance(evaluated_offset, tuple)
         operand_idx = operand[evaluated_offset]
         return operand_idx
+
+    def reorder_offsets(self, permutation: List[int]):
+        assert len(permutation) == len(self.offset.offsets)
+        self.offset.offsets = tuple([self.offset.offsets[i] for i in permutation])
+
+    @property
+    def name(self):
+        return self.operand.name
 
 def evaluate_args(args, instance_args, preserve_types):
     if isinstance(args, preserve_types):

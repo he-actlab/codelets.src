@@ -33,8 +33,10 @@ class DummyOp:
 
     def update(self, dummy_op: 'DummyOp'):
         self.template_types = dummy_op.template_types
-        self.flex_param = dummy_op.flex_param
+        self.flex_param.update_fn_code_args(dummy_op.flex_param.fn_args,
+                                            dummy_op.flex_param.fn_body_str)
         self.obj_instance = dummy_op.obj_instance
+        return dummy_op
 
     def __getattr__(self, name):
         # TODO: Add assertion here to make sure its a valid attribute
