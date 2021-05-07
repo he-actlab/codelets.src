@@ -596,7 +596,7 @@ def relu(_):
         op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([op1])
 
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
         with cdlt.loop(N) as n:
@@ -945,7 +945,7 @@ def global_avg_pool(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
-        denom = FlexParam("denom", ["IH", "IW"], "IH*IW")
+        denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "IMM", immediate_value=0, index=1)
         denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")

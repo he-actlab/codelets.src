@@ -79,6 +79,11 @@ class FlexParam:
         self.fn_body_str = new_fn_code
         self.create_function_from_str(self.fn_args, self.fn_body_str)
 
+    def update_fn_code_args(self, args, new_fn_code):
+        self.fn_args = args
+        self.fn_body_str = new_fn_code
+        self.create_function_from_str(self.fn_args, self.fn_body_str)
+
     def evaluate_fn(self, *fn_args, force_evaluate=False):
         if len(fn_args) != len(self.fn_args):
             raise RuntimeError(f"Unequal arguments for FlexParam {self.name}\n"

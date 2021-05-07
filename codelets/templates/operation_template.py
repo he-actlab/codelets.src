@@ -4,7 +4,7 @@ from codelets.adl.operation import Loop, Compute, Configure, Transfer
 from codelets.adl.flex_param import FlexParam
 from functools import singledispatch
 from codelets.adl.flex_template import Instruction, FlexTemplate
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Any
 from copy import copy
 
 from .dummy_op import DummyOp, DummyParam
@@ -67,7 +67,7 @@ class OperationTemplate(object):
         self._loop_id = loop_id
 
     @property
-    def param_map(self) -> Dict[str, Union[FlexParam, int, None]]:
+    def param_map(self) -> Dict[str, Any]:
         return self._param_map
 
     @property
