@@ -210,6 +210,10 @@ class ArchitectureNode(Node):
     def operation_mappings(self):
         return self._operation_mappings
 
+    @operation_mappings.setter
+    def operation_mappings(self, operation_mappings):
+        self._operation_mappings = operation_mappings
+
     @property
     def all_codelet_names(self) -> List[str]:
         names = [] + list(self.codelets.keys())
@@ -585,7 +589,7 @@ class ArchitectureNode(Node):
         blob['subgraph']['edges'] = []
         for e in self.subgraph_edges:
             e_attr = {k: v for k, v in e.attributes.items()}
-            sub_edge = {'src': e.src, 'dest': e.dst, 'attributes': e_attr}
+            sub_edge = {'src': e.src, 'dest': e.dst, 'bandwidth': int(e.bandwidth), 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
 
         codelets_dill_fname = "node-" + str(blob['node_id']) + "-codelets.dill"
@@ -598,10 +602,15 @@ class ArchitectureNode(Node):
             dill.dump(self.primitives, f)
         blob['primitives'] = primitives_dill_fname
 
-        utility_funcs_dill_fname = "node-" + str(blob['node_id']) + "-utility_functions.dill"
+        utility_funcs_dill_fname = "node-" + str(blob['node_id']) + "-utility-functions.dill"
         with open(utility_funcs_dill_fname, "wb") as f:
             dill.dump(self.util_fns, f)
         blob['utility_funcs'] = utility_funcs_dill_fname
+
+        operation_mappings_dill_fname = "node-" + str(blob['node_id']) + "-operation-mappings.dill"
+        with open(operation_mappings_dill_fname, "wb") as f:
+            dill.dump(self.operation_mappings, f)
+        blob['operation_mappings'] = operation_mappings_dill_fname
         return blob
 
     # TODO: Finish filling this out
@@ -609,4 +618,3 @@ class ArchitectureNode(Node):
         src_node = self.get_subgraph_node(src)
         dst_node = self.get_subgraph_node(dst)
         edge = self.edge_map[(src, dst)]
-
