@@ -592,15 +592,17 @@ class ArchitectureNode(Node):
             sub_edge = {'src': e.src, 'dest': e.dst, 'bandwidth': int(e.bandwidth), 'attributes': e_attr}
             blob['subgraph']['edges'].append(sub_edge)
 
-        codelets_dill_fname = "node-" + str(blob['node_id']) + "-codelets.dill"
-        with open(codelets_dill_fname, "wb") as f:
-            dill.dump(self.codelets, f)
-        blob['codelets'] = codelets_dill_fname
+        if len(self.codelets) > 0:
+            codelets_dill_fname = "node-" + str(blob['node_id']) + "-codelets.dill"
+            with open(codelets_dill_fname, "wb") as f:
+                dill.dump(self.codelets, f)
+            blob['codelets'] = codelets_dill_fname
 
-        primitives_dill_fname = "node-" + str(blob['node_id']) + "-primitives.dill"
-        with open(primitives_dill_fname, "wb") as f:
-            dill.dump(self.primitives, f)
-        blob['primitives'] = primitives_dill_fname
+        if len(self.primitives) > 0:
+            primitives_dill_fname = "node-" + str(blob['node_id']) + "-primitives.dill"
+            with open(primitives_dill_fname, "wb") as f:
+                dill.dump(self.primitives, f)
+            blob['primitives'] = primitives_dill_fname
 
         utility_funcs_dill_fname = "node-" + str(blob['node_id']) + "-utility-functions.dill"
         with open(utility_funcs_dill_fname, "wb") as f:
