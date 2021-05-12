@@ -89,9 +89,6 @@ def gemm_no_bias(hag: ArchitectureNode):
 
 def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-
-    required_params = {}
-
     with CodeletTemplate("conv") as cdlt:
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -113,7 +110,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-
+        # OS ->
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(IC) as ic:
@@ -256,37 +253,6 @@ def elem_add(hag: ArchitectureNode):
                         # cdlt.transfer(out[n, c, h, w], ["OBUF", "DRAM"])
     return cdlt
 
-def elem_add_grad(hag: ArchitectureNode):
-    # TODO: Remove this
-    with CodeletTemplate("elem_add_grad") as cdlt:
-
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op1_grad = cdlt.create_operand_template("op1_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2_grad = cdlt.create_operand_template("op2_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([op1, op2, grad])
-        cdlt.set_outputs([op1_grad, op2_grad])
-        cdlt.configure("start", "SIMD")
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(H) as h:
-                    with cdlt.loop(W) as w:
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
-                        cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
-                        op1_grad.set_write_destination("VMEM1")
-                        op2_grad.set_write_destination("VMEM1")
-                        cdlt.compute("MULADD", [op1, op2, grad], [op1_grad, op2_grad], target="SIMD")
-                        cdlt.transfer(op1_grad[n, c, h, w], ["VMEM1", "DRAM"])
-                        cdlt.transfer(op2_grad[n, c, h, w], ["VMEM1", "DRAM"])
-    return cdlt
-
 
 def sgd1d(hag: ArchitectureNode):
 
@@ -314,6 +280,7 @@ def sgd2d(hag: ArchitectureNode):
     with CodeletTemplate("sgd2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
 
         param = cdlt.create_operand_template("param", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
@@ -321,13 +288,28 @@ def sgd2d(hag: ArchitectureNode):
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
         cdlt.configure("start", "SIMD")
+        lr = cdlt.dummy_op("lr", cdlt.node.kwargs['lr'])
+        momentum = cdlt.dummy_op("momentum", cdlt.node.kwargs['momentum'])
+
+        cdlt.configure("start", "IMM", immediate_value=lr, index=0)
+        cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(itemp1)
+        cdlt.add_temp_operand(itemp2)
+        lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        momentum_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
 
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 cdlt.transfer(param[n, c], ["DRAM", "VMEM1"])
                 cdlt.transfer(grad[n, c], ["DRAM", "VMEM2"])
                 updated_param.set_write_destination("VMEM1")
-                cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
+                itemp1.set_write_destination("VMEM2")
+                itemp2.set_write_destination("VMEM1")
+                cdlt.compute("MUL", [param, momentum_op], [itemp1], target="SIMD")
+                cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
+                cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
                 cdlt.transfer(updated_param[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
@@ -363,13 +345,26 @@ def sgd4d(hag: ArchitectureNode):
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
+
         param = cdlt.create_operand_template("param", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
-
         cdlt.configure("start", "SIMD")
+        lr = cdlt.dummy_op("lr", cdlt.node.kwargs['lr'])
+        momentum = cdlt.dummy_op("momentum", cdlt.node.kwargs['momentum'])
+
+        cdlt.configure("start", "IMM", immediate_value=lr, index=0)
+        cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(itemp1)
+        cdlt.add_temp_operand(itemp2)
+        lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        momentum_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -377,37 +372,108 @@ def sgd4d(hag: ArchitectureNode):
                         cdlt.transfer(param[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
                         updated_param.set_write_destination("VMEM1")
-                        cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
+                        itemp1.set_write_destination("VMEM2")
+                        itemp2.set_write_destination("VMEM1")
+                        cdlt.compute("MUL", [param, momentum_op], [itemp1], target="SIMD")
+                        cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
+                        cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
                         cdlt.transfer(updated_param[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
 
 def batch_norm(hag: ArchitectureNode):
 
     with CodeletTemplate("batch_norm") as cdlt:
+
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        #
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        scale = cdlt.create_operand_template("scale", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        offset = cdlt.create_operand_template("offset", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        mean = cdlt.create_operand_template("mean", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        var = cdlt.create_operand_template("var", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data, scale, offset, mean, var])
+        cdlt.set_outputs([out])
+
+        numer = cdlt.create_operand_template("numer", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        denom = cdlt.create_operand_template("denom", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(numer)
+        cdlt.add_temp_operand(denom)
+
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(out[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(mean[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(var[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
+                        numer.set_write_destination("VMEM1")
+                        denom.set_write_destination("VMEM2")
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("SUB", [data, mean], [numer], target="SIMD")
+                        cdlt.compute("SQRT", [var], [denom], target="SIMD")
+                        cdlt.compute("DIV", [numer, denom], [out], target="SIMD")
+                        cdlt.compute("MUL", [out, scale], [out], target="SIMD")
+                        cdlt.compute("ADD", [out, offset], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+
+    return cdlt
+
+def mean_var(hag: ArchitectureNode):
+    with CodeletTemplate("mean_var") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        scale = cdlt.create_operand_template("scale", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        offset = cdlt.create_operand_template("offset", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([data, scale, offset])
-        cdlt.set_outputs([out])
-        cdlt.configure("start", "SIMD")
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
+        mean = cdlt.create_operand_template("mean", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        var = cdlt.create_operand_template("var", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(temp1)
+        temp1.start_location = "VMEM1"
+        temp1.set_write_destination("VMEM1")
+
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([mean, var])
+        denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[0]*cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=denom, index=0)
+
+
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
-                        out.set_write_destination("VMEM1")
-                        cdlt.compute("MULADD", [data, scale, offset], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
-    return cdlt
+                        cdlt.transfer(mean[c], ["DRAM", "VMEM1"])
+                        cdlt.transfer(var[c], ["DRAM", "VMEM2"])
+                        data.set_write_destination("")
+                        mean.set_write_destination("VMEM1")
+                        var.set_write_destination("VMEM2")
+                        cdlt.compute("ADD", [data, mean], [mean], target="SIMD")
+                        cdlt.compute("MUL", [data, data], [temp1], target="SIMD")
+                        cdlt.compute("ADD", [var, temp1], [var], target="SIMD")
 
+            cdlt.compute("MUL", [mean, mean], [temp1], target="SIMD")
+            cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
+            cdlt.compute("SUB", [var, temp1], [var], target="SIMD")
+            cdlt.compute("DIV", [var, denom_op], [var], target="SIMD")
+            cdlt.compute("DIV", [mean, denom_op], [mean], target="SIMD")
+            cdlt.transfer(mean[c], ["VMEM1", "DRAM"])
+            cdlt.transfer(var[c], ["VMEM1", "DRAM"])
+
+    return cdlt
 
 def batchnorm_grad(hag: ArchitectureNode):
 
@@ -757,8 +823,8 @@ def maxpool2d(hag: ArchitectureNode):
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        sy = cdlt.dummy_op("sy", cdlt.node.stride)
-        sx = cdlt.dummy_op("sx", cdlt.node.stride)
+        sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
+        sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(KH) as kh:
@@ -784,20 +850,20 @@ def averagepool2d(hag: ArchitectureNode):
         OW = cdlt.dummy_op("OW", cdlt.node.outputs[0].shape[3])
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
-        denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
+        denom = cdlt.dummy_op("denom", cdlt.node.inputs[1].shape[2]*cdlt.node.inputs[1].shape[3])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
-
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
 
         cdlt.configure("start", "SIMD")
         # denom = IH*IW
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "IMM", immediate_value=0, index=1)
-        denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
-        sy = cdlt.dummy_op("sy", cdlt.node.stride)
-        sx = cdlt.dummy_op("sx", cdlt.node.stride)
+        sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
+        sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(KH) as kh:
@@ -828,8 +894,8 @@ def max_pool_grad(hag: ArchitectureNode):
 
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
-        sy = cdlt.dummy_op("sy", cdlt.node.stride)
-        sx = cdlt.dummy_op("sx", cdlt.node.stride)
+        sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
+        sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         data = cdlt.create_operand_template("max_pool_data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
         data_grad = cdlt.create_operand_template("max_pool_data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
@@ -874,8 +940,8 @@ def average_pool_grad(hag: ArchitectureNode):
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        sy = cdlt.dummy_op('sy', cdlt.node.stride)
-        sx = cdlt.dummy_op('sx', cdlt.node.stride)
+        sy = cdlt.dummy_op('sy', cdlt.node.stride[0])
+        sx = cdlt.dummy_op('sx', cdlt.node.stride[1])
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(KH) as kh:
@@ -938,17 +1004,18 @@ def global_avg_pool(hag: ArchitectureNode):
         OW = cdlt.dummy_op("OW", cdlt.node.outputs[0].shape[3])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        #
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
 
         cdlt.configure("start", "SIMD")
-        denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "IMM", immediate_value=0, index=1)
-        denom_op = cdlt.create_temp_operand([hag.get_subgraph_node("SIMD").dimensions[0]], "IMM")
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(IH) as iy:
@@ -987,7 +1054,6 @@ def cross_entropy_loss_grad(hag: ArchitectureNode):
                     cdlt.transfer(target[n], ["DRAM", "VMEM2"])
                     cdlt.transfer(grad[d], ["DRAM", "VMEM2"])
                     data_grad.set_write_destination("VMEM1")
-
                     cdlt.compute("ADD", [data, target, grad], [data_grad], target="SIMD")
                     cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
@@ -1005,6 +1071,7 @@ GENESYS_CODELETS = {
     "elem_tanh2d": elem_tanh2d,
     "relu": relu,
     "batch_norm": batch_norm,
+    "mean_var": mean_var,
     "batchnorm_grad": batchnorm_grad,
     "cross_entropy_loss": cross_entropy_loss,
     "cross_entropy_loss_grad": cross_entropy_loss_grad,
@@ -1016,7 +1083,6 @@ GENESYS_CODELETS = {
     "sgd4d": sgd4d,
     'elem_tanh_grad': elem_tanh_grad,
     'elem_tanh_grad2d': elem_tanh_grad2d,
-    'elem_add_grad': elem_add_grad,
     'average_pool_grad': average_pool_grad,
     'max_pool_grad': max_pool_grad,
     'gemm_no_bias': gemm_no_bias,

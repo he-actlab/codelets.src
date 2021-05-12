@@ -1,10 +1,12 @@
 from typing import Dict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Datatype:
     type: str
     bitwidth: int
+    fractional: int = field(default=0)
+    exp: int = field(default=0)
 
     def __str__(self):
         return f"{self.type}{self.bitwidth}"
@@ -13,6 +15,8 @@ class Datatype:
         blob = {}
         blob['type'] = self.type
         blob['bitwidth'] = self.bitwidth
+        blob['fractional_bits'] = self.fractional
+        blob['exponent_bits'] = self.fractional
         return blob
 
     @staticmethod
@@ -28,6 +32,9 @@ class Datatype:
         type_part = dt_str[:idx].upper()
         bit_part = int(dt_str[idx:])
         return Datatype(type=type_part, bitwidth=bit_part)
+
+    def cast(self, input_val):
+        pass
 
     def bytes(self):
         return self.bitwidth // 8

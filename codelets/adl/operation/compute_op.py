@@ -26,14 +26,13 @@ class Compute(Operation):
                                       add_codelet=add_codelet,
                                       dependencies=dependencies,
                                       **kwargs)
-
         for s_call in sources:
+
             s = s_call.add_compute_access(target, self.op_str, "source")
             self._dependencies += [dep for dep in s.dependencies if dep not in dependencies and dep != self.op_str]
             self._sources.append(s)
 
         for d_call in dests:
-            # assert d_call.write_destination is not None
             d = d_call.add_compute_access(target, self.op_str, "dest")
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies and dep != self.op_str]
             d.dependencies.append(self.op_str)

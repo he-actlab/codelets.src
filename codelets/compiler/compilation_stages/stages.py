@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
-from codelets.templates.operand_template import IndexOperandTemplate
+from codelets.templates.operand_template import IndexOperandTemplate, OperandTemplate
+from codelets.templates.operation_template import OperationTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
 from codelets.compiler.program import CodeletProgram
@@ -26,6 +27,7 @@ NOOPS = ['coarse_flatten']
 STANDARD_SHAPE_OPS = ['elem_add', 'relu', 'global_avg_pool', 'batch_norm', 'sgd4d',
                       'max_pool_grad', 'global_average_pool_grad', 'relu_grad', 'elem_add_grad', 'elem_tanh_grad',
                       'average_pool_grad']
+INFERENCE_OPS = [""]
 
 INTERMEDIATE_INPUT_INDICES = {
     "conv": [0],
@@ -42,9 +44,15 @@ INTERMEDIATE_INPUT_INDICES = {
     "cross_entropy_loss_grad": [0, 1, 2],
     "gemm": [0]
 }
+
+SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias"]
+
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
                      ['ON', 'OC', 'OH', 'OW'], ['N', 'C', 'OH', 'OW']]
+TRANSPOSE_PERM = [0, 2, 3, 1]
+TRANSPOSE_POS = [0, 3, 1, 2]
+FLIP_SHAPE_PERM = [2, 3, 0, 1]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
@@ -59,48 +67,110 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
-def template_layout_pass(template: 'CodeletTemplate') -> 'CodeletTemplate':
+def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     if not isinstance(template, CodeletTemplate):
         return template
     else:
         if template.op_name in ["avg_pool", 'global_avg_pool']:
             template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
 
+        if template.op_name == "mean_var":
+            template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+
         if template.op_name in ["conv", "conv_bias"]:
             template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
             template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
 
+        if template.op_name in SA_OPS:
+            inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
+            out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
+
+            inp_dim = template.inputs[0].shape_list[-1]
+            out_dim = template.outputs[0].shape_list[-1]
+            dummy_inp_dim = template.node.inputs[0].shape[-1]
+            dummy_out_dim = template.node.outputs[0].shape[-1]
+            template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
+            template.update_dummy_op(out_dim.name, dummy_out_dim + (out_constr - dummy_out_dim) % out_constr)
+        else:
+            constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
+            updated_dims = []
+            for idx, i in enumerate(template.inputs):
+                if i.shape_list_names[-1] not in updated_dims:
+                    dim = i.shape_list[-1]
+                    dummy_dim = template.node.inputs[idx].shape[-1]
+                    template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
+                    updated_dims.append(dim.name)
+
+            for idx, o in enumerate(template.outputs):
+                if o.shape_list_names[-1] not in updated_dims:
+                    dim = o.shape_list[-1]
+                    dummy_dim = template.node.outputs[idx].shape[-1]
+                    template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
+                    updated_dims.append(dim.name)
+
+            # inp_dim = template.inputs[0].shape_list[-1]
+            # out_dim = template.outputs[0].shape_list[-1]
+            # dummy_inp_dim = template.node.inputs[0].shape[-1]
+            # dummy_out_dim = template.node.outputs[0].shape[-1]
+            # template.update_dummy_op(inp_dim.name, dummy_inp_dim + (constr - dummy_inp_dim) % constr)
+            # template.update_dummy_op(out_dim.name, dummy_out_dim + (constr - dummy_out_dim) % constr)
+
+        return template
+
+def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
+    if not isinstance(template, CodeletTemplate):
+        return template
+    else:
         reordered_operands = {}
+        updated_ops = []
         for idx, i in enumerate(template.inputs):
             if i.shape_list_names in TRANSPOSED_SHAPES:
-                i.reorder_shapes([0, 2, 3, 1])
-                reordered_operands[i.name] = [0, 2, 3, 1]
+                for sidx, s in enumerate(i.shape_list):
+                    if s.name not in updated_ops:
+                        template.update_dummy_op(s.name, template.node.inputs[idx].shape[TRANSPOSE_POS[sidx]])
+                        updated_ops.append(s.name)
+                i.reorder_shapes(TRANSPOSE_PERM)
+                reordered_operands[i.name] = TRANSPOSE_PERM
             elif i.shape_list_names in FLIP_SHAPES:
-                i.reorder_shapes([2, 3, 0, 1])
-                reordered_operands[i.name] = [2, 3, 0, 1]
+                for sidx, s in enumerate(i.shape_list):
+                    if s.name not in updated_ops:
+                        template.update_dummy_op(s.name, template.node.inputs[idx].shape[FLIP_SHAPE_PERM[sidx]])
+                        updated_ops.append(s.name)
 
+                i.reorder_shapes(FLIP_SHAPE_PERM)
+                reordered_operands[i.name] = FLIP_SHAPE_PERM
 
         for idx, o in enumerate(template.outputs):
             if o.shape_list_names in TRANSPOSED_SHAPES:
-                o.reorder_shapes([0, 2, 3, 1])
-                reordered_operands[o.name] = [0, 2, 3, 1]
+                for sidx, s in enumerate(o.shape_list):
+                    if s.name not in updated_ops:
+                        template.update_dummy_op(s.name, template.node.outputs[idx].shape[TRANSPOSE_POS[sidx]])
+                        updated_ops.append(s.name)
+                o.reorder_shapes(TRANSPOSE_PERM)
+                reordered_operands[o.name] = TRANSPOSE_PERM
             elif o.shape_list_names in FLIP_SHAPES:
-                o.reorder_shapes([2, 3, 0, 1])
-                reordered_operands[o.name] = [2, 3, 0, 1]
+                for sidx, s in enumerate(o.shape_list):
+                    if s.name not in updated_ops:
+                        template.update_dummy_op(s.name, template.node.outputs[idx].shape[FLIP_SHAPE_PERM[sidx]])
+                        updated_ops.append(s.name)
+                o.reorder_shapes(FLIP_SHAPE_PERM)
+                reordered_operands[o.name] = FLIP_SHAPE_PERM
+
 
         for o in template.ops:
             if o.op_type == 'transfer':
                 operand = o.param_map['operand']
                 if isinstance(operand, IndexOperandTemplate) and operand.name in reordered_operands:
-                    o.param_map['operand'].reorder_offsets(reordered_operands[operand.name])
+                    operand.reorder_offsets(reordered_operands[operand.name])
+
             elif o.op_type == 'compute':
                 for iop in o.param_map['sources']:
                     if isinstance(iop, IndexOperandTemplate) and iop.name in reordered_operands:
-                        o.param_map['operand'].reorder_offsets(reordered_operands[iop.name])
+                        iop.reorder_offsets(reordered_operands[iop.name])
 
                 for oop in o.param_map['dests']:
                     if isinstance(oop, IndexOperandTemplate) and oop.name in reordered_operands:
-                        o.param_map['operand'].reorder_offsets(reordered_operands[oop.name])
+                        oop.reorder_offsets(reordered_operands[oop.name])
 
         return template
 
@@ -130,7 +200,9 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
                 dtype_map[i.name] = cdlt.get_operand_by_node_name(i.name).dtype
                 codelet_output_map[i.name] = (cdlt.op_name, cdlt.instance_id)
 
-        for o in node.outputs:
+        # for o in node.outputs:
+        for idx in range(len(cdlt.outputs)):
+            o = node.outputs[idx]
             dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
             codelet_output_map[o.name] = (cdlt.op_name, cdlt.instance_id)
 
@@ -139,232 +211,6 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
 
 def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     assert isinstance(shaped_nodes, dict)
-    if cdlt.op_name in ['conv', 'conv_bias']:
-        activation = node.inputs[0]
-        weight = node.inputs[1]
-        out = node.outputs[0]
-        sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-
-        out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 3)
-        act_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 3)
-        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[1], 2)
-        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 3, force_reshape=True)
-        assert weight_shape[2] == out_shape[3], f"Invalid shapes for {cdlt.op_name}{cdlt.instance_id}\n" \
-                                                f"Input shape: {act_shape}\n" \
-                                                f"Weight shape: {weight_shape}\n" \
-                                                f"Output shape: {out_shape}"
-        if weight_shape[3] != act_shape[3]:
-            raise RuntimeError(f"Weight and activation shapes are incorrect:"
-                               f"Weight {weight.name} shape: {weight_shape}/{weight.shape}\n"
-                               f"Activation {activation.name} shape: {act_shape}/{activation.shape}")
-        # cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-        # cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-
-        if len(node.inputs) == 3:
-            bias = node.inputs[2]
-            bias_shape = update_shape_from_arch(bias, shaped_nodes, sys_array_dims[1], 0)
-            assert bias_shape[0] == out_shape[3]
-    elif cdlt.op_name == "tensor_transpose":
-        # TODO: Need to add operations once an instruction for this is supported
-        activation = node.inputs[0]
-        out = node.outputs[0]
-        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-        act_shape = update_shape_from_arch(activation, shaped_nodes, simd_dims[0], 3)
-        out_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 3)
-    elif cdlt.op_name in ['batchnorm_grad', 'batch_norm']:
-        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-
-        for idx, i in enumerate(node.inputs):
-            if len(i.shape) == 4:
-                shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 3)
-            elif program.program_mode == 'training':
-                assert len(i.shape) == 1
-                shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
-        for idx, i in enumerate(node.outputs):
-            if len(i.shape) == 4:
-                shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 3)
-            elif program.program_mode == 'training':
-                assert len(i.shape) == 1
-                shaped_output = update_shape_from_arch(i, shaped_nodes, simd_dims[0], 0)
-    elif cdlt.op_name in ['gemm', 'gemm_no_bias']:
-        sys_array_dims = program.hag.get_subgraph_node("pe_array").dimensions
-
-        activation = node.inputs[0]
-        weight = node.inputs[1]
-
-        out = node.outputs[0]
-        if 'transB' in node.kwargs:
-            assert bool(node.kwargs['transB']) == False
-
-        if 'transA' in node.kwargs:
-            assert bool(node.kwargs['transA']) == False
-
-        act_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 1)
-        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 0)
-        weight_shape = update_shape_from_arch(weight, shaped_nodes, sys_array_dims[0], 1, force_reshape=True)
-        out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 1)
-
-        if program.program_mode == 'training':
-            inp_shape = update_shape_from_arch(activation, shaped_nodes, sys_array_dims[0], 0, force_reshape=True)
-            out_shape = update_shape_from_arch(out, shaped_nodes, sys_array_dims[1], 0, force_reshape=True)
-            if out_shape[0] != inp_shape[0]:
-                raise RuntimeError(f"Input and output shapes are incorrect for {cdlt.op_name}:"
-                                   f"Input {activation.name} shape: {inp_shape}/{activation.shape}\n"
-                                   f"Output {out.name} shape: {out_shape}/{out.shape}")
-            if out_shape[1] != weight_shape[1]:
-                raise RuntimeError(f"WEight and output shapes are incorrect for {cdlt.op_name}:"
-                                   f"Weight {weight.name} shape: {weight_shape}/{weight.shape}\n"
-                                   f"Activation {out.name} shape: {out_shape}/{out.shape}")
-
-        if weight_shape[0] != act_shape[1]:
-            raise RuntimeError(f"Weight and activation shapes are incorrect:"
-                               f"Weight {weight.name} shape: {weight_shape}/{weight.shape}\n"
-                               f"Activation {activation.name} shape: {act_shape}/{activation.shape}")
-        if len(node.inputs) == 3:
-            bias = node.inputs[2]
-            bias_shape = update_shape_from_arch(bias, shaped_nodes, sys_array_dims[1], 0)
-
-            if bias_shape[0] != out_shape[1]:
-                raise RuntimeError(f"Bias and output shapes are incorrect for {cdlt.op_name}"
-                                   f"Bias {bias.name} shape: {bias_shape}/{bias.shape}\n"
-                                   f"Output {out.name} shape: {out_shape}/{out.shape}")
-    elif cdlt.op_name == 'reduce_sum':
-        assert len(node.inputs[0].shape) == 2
-        assert len(node.outputs[0].shape) == 1
-        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-        data = node.inputs[0]
-        out = node.outputs[0]
-        data_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0)
-        data_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-        out_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-    elif cdlt.op_name in UNARY_SIMD:
-        simd_constraint = program.hag.get_subgraph_node("SIMD").dimensions[0]
-        data = node.inputs[0]
-        out = node.outputs[0]
-        idx = len(data.shape) - 1
-        data_shape = update_shape_from_arch(data, shaped_nodes, simd_constraint, idx)
-        out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, idx)
-
-        if cdlt.op_name in ['max_pool', 'avg_pool']:
-            cdlt.inputs[0].add_padding('IH', node.kwargs['pad'], symmetric=True, dynamic=True)
-            cdlt.inputs[0].add_padding('IW', node.kwargs['pad'], symmetric=True, dynamic=True)
-            assert len(node.args) == 4 and isinstance(node.args[2], int)
-            node.add_attribute('KH', node.kernel_size[0])
-
-            assert len(node.args) == 4 and isinstance(node.args[3], int)
-            node.add_attribute('KW', node.kernel_size[1])
-            sy, sx = node.kwargs['stride'][0], node.kwargs['stride'][1]
-            assert isinstance(sy, int)
-            assert isinstance(sx, int)
-            node.add_attribute('sy', sy)
-            node.add_attribute('sx', sx)
-
-    elif cdlt.op_name in ['sgd1d', 'sgd2d', 'elem_tanh_grad2d']:
-        simd_constraint = program.hag.get_subgraph_node("SIMD").dimensions[0]
-
-        data = node.inputs[0]
-        grad = node.inputs[1]
-        out = node.outputs[0]
-
-        #TODO: Need to fix the serialization so that the correct placeholders are created
-        if data.shape not in shaped_nodes:
-            data_shape = update_shape_from_arch(data, shaped_nodes, simd_constraint, 0)
-
-        data_shape = update_shape_from_arch(data, shaped_nodes, simd_constraint, len(data.shape) - 1, force_reshape=True)
-
-        if grad.name not in shaped_nodes:
-            raise RuntimeError(f"Gradient {grad.name} not found in shaped nodes for {node.op_name}")
-        assert grad.name in shaped_nodes
-
-        assert grad.shape == data.shape, f"Invalid shapes for {cdlt.op_name}{cdlt.instance_id}:\n" \
-                                            f"Input {data.name} shape: {data.shape} ({data_shape})\n" \
-                                            f"Grad {grad.name} shape: {grad.shape} ()\n" \
-                                            f"output {out.name} shape: {out.shape}\n"
-        if program.program_mode == 'training':
-            out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, len(out.shape) - 1)
-            out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, len(out.shape) - 2, force_reshape=True)
-            assert data.shape == out_shape, f"Invalid shapes for {cdlt.op_name}{cdlt.instance_id}:\n" \
-                                            f"Input {data.name} shape: {data.shape} ({data_shape})\n" \
-                                            f"Grad {grad.name} shape: {grad.shape} ()\n" \
-                                            f"output {out.name} shape: {out.shape} ({out_shape})\n" \
-                                            f""
-
-    elif cdlt.op_name == 'cross_entropy_loss':
-        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-        data = node.inputs[0]
-        target = node.inputs[1]
-        out = node.outputs[0]
-
-        class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0, force_reshape=True)
-        class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-        updated_shape = update_shape_from_arch(target, shaped_nodes, simd_dims[0], 0)
-        last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-
-        if updated_shape[0] != class_shape[0]:
-            raise RuntimeError(f"Shape update for {cdlt.op_name} was invalid:\n"
-                               f"Data {data.name}: {data.shape}/{class_shape}\n"
-                               f"Target {target.name}: {target.shape}/{updated_shape}\n"
-                               f"Output {out.name}: {out.shape}/{last_shape}")
-    elif cdlt.op_name == 'cross_entropy_loss_grad':
-        simd_dims = program.hag.get_subgraph_node("SIMD").dimensions
-        data = node.inputs[0]
-        target = node.inputs[1]
-        grad = node.inputs[2]
-        out = node.outputs[0]
-
-        class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 0)
-        class_shape = update_shape_from_arch(data, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-        updated_shape = update_shape_from_arch(target, shaped_nodes, simd_dims[0], 0)
-        grad_shape = update_shape_from_arch(grad, shaped_nodes, simd_dims[0], 0)
-        last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 0)
-        last_shape = update_shape_from_arch(out, shaped_nodes, simd_dims[0], 1, force_reshape=True)
-
-        # TODO: Need to fix this at some point to be consistent
-        assert last_shape[0] == updated_shape[0] and class_shape[0] == last_shape[0]
-
-    elif cdlt.op_name in BINARY_SIMD:
-        simd_constraint = program.hag.get_subgraph_node("SIMD").dimensions[0]
-
-        op1 = node.inputs[0]
-        op2 = node.inputs[1]
-        out = node.outputs[0]
-
-        op1_shape = update_shape_from_arch(op1, shaped_nodes, simd_constraint, 3)
-        op2_shape = update_shape_from_arch(op2, shaped_nodes, simd_constraint, 3)
-        out_shape = update_shape_from_arch(out, shaped_nodes, simd_constraint, 3)
-
-        if cdlt.op_name == 'elem_add_grad':
-            op3 = node.inputs[2]
-            op3_shape = update_shape_from_arch(op3, shaped_nodes, simd_constraint, 3)
-            grad1 = node.outputs[1]
-            grad1_shape = update_shape_from_arch(grad1, shaped_nodes, simd_constraint, 3)
-        elif cdlt.op_name in ['max_pool_grad', 'average_pool_grad']:
-
-            node.add_attribute('KH', node.kernel_size[0])
-            node.add_attribute('KW', node.kernel_size[1])
-            sy, sx = node.kwargs['stride'][0], node.kwargs['stride'][1]
-            assert isinstance(sy, int)
-            assert isinstance(sx, int)
-            node.add_attribute('sy', sy)
-            node.add_attribute('sx', sx)
-
-        if cdlt.op_name not in ['max_pool_grad', 'global_average_pool_grad', 'average_pool_grad']:
-            if op1_shape != op2_shape:
-                raise RuntimeError(f"Operand1 and Operand2 shapes are incorrect for {cdlt.op_name}:\n"
-                                   f"Operand1 {op1.name} shape: {op1_shape}/{op1.shape}\n"
-                                   f"Operand2 {op2.name} shape: {op2_shape}/{op2.shape}\n")
-
-            if out_shape != op2_shape:
-                raise RuntimeError(f"Operand1 and output shapes are incorrect for {cdlt.op_name}:\n"
-                                   f"Operand1 {op1.name} shape: {op1_shape}/{op1.shape}\n"
-                                   f"Output {out.name} shape: {out_shape}/{out.shape}\n")
-    elif cdlt.op_name in NOOPS:
-        pass
-    else:
-        raise RuntimeError(f"Node: {node.op_name}\n"
-              f"Shapes: {node.inputs[0].shape}\n"
-              f"{node.inputs[1].shape}\n"
-              f"{node.outputs[0].shape}")
 
     return cdlt
 
@@ -375,6 +221,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     heuristic_fn = heuristic_fn or default_tile_heuristic
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
+
     for i, o in enumerate(cdlt.operands):
         loops = [d for d in o.dependencies if "loop" in d]
         max_level = max(cdlt.get_tile_level(dp) for dp in o.data_path)
@@ -384,10 +231,8 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             else:
                 loop_splits[l] = max_level
 
-
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
-
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -461,6 +306,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                         dep_mapping[op.op_str] = inner_op.op_str
 
                     num_splits += 1
+
                 elif op.op_type == 'loop':
 
                     extra_kwargs['start'] = 0
@@ -567,7 +413,6 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
         if loop_level < i_loop_level and loop_level > 0:
             cdlt.ops[idx].loop_level = loop_level
-
     return cdlt
 
 def insert_dtype_cast(program: 'CodeletProgram', n, cdlt):

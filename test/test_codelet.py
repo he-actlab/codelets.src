@@ -2,7 +2,7 @@ import polymath as pm
 from codelets.adl.operation import Operand
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, define_genesys, GENESYS_CFG
-from examples.genesys.genesys_inference_codelets import relu, averagepool2d, gemm
+from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
 from examples.genesys.genesys_codelets import averagepool2d as avgpool_template,\
     gemm as gemm_template
 from pathlib import Path
@@ -113,8 +113,9 @@ def test_dummy_offset():
                         offs = tuple([cdlt.dummy_param(f"off{i}", f"{offset_fn}[{i}]]", fn_args_str, fn_args) for i in range(4)])
 
                         cdlt.transfer(out[offs], ["VMEM1", "DRAM"])
+    hag = define_genesys(GENESYS_CFG)
 
-    instance_args = {"NodePlaceholder": temp_op, 'HAGPlaceholder': None}
+    instance_args = {"NodePlaceholder": temp_op, 'HAGPlaceholder': hag}
     cdlt_res = cdlt.instantiate(instance_args)
     instance_args['CodeletTemplate'] = cdlt_res
     out_offset_res = tuple([o.evaluate(instance_args).op_str for o in offs])
@@ -239,7 +240,7 @@ def test_loop_offset():
     ref_op1 = ref_transfer.operand
     test_op1 = offset_transfer.operand
 
-    compare_dataclasses(ref_op1, test_op1, skip_fields=["name", "operand_name"])
+    compare_dataclasses(ref_op1, test_op1, skip_fields=["name", "operand_name", "shape_symbols", "shape_list"])
 
     ref_op2 = ref_impl.temps[0]
     test_op2 = new_cdlt.temps[0]
@@ -276,4 +277,21 @@ def test_op_levels():
 
 def test_hag_storage_levels():
     hag = define_genesys(GENESYS_CFG)
+
+def test_get_node_kwarg():
+    with CodeletTemplate("gemm_partial") as cdlt:
+        dummy_alpha = cdlt.dummy_op('alpha', cdlt.node.kwargs['alpha'])
+
+    hag = define_genesys(GENESYS_CFG)
+    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
+    target_node = None
+    for name, node in graph.nodes.items():
+        if node.op_name == "gemm":
+            target_node = node
+            break
+    assert target_node is not None
+
+    instance_args = {"HAGPlaceholder": hag, "NodePlaceholder": target_node}
+    alpha_eval = dummy_alpha.evaluate(instance_args)
+    assert alpha_eval == target_node.kwargs['alpha']
 

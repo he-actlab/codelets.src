@@ -17,5 +17,6 @@ class PlaceholderStructure:
 
     def __getattr__(self, name):
         assert name in CLASS_ATTR[self.template_type] or self.template_type == "NodePlaceholder"
-        fp = FlexParam(f"{self.template_type}_{self.name}_dummy", TEMPLATE_CLASS_ARG_MAP[self.template_type], f"node.{name}")
+        args = TEMPLATE_CLASS_ARG_MAP[self.template_type]
+        fp = FlexParam(f"{self.template_type}_{self.name}_dummy", args, f"{args[0]}.{name}")
         return DummyOp([self.template_type], fp)

@@ -1,4 +1,5 @@
-from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, compile_genesys_layer
+from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
+    compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
 from .util import create_reference_outputs, validate_program
 from pathlib import Path
@@ -19,16 +20,42 @@ def update_genesys_cfg_from_dtypes():
     GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
     GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
 
+@pytest.mark.parametrize('source_model, layer_name',[
+    # ("lenet", "conv"),
+    ("lenet_train", "sgd2d"),
+])
+def test_extracted_layer(source_model, layer_name):
+    train = False
+
+    if "train" in source_model:
+        source_model = source_model.split("_")[0]
+        train = True
+
+    batch_size = 1
+    update_cfg_dtypes = False
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+
+    program = compile_extracted_genesys_layer(source_model,
+                                              layer_name,
+                                              train=train,
+                                              update_cfg_dtypes=update_cfg_dtypes,
+                                              verbose=False,
+                                              benchmark_path=BENCH_DIR,
+                                              factor_fn='default',
+                                              batch_size=batch_size,
+                                              print_config=False)
+    print(program.emit("string_final"))
+
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_relu",
     # "resnet18_add",
-    "resnet18_conv",
+    # "resnet18_conv",
     # "resnet18_gemm",
     # "resnet18_globalaveragepool",
     # "resnet18_train_batchnormalization",
     # "lenet_averagepool",
     # "lenet_gemm",
-    "lenet_conv"
+    "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -55,20 +82,21 @@ def test_genesys_layers(layer_name):
                             do_tile_stage=True,
                             print_config=False
                               )
+    # print(program.emit("string_final"))
     validate_program(program, print_difference=True)
 
-def test_reference_creation():
-    batch_size = 1
-    update_cfg_dtypes = False
-    names = ["resnet18", "resnet18_train", "lenet", "lenet_train"]
-    # names = ["lenet"]
-    # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool",
-    #                "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
-    create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
-                             verbose=False)
-
-def test_validate_output():
-    from codelets.codelet_impl import Codelet
-    import pprint
-    import inspect
-    pprint.pprint(inspect.getmembers(Codelet,  lambda a: not(inspect.isroutine(a))))
+# def test_reference_creation():
+#     batch_size = 1
+#     update_cfg_dtypes = False
+#     names = ["resnet18", "resnet18_train", "lenet", "lenet_train"]
+#     # names = ["lenet"]
+#     # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool",
+#     #                "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
+#     create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
+#                              verbose=False)
+#
+# def test_validate_output():
+#     from codelets.codelet_impl import Codelet
+#     import pprint
+#     import inspect
+#     pprint.pprint(inspect.getmembers(Codelet,  lambda a: not(inspect.isroutine(a))))

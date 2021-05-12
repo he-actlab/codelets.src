@@ -514,11 +514,11 @@ class Codelet(object):
 
 
         # TODO: Check back on this
-        if self.required_params[key].is_set() and self.required_params[key].value != value and\
-                not isinstance(self.required_params[key].value, LambdaType):
-            raise RuntimeError(f"Param {key} has already been set:\n"
-                               f"Previous value: {self.required_params[key]}\n"
-                               f"New value: {value}")
+        # if self.required_params[key].is_set() and self.required_params[key].value != value and\
+        #         not isinstance(self.required_params[key].value, LambdaType):
+        #     raise RuntimeError(f"Param {key} has already been set:\n"
+        #                        f"Previous value: {self.required_params[key]}\n"
+        #                        f"New value: {value}")
         if value is None:
             raise RuntimeError(f"Cannot self None value for required parameter:\n"
                                f"Value: {value}\n"
@@ -692,8 +692,9 @@ class Codelet(object):
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)
-            self.set_dim_values(n, operand)
-            self.set_dtype(n, operand)
+
+            # self.set_dim_values(n, operand)
+            # self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
             operand.operand_type = n.__class__.__name__
@@ -703,12 +704,22 @@ class Codelet(object):
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)
-            self.set_dim_values(n, operand)
-            self.set_dtype(n, operand)
+            # self.set_dim_values(n, operand)
+            # self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
             operand.operand_type = n.__class__.__name__
 
+        # for t in self.temps:
+        #     if not t.is_instantiated():
+        #         for rp_key in t.required_params:
+        #             if rp_key not in self.required_params:
+        #                 self.add_required_param(rp_key)
+        #
+        #         for k in t.shape_list:
+        #             if k not in self.required_params or not self.required_params[k].is_set():
+        #                 raise RuntimeError(f"Shape {k} for operand {t.name} not found or not set.")
+        #             t.update_shape_symbols(k, self.required_params[k].value)
 
     def instantiate_node_params(self, node, hag):
         fn_params = []
@@ -738,10 +749,15 @@ class Codelet(object):
         self._op_id_counters[op.op_type] += 1
         return op_id, global_id
 
+    def all_dependencies(self, leaf_deps: List[str]):
+        deps = leaf_deps.copy()
+        for l in leaf_deps:
+            deps += self.all_dependencies(self.op_map[l].dependencies)
+        return list(set(deps))
+
     def instantiate_operations(self, node: pm.Node, hag):
         # First initialize shapes and symbols for operands, as well as datatypes
         self.instantiate_operands(node)
-
         # next, set the parameters supplied by the PolyMath node (e.g., stride, pad, etc)
         self.instantiate_node_params(node, hag)
 
