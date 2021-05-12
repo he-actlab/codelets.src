@@ -232,6 +232,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
 
     bands = cdlt.extract_bands()
+    # if cdlt.op_name == 'elem_tanh_grad'
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
     for start, end in bands:
         idx = start
