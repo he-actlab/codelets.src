@@ -45,14 +45,12 @@ class TilingInfo:
             fixed_dims = cdlt.compilation_params['fixed_tile_dims']
         else:
             fixed_dims = []
-
         for l in self.loop_dependencies:
             loop = cdlt.op_map[l]
             if cdlt.domain_loop_map[l] in fixed_dims:
                 self.level_factors[0][loop.op_str] = [1]
             else:
                 self.level_factors[0][loop.op_str] = FACTOR_FN_MAP[self.factor_fn_name](loop.iter_count, 0)
-
             self.shapes[0][loop.op_str] = loop.iter_count
             self.selected_splits[0][loop.op_str] = 1
             self.accumulated_splits[loop.op_str] = 1
@@ -120,6 +118,7 @@ class TilingInfo:
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
                     raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
+                                       f"Operand: {level_access.operand_name}\n"
                                        f"Size from splits: {size}\n"
                                        f"Size map: {size_map}\n"
                                        f"Level: {level}\n"
@@ -140,6 +139,7 @@ class TilingInfo:
     def update_loop_order(self, cdlt):
         if "LOOP_TILE_ORDER" in cdlt.compilation_params:
             dim_order = cdlt.compilation_params["LOOP_TILE_ORDER"]
+
             reversed_dom_map = {v: k for k, v in cdlt.domain_loop_map.items()}
             self.loop_dependencies = [reversed_dom_map[d] for d in dim_order]
 

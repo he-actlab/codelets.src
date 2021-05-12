@@ -155,6 +155,7 @@ class OperationTemplate(object):
                 continue
             else:
                 kwargs[key] = self.evaluate_args(value, instance_args, False)
+
         kwargs['add_codelet'] = False
         instance = INITIALIZER_FN_MAP[self.op_type](*args, **kwargs)
         return instance
@@ -321,7 +322,6 @@ class LoopTemplate(OperationTemplate):
 
     def __rmul__(self, other):
         return loop_op(other, self, '*', reflected=True)
-
 
     def __add__(self, other):
         return loop_op(other, self, '+')

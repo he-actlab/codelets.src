@@ -97,6 +97,9 @@ class CodeletTemplate(object):
         self._temps.append(temp_op)
         return temp_op
 
+    def add_temp_operand(self, operand: OperandTemplate):
+        self._temps.append(operand)
+
     def add_required_param(self, key, value=None, check_key=True):
 
         if key in self.required_params:
@@ -306,10 +309,12 @@ class CodeletTemplate(object):
             cdlt._temps = temps
             instance_args['CodeletTemplate'] = cdlt
             for o in self.ops:
+
                 while len(contexts) > 0 and o.loop_level <= contexts[-1].loop_level:
                     cm = contexts.pop()
                     cm.exit_loop_body()
                 if isinstance(o, LoopTemplate):
+
                     new_op = o.instantiate(instance_args).enter_loop_body()
                     contexts.append(new_op)
                 else:
@@ -322,6 +327,19 @@ class CodeletTemplate(object):
 
         for k, v in self.compilation_params.items():
             cdlt.add_compilation_param(k, v)
+
+        for key, do in self.dummy_ops.items():
+            if not do.flex_param.is_set():
+                do.evaluate(instance_args)
+            if key not in cdlt.required_params:
+                cdlt.add_required_param(key, do.value)
+
+            elif cdlt.required_params[key].is_set() and do.value is not None:
+                if cdlt.required_params[key].value != do.value:
+                        raise RuntimeError(f"Inconsistent values for dummy op:\n"
+                                           f"{key}")
+            elif not cdlt.required_params[key].is_set():
+                cdlt.required_params[key].value = do.value
         Codelet.codelet_instance_id += 1
         cdlt._instance_id = Codelet.codelet_instance_id
         return cdlt
@@ -353,6 +371,8 @@ class CodeletTemplate(object):
                 ostr += f"{o.op_str}\n"
                 op_str += ostr
         return op_str
+
+
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value

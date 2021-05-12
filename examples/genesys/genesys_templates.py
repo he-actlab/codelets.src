@@ -27,12 +27,14 @@ def placeholder_alu_template(op_name, hag):
 def simd_alu_template(op_name, hag):
     instructions = []
     loop_conditions = []
-    is_dependency = f'loop_op.op_str in op.dependencies'
+    is_dependency = f'loop_op.op_str in cdlt.all_dependencies(op.dependencies)'
+    is_direct_loop_dep = f"cdlt.is_direct_loop_dep(loop_op, 'SIMD')"
     single_idx = f'(instruction.name not in ["SET_INDEX", "SET_ITER"] or operand_loc_idx + 1 == len(op.unique_operand_locations))'
     outer_loop_level = f'loop_op.loop_level <= op.loop_level'
     loop_conditions.append(single_idx)
     loop_conditions.append(outer_loop_level)
     loop_conditions.append(is_dependency)
+    loop_conditions.append(is_direct_loop_dep)
 
 
     ## Each compute instruction gets its own set of loops
@@ -86,7 +88,7 @@ def simd_alu_template(op_name, hag):
     instr = hag.get_primitive_template("SET_INST")
     instr.add_condition("cdlt.op_id_counters['compute'] - 1 > op.op_id")
     instr.set_field_flex_param("SINGLE_NESTED", "0 if op.num_loop_dependencies > 0 else 1")
-    instr.set_field_flex_param("NUM_INSTR", "1 if op.num_loop_dependencies > 0 else cdlt.op_id_counters['compute'] - 1")
+    instr.set_field_flex_param("NUM_INSTR", "1")
     instructions.append(instr)
 
     instr = hag.get_primitive_template(op_name)

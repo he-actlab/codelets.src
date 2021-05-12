@@ -189,8 +189,8 @@ class CodeletProgram(object):
         stage_kwargs = stage_kwargs or {}
         dependencies = dependencies or []
         level_names = [comp_stage.name for comp_stage in self.compilation_pipeline[level]]
-        for d in dependencies:
-            assert d in level_names
+        # for d in dependencies:
+        #     assert d in level_names
 
         fn_obj = CompilationStage(name, level, compilation_fn, dependencies, fn_kwargs=stage_kwargs, skip_noops=skip_noops)
         assert not (preproc and template)
@@ -235,7 +235,6 @@ class CodeletProgram(object):
         else:
             assert isinstance(cdlt_template, CodeletTemplate)
             cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
-
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
@@ -282,7 +281,8 @@ class CodeletProgram(object):
         if operand_type == "output":
             self.operand_mapping[node.name].add_write(cdlt, operand)
         else:
-            if node.op_name not in ["state", "input"] and len(self.operand_mapping[node.name].cdlt_write) == 0:
+            if node.op_name not in ["state", "input"] and len(self.operand_mapping[node.name].cdlt_write) == 0 and \
+                    node not in parent_node.inputs:
                 if node.graph is None:
                     raise RuntimeError
                 node_dfgs = node.name.split("/")
@@ -346,21 +346,23 @@ class CodeletProgram(object):
                 if self.hag.has_codelet(node.op_name):
                     node_list.append(node)
                 elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
-                    missing_ops.append(node)
+                    missing_ops.append(node.op_name)
 
             if len(missing_ops) > 0 and validate_lowered:
                 raise RuntimeError(
                     f"Input graph includes operations which are unsupported by the target architecture.\n"
-                    f"Unsupported Operations: {[mo.op_name for mo in missing_ops]}\n"
+                    f"Unsupported Operations: {[mo for mo in missing_ops]}\n"
                     f"HAG-supported Operations: {self.hag.all_codelet_names}")
         elif sequence_algorithm == 'filtered':
             assert 'filtered_layers' in sequence_kwargs
             filter_layers = sequence_kwargs['filtered_layers']
+            layers_found = {k: False for k in filter_layers}
             for name, node in self.graph.nodes.items():
                 if not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in all_ops:
                     all_ops.append(node.op_name)
-                if node.op_name in filter_layers and self.hag.has_codelet(node.op_name):
+                if node.op_name in filter_layers and self.hag.has_codelet(node.op_name) and not layers_found[node.op_name]:
                     node_list.append(node)
+                    layers_found[node.op_name] = True
                 elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
                     missing_ops.append(node.op_name)
             print(f"Skipping {missing_ops}")
@@ -412,7 +414,7 @@ class CodeletProgram(object):
             for template_name in list(self.codelet_templates.keys()):
                 cdlt_tmplt = self.codelet_templates[template_name]
                 for fn in fns:
-                    cdlt_tmplt = fn.run(cdlt_tmplt)
+                    cdlt_tmplt = fn.run(self, cdlt_tmplt)
                 self.codelet_templates[template_name] = cdlt_tmplt
 
     def run_preprocessing_stages(self, node_sequence, codelets, verbose=False):
@@ -423,7 +425,6 @@ class CodeletProgram(object):
         for level, fns in self.preproc_stages.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-
                 for fn in fns:
                     if cdlt.is_noop() and fn.skip_noops:
                         if verbose:

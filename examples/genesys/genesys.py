@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass
+    add_simd_typecast, template_layout_pass, template_pad_pass
 import inspect
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
@@ -261,6 +261,7 @@ def compile_genesys(model_name,
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -349,6 +350,8 @@ def compile_genesys_layer(layer_file,
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
+
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -399,6 +402,81 @@ def compile_genesys_layer(layer_file,
                     json.dump(res, outfile, indent=4)
     return program
 
+
+def compile_extracted_genesys_layer(model_name,
+                                    layer_name,
+                                    train=False,
+                                    update_cfg_dtypes=False,
+                                    batch_size=1,
+                                    verbose=False,
+                                    benchmark_path=None,
+                                    genesys_cfg=None,
+                                    dtypes=None,
+                                    print_config=True,
+                                    factor_fn='default'):
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+
+    dtypes = dtypes or GENESYS_DTYPES
+    if update_cfg_dtypes:
+        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+    else:
+        def_cfg = GENESYS_CFG
+
+
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+        raise RuntimeError(f"Invalid model name for extracting layer for compilation")
+    if train:
+        model_name = f"{model_name}_train"
+    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        if verbose:
+            print(f"Generating training graph for {model_name}")
+        graph = pm.create_training_graph(graph)
+
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+
+    found_layer = False
+    for node in list(graph.nodes.values()):
+        if not isinstance(node, (pm.write, pm.placeholder)):
+            if node.op_name == layer_name and not found_layer:
+                found_layer = True
+                break
+
+    if not found_layer:
+        raise RuntimeError(f"Invalid layer name {layer_name} for extracting layer from {model_name}")
+
+
+    genesys = define_genesys(def_cfg)
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        sizes_cfg = def_cfg.copy()
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        pprint(sizes_cfg)
+    mode = "training" if train else "inference"
+    # Codelet compilation starts here
+    program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    tile_kwargs = {'factor_fn_name': factor_fn}
+    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+
+    program.compile(verbose=verbose, sequence_algorithm='filtered', filtered_layers=[layer_name])
+
+    return program
 
 def add_genesys_codelets(hag: ComputeNode):
     for op_name, cdlt in GENESYS_CODELETS.items():

@@ -45,9 +45,9 @@ def test_srdfg_creation():
 
 @pytest.mark.parametrize('model_name',[
     # "resnet18",
-    # "resnet18_train",
+    "resnet18_train",
     # "lenet",
-    "lenet_train"
+    # "lenet_train"
 ])
 def test_genesys_model(model_name):
     train = False
@@ -96,5 +96,3 @@ def test_genesys_model(model_name):
                               factor_fn='default',
                               print_config=False
                               )
-
-    validate_program(program, print_difference=True)

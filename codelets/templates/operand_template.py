@@ -56,8 +56,16 @@ class OperandTemplate:
                 assert isinstance(s, (DummyParam, DummyOp))
                 shape_list.append(s.name)
 
-        operand = Operand(self.name, self.supported_dtypes, shape_list, dtype=self.default_dtype,
+        if self.default_dtype is None:
+            dtype = self.supported_dtypes[0]
+        else:
+            dtype = self.default_dtype
+        operand = Operand(self.name, self.supported_dtypes, shape_list, dtype=dtype,
                           write_destination=self.write_destination)
+
+        for s in evaluated_shape_list:
+            assert isinstance(s, (DummyParam, DummyOp)), f"Non dummy param shape: {type(s)}"
+            operand.update_shape_symbols(s.name, s.value)
 
         if self.start_location is not None:
             operand.data_path = [evaluate_args(self.start_location, instance_args, tuple([]))]
@@ -88,12 +96,21 @@ class IndexOperandTemplate:
         self.offset.offsets = tuple([self.offset.offsets[i] for i in permutation])
 
     @property
+    def offset_names(self):
+        names = []
+        for o in self.offset.offsets:
+            if isinstance(o, (DummyParam, DummyOp)):
+                names.append(o.name)
+            else:
+                names.append(o.op_str)
+        return names
+
+    @property
     def name(self):
         return self.operand.name
 
 def evaluate_args(args, instance_args, preserve_types):
-    if isinstance(args, preserve_types):
-        return args
+
 
     if isinstance(args, list):
         eval_arg = []
@@ -114,5 +131,8 @@ def evaluate_args(args, instance_args, preserve_types):
         eval_arg = cdlt.get_operand(args.name)
     else:
         eval_arg = args
+
+    if isinstance(args, preserve_types):
+        return args
 
     return eval_arg

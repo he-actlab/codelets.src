@@ -497,16 +497,19 @@ class Operand:
         if operand_type == "source":
             src = self.current_location
             dst = target
-            if self.current_location != target:
+
+            if src != target:
                 self.data_path.append(target)
+
+            if src == dst:
+                src = self.data_path[-2]
         else:
             src = target
-            # assert self.write_destination is not None
-
             dst = self.write_destination
 
             if self.current_location != target:
                 self.data_path.append(target)
+
             if self.current_location != self.write_destination and self.write_destination is not None:
                 self.data_path.append(self.write_destination)
 
@@ -684,6 +687,10 @@ class Operand:
         assert len(hag.node_levels[0]) == 1
         level_shapes[0] = initial_size
         for i, access in enumerate(self.data_moves):
+            if access.dst_node is None:
+                raise RuntimeError(f"Unset destination node for access for operand {self.name}:\n"
+                                   f"Source: {access.src_node}\n"
+                                   f"Dest: {access.dst_node}")
             access_level = hag.get_node_level(access.dst_node)
 
             if access_level in level_shapes:
@@ -693,6 +700,7 @@ class Operand:
                 access.resolve_offsets(cdlt)
 
         first_tile = True
+
         # TODO: Add checks here
         for path_key, tiling_values in self.tiling.items():
             if first_tile:
@@ -756,6 +764,9 @@ class IndexedOperandTemplate:
     def add_compute_access(self, target, op_name, operand_type):
         return self.operand_template.add_compute_access(target, op_name, operand_type, self.offsets)
 
+    @property
+    def offset_names(self):
+        return [str(o) for o in self.offsets]
 
 
 

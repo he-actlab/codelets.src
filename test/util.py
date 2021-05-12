@@ -3,7 +3,9 @@ import os
 from codelets.compiler.program import CodeletProgram
 from examples.genesys import compile_genesys_layer, compile_genesys
 from dataclasses import is_dataclass
+import numpy as np
 import polymath as pm
+import torch
 import difflib
 import json
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
@@ -200,3 +202,16 @@ def compare_dataclasses(ref_obj, test_obj, skip_fields=None):
                 assert ref_field == test_field, f"Field {k} do not match:\n" \
                                                 f"Reference field: {ref_field}\n" \
                                                 f"Test field: {test_field}"
+
+def compare_np_torch(np_fn, torch_fn, inputs, outputs):
+
+    np_fn(*(inputs + outputs))
+    convert_func = lambda x: torch.from_numpy(x) if isinstance(x, np.ndarray) else x
+    torch_inputs = tuple([convert_func(i) for i in inputs])
+    torch_outputs = tuple([convert_func(o) for o in outputs])
+    torch_fn(*(torch_inputs + torch_outputs))
+
+    for idx, o in enumerate(outputs):
+        np.testing.assert_allclose(o, torch_outputs[idx].numpy())
+
+

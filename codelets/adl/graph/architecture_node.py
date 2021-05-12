@@ -397,6 +397,7 @@ class ArchitectureNode(Node):
         self.operation_mappings['codelet_end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
+
         assert isinstance(name, str)
         if self.has_node(name):
             return self._all_subgraph_nodes[name]

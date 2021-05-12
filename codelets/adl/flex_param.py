@@ -6,7 +6,7 @@ import re
 
 from types import FunctionType, LambdaType, CodeType
 import inspect
-from numbers import Integral
+from numbers import Integral, Number
 from dataclasses import dataclass, field
 
 # IMPORTANT: The following modules are imported here to enable use in runtime compilation using globals()
@@ -25,6 +25,7 @@ class FlexParam:
     fn: LambdaType = field(default=None)
     fn_code: CodeType = field(default=None, init=False)
     value_type: str = field(default='NA', init=False)
+    dtype_cast_func: FunctionType = field(default=int)
     _value: Union[str, int] = field(default=None, init=False)
     flex_id: int = field(default_factory=lambda: next(flex_param_cnt))
 
@@ -102,11 +103,13 @@ class FlexParam:
                                f"Error: {e}\n"
                                f"")
 
-        if isinstance(result, (int, np.float)):
-            assert (result - int(result)) == 0, f"Invalid conversion between float and integer: " \
-                                                f"Func: {self.name}: {self.fn_body_str}\n Arg names: {self.fn_args}\n " \
-                                                f"Args: {fn_args}\n"
-            result = int(result)
+        if isinstance(result, Number):
+            result = self.dtype_cast_func(result)
+        # if isinstance(result, (int, np.float)):
+        #     assert (result - int(result)) == 0, f"Invalid conversion between float and integer: " \
+        #                                         f"Func: {self.name}: {self.fn_body_str}\n Arg names: {self.fn_args}\n " \
+        #                                         f"Args: {fn_args}\n"
+        #     result = int(result)
 
         if not self.is_set() or force_evaluate:
             self.value = result
