@@ -458,13 +458,12 @@ def mean_var(hag: ArchitectureNode):
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(mean[c], ["DRAM", "VMEM1"])
                         cdlt.transfer(var[c], ["DRAM", "VMEM2"])
-                        data.set_write_destination("")
+                        data.set_write_destination("VMEM1")
                         mean.set_write_destination("VMEM1")
                         var.set_write_destination("VMEM2")
                         cdlt.compute("ADD", [data, mean], [mean], target="SIMD")
                         cdlt.compute("MUL", [data, data], [temp1], target="SIMD")
                         cdlt.compute("ADD", [var, temp1], [var], target="SIMD")
-
             cdlt.compute("MUL", [mean, mean], [temp1], target="SIMD")
             cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
             cdlt.compute("SUB", [var, temp1], [var], target="SIMD")
@@ -510,7 +509,7 @@ def batchnorm_grad(hag: ArchitectureNode):
                         data_grad.set_write_destination("VMEM1")
                         scale_grad.set_write_destination("VMEM1")
                         offset_grad.set_write_destination("VMEM1")
-                        cdlt.compute("MULADD", [data, scale, offset, mean, var, grad], [data_grad, scale_grad, offset_grad], target="SIMD")
+                        cdlt.compute("ADD", [grad, scale, offset, mean, var, grad], [data_grad, scale_grad, offset_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
                         cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
                         cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
@@ -759,22 +758,32 @@ def elem_tanh_grad(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=OP_DTYPES[2])
+        temp1.start_location = "VMEM1"
+        cdlt.add_temp_operand(temp1)
+        one_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+
         cdlt.configure("start", "SIMD")
-        # cdlt.configure("start", "VMEM")
+        cdlt.configure("start", "IMM", immediate_value=1, index=0)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM1"])
+                        data.set_write_destination("VMEM1")
                         data_grad.set_write_destination("VMEM1")
-                        cdlt.compute("TANH", [data, grad], [data_grad], target="SIMD")
+                        cdlt.compute("MUL", [data, data], [data], target="SIMD")
+                        one_op.set_write_destination("VMEM1")
+                        temp1.set_write_destination("VMEM1")
+                        cdlt.compute("SUB", [one_op, data], [temp1], target="SIMD")
+                        cdlt.compute("MUL", [grad, temp1], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
     return cdlt
 
@@ -783,20 +792,33 @@ def elem_tanh_grad2d(hag: ArchitectureNode):
     with CodeletTemplate("elem_tanh_grad2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
+        one_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=OP_DTYPES[2])
+        temp1.start_location = "VMEM1"
+
+        cdlt.add_temp_operand(temp1)
+
         cdlt.configure("start", "SIMD")
-        # cdlt.configure("start", "VMEM")
+        cdlt.configure("start", "IMM", immediate_value=1, index=0)
+
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                 cdlt.transfer(grad[n, c], ["DRAM", "VMEM1"])
+                data.set_write_destination("VMEM1")
                 data_grad.set_write_destination("VMEM1")
-                cdlt.compute("TANH", [data, grad], [data_grad], target="SIMD")
+                cdlt.compute("MUL", [data, data], [data], target="SIMD")
+                one_op.set_write_destination("VMEM1")
+                temp1.set_write_destination("VMEM1")
+                cdlt.compute("SUB", [one_op, data], [temp1], target="SIMD")
+                cdlt.compute("MUL", [grad, temp1], [data_grad], target="SIMD")
                 cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
 

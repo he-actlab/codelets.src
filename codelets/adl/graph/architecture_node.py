@@ -221,7 +221,7 @@ class ArchitectureNode(Node):
 
     @property
     def instr_length_set(self):
-        return self._instr_length is not None
+        return self._instr_length is not None and self._instr_length != -1
 
     def get_node_level(self, node_name: str):
         for lev, names in self.node_levels.items():
