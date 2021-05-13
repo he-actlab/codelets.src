@@ -126,12 +126,24 @@ class Codelet(object):
         return self._inputs
 
     @property
+    def used_inputs(self):
+        return [i for i in self.inputs if i.used]
+
+    @property
     def temps(self):
         return self._temps
 
     @property
+    def used_temps(self):
+        return [t for t in self.temps if t.used]
+
+    @property
     def outputs(self):
         return self._outputs
+
+    @property
+    def used_outputs(self):
+        return [o for o in self.outputs if o.used]
 
     @property
     def ops(self) -> List[Operation]:
@@ -157,6 +169,10 @@ class Codelet(object):
     @property
     def operands(self):
         return self.inputs + self.outputs
+
+    @property
+    def used_operands(self):
+        return [o for o in self.operands if o.used]
 
     @ops.setter
     def ops(self, ops):

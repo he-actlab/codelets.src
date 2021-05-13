@@ -318,6 +318,9 @@ class Operand:
             for dim in dm.shape_symbols:
                 val = dm.offset_map.pop(dim)
                 dm.update_offset_map(dim, val)
+    @property
+    def used(self):
+        return len(self.data_path) != 0
 
     @property
     def current_location(self):
