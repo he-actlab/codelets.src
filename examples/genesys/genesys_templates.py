@@ -523,14 +523,14 @@ def sa_buffer_template_compute(operand_name, buffer_name, hag):
 def outer_simd_loops(hag):
     instructions = []
     macro_instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_ITER")
-    macro_instr.add_iterable('operand', f'cdlt.inputs')
+    macro_instr.add_iterable('operand', f'cdlt.used_inputs')
     macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     macro_instr.set_field_flex_param("NUM_ITERS", f"op.iter_count")
 
     micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_LOOP_STRIDE")
-    micro_instr.add_iterable('operand', f'cdlt.inputs')
+    micro_instr.add_iterable('operand', f'cdlt.used_inputs')
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
@@ -539,7 +539,7 @@ def outer_simd_loops(hag):
     instructions.append(macro_instr)
 
     macro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
-    macro_instr.add_iterable('operand', f'cdlt.inputs')
+    macro_instr.add_iterable('operand', f'cdlt.used_inputs')
     macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     macro_instr.set_field_by_name("LSB_MSB", "LSB")
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
@@ -551,7 +551,7 @@ def outer_simd_loops(hag):
                                      )
 
     micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
-    micro_instr.add_iterable('operand', f'cdlt.inputs')
+    micro_instr.add_iterable('operand', f'cdlt.used_inputs')
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_by_name("LSB_MSB", "MSB")
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
@@ -564,14 +564,14 @@ def outer_simd_loops(hag):
     instructions.append(macro_instr)
 
     macro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_ITER")
-    macro_instr.add_iterable('operand', f'cdlt.outputs')
+    macro_instr.add_iterable('operand', f'cdlt.used_outputs')
     macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     macro_instr.set_field_flex_param("NUM_ITERS", f"op.iter_count")
 
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
-    micro_instr.add_iterable('operand', f'cdlt.outputs')
+    micro_instr.add_iterable('operand', f'cdlt.used_outputs')
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
@@ -580,7 +580,7 @@ def outer_simd_loops(hag):
     instructions.append(macro_instr)
 
     macro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
-    macro_instr.add_iterable('operand', f'cdlt.outputs')
+    macro_instr.add_iterable('operand', f'cdlt.used_outputs')
     macro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     macro_instr.set_field_by_name("LSB_MSB", "LSB")
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
@@ -591,7 +591,7 @@ def outer_simd_loops(hag):
                                      lazy_eval=True)
 
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
-    micro_instr.add_iterable('operand', f'cdlt.outputs')
+    micro_instr.add_iterable('operand', f'cdlt.used_outputs')
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_by_name("LSB_MSB", "MSB")
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")

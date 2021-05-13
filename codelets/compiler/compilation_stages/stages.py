@@ -223,6 +223,8 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     loop_splits = {}
 
     for i, o in enumerate(cdlt.operands):
+        if len(o.dependencies) == 0 and len(o.data_path) == 0:
+            continue
         loops = [d for d in o.dependencies if "loop" in d]
         max_level = max(cdlt.get_tile_level(dp) for dp in o.data_path)
         for l in loops:
@@ -232,8 +234,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
 
     bands = cdlt.extract_bands()
-    # if cdlt.op_name == 'elem_tanh_grad'
+    print(cdlt.emit("operations_idx"))
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
+
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -243,6 +246,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
         dep_mapping = {}
         for split in range(splits):
             op_band = cdlt.ops[start: end + 1]
+
             offset = (end - start)
             num_splits = 0
             for op in op_band:
@@ -260,10 +264,10 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 if op.op_type == 'transfer':
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
-                        offset -= 1
                         outgoing = False
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             outgoing = True
+                            offset -= 1
                             cdlt.insert_op(op, target_idx)
                         op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
@@ -344,6 +348,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                     inner_idx = target_idx
                     num_splits += 1
+
                 cdlt.insert_op(inner_op, inner_idx)
 
     for o in cdlt.operands:
@@ -390,8 +395,8 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
         i_loop_level = o.loop_level
         idx = -1
         loop_level = -1
-
-        for dep in o.dependencies:
+        all_deps = o.dependencies
+        for dep in all_deps:
 
             dep_idx = cdlt.ops.index(cdlt.op_map[dep])
             if cdlt.ops[dep_idx].op_type == "loop":
@@ -408,15 +413,12 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
         if idx < 0:
             idx = i
 
-        if idx < i:
+        if (idx + 1) < i and loop_level <= i_loop_level:
             cdlt.ops.insert(idx + 1, cdlt.ops.pop(i))
             idx += 1
 
         if loop_level < i_loop_level and loop_level > 0:
             cdlt.ops[idx].loop_level = loop_level
     return cdlt
-
-def insert_dtype_cast(program: 'CodeletProgram', n, cdlt):
-    pass
 
 
