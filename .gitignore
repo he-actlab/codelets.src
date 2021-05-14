@@ -131,3 +131,5 @@ TODO*
 # Numpy serialized files
 *.npz
 
+# Ignore .dill files generated from hag serialization
+*.dill

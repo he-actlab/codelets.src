@@ -217,6 +217,10 @@ class ArchitectureNode(Node):
             raise RuntimeError(f"Instruction length is not set for {self.name}")
         return self._instr_length
 
+    @instr_length.setter
+    def instr_length(self, length):
+        self._instr_length = length
+
     @property
     def node_levels(self):
         return self._node_levels
@@ -501,7 +505,7 @@ class ArchitectureNode(Node):
             else:
                 assert n.instr_length == length
 
-    def add_primitive(self, primitive: 'Instruction'):
+    def add_primitive(self, primitive: 'Instruction', set_all_instr_lengths = True):
         if primitive.target is None:
             primitive.target = self.name
         if self.instr_length_set and primitive.instr_length != self.instr_length:
@@ -509,7 +513,7 @@ class ArchitectureNode(Node):
                                f"Instruction: {primitive}\n"
                                f"Instruction Length: {primitive.instr_length}\n"
                                f"Required Instr length: {self.instr_length}")
-        elif not self.instr_length_set:
+        elif set_all_instr_lengths and not self.instr_length_set:
             self.set_all_instr_lengths(primitive.instr_length)
 
         self._primitives[primitive.name] = primitive
@@ -637,6 +641,10 @@ class ArchitectureNode(Node):
         blob['field_name'] = self.name
         blob['node_type'] = self.get_type()
         blob['node_color'] = self.viz_color
+        if self.instr_length_set:
+            blob['instruction_length'] = self.instr_length
+        else:
+            blob['instruction_length'] = -1
         blob['attributes'] = {}
         return blob
 
