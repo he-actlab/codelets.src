@@ -1,12 +1,12 @@
-from . import Operation, OperandTemplate, IndexedOperandTemplate
+from . import Operation, Operand, IndexedOperandTemplate
 from typing import List, Union
 
 
 class Compute(Operation):
 
     def __init__(self, op_name: str,
-                 sources: List[Union[OperandTemplate, IndexedOperandTemplate]],
-                 dests: List[Union[OperandTemplate, IndexedOperandTemplate]],
+                 sources: List[Union[Operand, IndexedOperandTemplate]],
+                 dests: List[Union[Operand, IndexedOperandTemplate]],
                  target: str=None,
                  add_codelet=True,
                  **kwargs):
@@ -27,12 +27,12 @@ class Compute(Operation):
                                       dependencies=dependencies,
                                       **kwargs)
         for s_call in sources:
+
             s = s_call.add_compute_access(target, self.op_str, "source")
             self._dependencies += [dep for dep in s.dependencies if dep not in dependencies and dep != self.op_str]
             self._sources.append(s)
 
         for d_call in dests:
-            # assert d_call.write_destination is not None
             d = d_call.add_compute_access(target, self.op_str, "dest")
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies and dep != self.op_str]
             d.dependencies.append(self.op_str)
@@ -70,8 +70,7 @@ class Compute(Operation):
 
     @property
     def unique_operand_locations(self) -> List[str]:
-        return list(set([self.get_operand_location(o.name) for o in self.operands]))
-
+        return list(sorted(list(set([self.get_operand_location(o.name) for o in self.operands]))))
 
     def get_operand(self, name):
         op = None

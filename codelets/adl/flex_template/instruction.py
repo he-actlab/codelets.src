@@ -4,7 +4,7 @@ from typing import Callable, List, Dict, Optional, Union
 from . import Field
 from codelets.adl.flex_param import FlexParam
 
-CodeletOperand = namedtuple('OperandTemplate', ['field_name', 'supported_dtypes'])
+CodeletOperand = namedtuple('Operand', ['field_name', 'supported_dtypes'])
 
 
 
@@ -28,6 +28,7 @@ class Instruction(object):
         self._fields = fields
         self._field_values = field_values or {}
         self._field_map = {f.field_name: f for f in fields}
+        self._instr_length = opcode_width + sum([f.bitwidth for f in fields])
         self._tabs = None
 
 
@@ -54,6 +55,10 @@ class Instruction(object):
     @property
     def extra_params(self) -> Dict:
         return self._extra_params
+
+    @property
+    def instr_length(self):
+        return self._instr_length
 
     def bin(self) -> str:
         return np.binary_repr(self.opcode, self.opcode_width)
@@ -197,7 +202,7 @@ class Instruction(object):
     def evaluate_fields(self, fn_args: tuple, iter_args: dict):
         fn_args = fn_args + (self,)
         for f in self.fields:
-            if not f.isset:
+            if not f.isset and not f.lazy_eval:
                 f.set_value_from_param_fn(*fn_args, **iter_args)
 
     def evaluate_lazy_fields(self, fn_args: tuple, iter_args: dict):

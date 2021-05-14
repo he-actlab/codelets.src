@@ -1,8 +1,4 @@
-from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES, compile_genesys_layer
-import polymath as pm
-from codelets import initialize_program, tile, hoist, pad_operands
-from collections import namedtuple
-import json
+from examples import compile_genesys, compile_genesys_layer
 from pprint import pprint
 import argparse
 from pathlib import Path

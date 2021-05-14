@@ -51,11 +51,12 @@ GENESYS_CFG['VMEM_DEPTH'] = GENESYS_CFG['OBUF_DEPTH']
 GENESYS_CFG['VMEM_BANKS'] = GENESYS_CFG['SIMD_WIDTH']
 GENESYS_CFG['INSTR_BANKS'] = 1
 GENESYS_CFG['DRAM_BANKS'] = 1
-
+GENESYS_CFG['DRAM_WIDTH'] = 32
 
 SIMD_OPCODE_BITWIDTH = 4
 SIMD_FNCODE_BITWIDTH = 4
 NS_BITWIDTH = 5
 NS_IDX_BITWIDTH = 3
 
-from .genesys import define_genesys, compile_genesys, compile_genesys_layer
+from .genesys import define_genesys, compile_genesys, compile_genesys_layer, get_transformed_srdfg, \
+    compile_extracted_genesys_layer

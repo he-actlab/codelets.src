@@ -1,9 +1,13 @@
 from codelets.adl.graph import ComputeNode, StorageNode
-from codelets.adl.flex_template import Instruction
-from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, add_simd_typecast
+from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
+    add_simd_typecast, template_layout_pass, template_pad_pass
+import inspect
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
-from .genesys_inference_codelets import GENESYS_CODELETS
+
+# from .genesys_inference_codelets import GENESYS_CODELETS
+from .genesys_codelets import GENESYS_CODELETS
+
 from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
 from pathlib import Path
@@ -49,7 +53,7 @@ def define_genesys(cfg):
                                 latency=1, input_ports=2, output_ports=2)
 
         dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
-                            width=cfg['ACC_WIDTH'], depth=cfg['DRAM_DEPTH'],
+                            width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'],
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
 
@@ -127,11 +131,8 @@ def define_genesys(cfg):
         for op_name, cdlt in GENESYS_CODELETS.items():
             cdlt_instance = cdlt(hag)
             hag.add_codelet(cdlt_instance)
-
-        hag.add_util_fn("extract_bits", ["val", "nb", "pos"], "((((1 << nb) - 1) << pos) & val) >> pos")
         hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"], f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
     return hag
-
 
 def add_genesys_templates(hag: ComputeNode):
     # Config
@@ -146,9 +147,16 @@ def add_genesys_templates(hag: ComputeNode):
     # Compute
     for hag_node, template in GENESYS_TEMPLATES['compute'].items():
         hag.add_compute_template(*hag_node, template(hag))
-
     # Loop
     hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
+
+    # Program start and end
+    hag.add_program_start_template("Genesys", GENESYS_TEMPLATES['program']['start'](hag))
+    hag.add_program_end_template("Genesys", GENESYS_TEMPLATES['program']['end'](hag))
+
+    # Codelet start and end
+    hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
+    hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
 def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
     if inp_cfg:
@@ -166,6 +174,33 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
         out_cfg = GENESYS_CFG
     return out_cfg
 
+
+def get_transformed_srdfg(model_name,
+                    train=False,
+                    batch_size=1,
+                    verbose=False,
+                    benchmark_path=None):
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+        raise RuntimeError(f"Invalid model name for compilation")
+    if train:
+        model_name = f"{model_name}_train"
+    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        if verbose:
+            print(f"Generating training graph for {model_name}")
+        graph = pm.create_training_graph(graph)
+
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+    return graph
 
 def compile_genesys(model_name,
                     train=False,
@@ -225,6 +260,8 @@ def compile_genesys(model_name,
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -232,9 +269,9 @@ def compile_genesys(model_name,
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
-    #                              skip_noops=False)
+    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                 stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
+                                 skip_noops=False)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
@@ -312,6 +349,9 @@ def compile_genesys_layer(layer_file,
         pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
+
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
@@ -327,10 +367,11 @@ def compile_genesys_layer(layer_file,
 
     if do_hoist_stage:
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+        program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+                                     stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
     else:
         finalize_instructions = False
-    # program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
-    #                              stage_kwargs={"dtype_map": {}, "codelet_output_map": {}}, skip_noops=False)
+
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)
@@ -361,6 +402,81 @@ def compile_genesys_layer(layer_file,
                     json.dump(res, outfile, indent=4)
     return program
 
+
+def compile_extracted_genesys_layer(model_name,
+                                    layer_name,
+                                    train=False,
+                                    update_cfg_dtypes=False,
+                                    batch_size=1,
+                                    verbose=False,
+                                    benchmark_path=None,
+                                    genesys_cfg=None,
+                                    dtypes=None,
+                                    print_config=True,
+                                    factor_fn='default'):
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+
+    dtypes = dtypes or GENESYS_DTYPES
+    if update_cfg_dtypes:
+        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+    else:
+        def_cfg = GENESYS_CFG
+
+
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+        raise RuntimeError(f"Invalid model name for extracting layer for compilation")
+    if train:
+        model_name = f"{model_name}_train"
+    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        if verbose:
+            print(f"Generating training graph for {model_name}")
+        graph = pm.create_training_graph(graph)
+
+    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    graph = layout_pass(graph)
+
+    found_layer = False
+    for node in list(graph.nodes.values()):
+        if not isinstance(node, (pm.write, pm.placeholder)):
+            if node.op_name == layer_name and not found_layer:
+                found_layer = True
+                break
+
+    if not found_layer:
+        raise RuntimeError(f"Invalid layer name {layer_name} for extracting layer from {model_name}")
+
+
+    genesys = define_genesys(def_cfg)
+    if print_config:
+        print(f"Compiling model with the following config:\n")
+        sizes_cfg = def_cfg.copy()
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        pprint(sizes_cfg)
+    mode = "training" if train else "inference"
+    # Codelet compilation starts here
+    program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    tile_kwargs = {'factor_fn_name': factor_fn}
+    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+
+    program.compile(verbose=verbose, sequence_algorithm='filtered', filtered_layers=[layer_name])
+
+    return program
 
 def add_genesys_codelets(hag: ComputeNode):
     for op_name, cdlt in GENESYS_CODELETS.items():

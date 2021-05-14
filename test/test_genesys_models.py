@@ -1,10 +1,10 @@
-from codelets.examples.genesys import define_genesys, GENESYS_CFG, compile_genesys, GENESYS_DTYPES
+from examples.genesys import compile_genesys, get_transformed_srdfg
+import pytest
 import polymath as pm
-from codelets import initialize_program, tile, hoist, pad_operands
 from collections import namedtuple
 import json
-from pprint import pprint
 from pathlib import Path
+from .util import validate_program
 
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
@@ -23,11 +23,39 @@ def parse_cfg():
     return genesys
 
 
-def test_genesys_model():
-    model_name = 'resnet18'
+def test_srdfg_creation():
+    model_name = 'lenet'
 
     # Determines whether to compile a training model or not
     train = True
+
+    # If this is changed, the batch size will updated for the model
+    batch_size = 1
+
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+    graph = get_transformed_srdfg(model_name,
+                              train=train,
+                              batch_size=batch_size,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR)
+
+    for name, node in graph.nodes.items():
+        if not isinstance(node, (pm.placeholder, pm.write)):
+            print(f"{name}: {node.op_name}")
+
+@pytest.mark.parametrize('model_name',[
+    # "resnet18",
+    "resnet18_train",
+    # "lenet",
+    # "lenet_train"
+])
+def test_genesys_model(model_name):
+    train = False
+
+    if "train" in model_name:
+        model_name = model_name.split("_")[0]
+        train = True
+    # Determines whether to compile a training model or not
 
     # GENESYS_DTYPES['SIMD'] = 'FXP16'
     # GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP4'
@@ -66,7 +94,5 @@ def test_genesys_model():
                               verbose=False,
                               benchmark_path=BENCH_DIR,
                               factor_fn='default',
-                              print_config=True
+                              print_config=False
                               )
-    res = program.emit("json_no_ops")
-    pprint(res)

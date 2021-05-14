@@ -1,6 +1,7 @@
 from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union, ClassVar
 from collections import namedtuple
 from functools import partial
+from codelets import Datatype
 from codelets.adl.flex_param import FlexParam
 
 from pytools import memoize, memoize_method
@@ -18,7 +19,6 @@ from dataclasses import dataclass, field
 def sympy_as_str(o):
     return str(o)
 
-
 @dataclass(frozen=True)
 class Offset:
     dim: int
@@ -33,40 +33,6 @@ class Offset:
 
     def __str__(self):
         return f"DIM:{self.dim},LOOPID:{self.loop_id},OFFSET:{self.offset}"
-
-@dataclass(frozen=True)
-class Datatype:
-    type: str
-    bitwidth: int
-
-    def __str__(self):
-        return f"{self.type}{self.bitwidth}"
-
-    def to_json(self):
-        blob = {}
-        blob['type'] = self.type
-        blob['bitwidth'] = self.bitwidth
-        return blob
-
-    @staticmethod
-    def from_json(dt_obj: Dict):
-        return Datatype(type=dt_obj['type'], bitwidth=dt_obj['bitwidth'])
-
-    @staticmethod
-    def from_str(dt_str: str):
-        idx = 0
-
-        while not dt_str[idx].isdigit() and idx < len(dt_str):
-            idx += 1
-        type_part = dt_str[:idx].upper()
-        bit_part = int(dt_str[idx:])
-        return Datatype(type=type_part, bitwidth=bit_part)
-
-    def bytes(self):
-        return self.bitwidth // 8
-
-    def bits(self):
-        return self.bitwidth
 
 @dataclass
 class DataMovement:
@@ -196,7 +162,6 @@ class DataMovement:
         sizes = {}
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
-                # indices = list(o.atoms(Idx))
                 indices = self.get_symbol_atoms(o)
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
@@ -298,7 +263,7 @@ class DataMovement:
 
 
 @dataclass
-class OperandTemplate:
+class Operand:
     name: str
     supported_dtypes: Union[List[Datatype]]
     shape_list: List[str]
@@ -318,7 +283,6 @@ class OperandTemplate:
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
-    operand_type: str = field(default='intermediate')
 
     def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
         if isinstance(dimension, str):
@@ -354,7 +318,9 @@ class OperandTemplate:
             for dim in dm.shape_symbols:
                 val = dm.offset_map.pop(dim)
                 dm.update_offset_map(dim, val)
-
+    @property
+    def used(self):
+        return len(self.data_path) != 0
 
     @property
     def current_location(self):
@@ -467,7 +433,8 @@ class OperandTemplate:
         if len(offsets) == 0 and len(self.data_moves) > 0:
             a_offsets = {}
             for i in range(len(self.shape_list)):
-                omap_val = list(self.data_moves[-1].offset_map.values())[i]
+                offset_values = list(self.data_moves[-1].offset_map.values())
+                omap_val = offset_values[i]
                 if isinstance(omap_val, int):
                     a_offsets[self.shape_list[i]] = omap_val
                 else:
@@ -515,6 +482,7 @@ class OperandTemplate:
 
             dm_offsets = self.get_access_offsets(offsets)
             shape = self.get_shape_map(sizes[i])
+
             movement = DataMovement(src, dst, self.name, self.shape_list.copy(), op_name, shape, dm_offsets)
             self.data_moves.append(movement)
 
@@ -532,16 +500,19 @@ class OperandTemplate:
         if operand_type == "source":
             src = self.current_location
             dst = target
-            if self.current_location != target:
+
+            if src != target:
                 self.data_path.append(target)
+
+            if src == dst:
+                src = self.data_path[-2]
         else:
             src = target
-            # assert self.write_destination is not None
-
             dst = self.write_destination
 
             if self.current_location != target:
                 self.data_path.append(target)
+
             if self.current_location != self.write_destination and self.write_destination is not None:
                 self.data_path.append(self.write_destination)
 
@@ -719,6 +690,10 @@ class OperandTemplate:
         assert len(hag.node_levels[0]) == 1
         level_shapes[0] = initial_size
         for i, access in enumerate(self.data_moves):
+            if access.dst_node is None:
+                raise RuntimeError(f"Unset destination node for access for operand {self.name}:\n"
+                                   f"Source: {access.src_node}\n"
+                                   f"Dest: {access.dst_node}")
             access_level = hag.get_node_level(access.dst_node)
 
             if access_level in level_shapes:
@@ -728,6 +703,7 @@ class OperandTemplate:
                 access.resolve_offsets(cdlt)
 
         first_tile = True
+
         # TODO: Add checks here
         for path_key, tiling_values in self.tiling.items():
             if first_tile:
@@ -746,19 +722,18 @@ class OperandTemplate:
 
     def copy(self):
         # TODO: Fix this
-        op_temp = OperandTemplate(name=self.name,
-                                  supported_dtypes=self.supported_dtypes,
-                                  shape_list=self.shape_list,
-                                  shape_symbols=self.shape_symbols.copy(),
-                                  dependencies=self.dependencies.copy(),
-                                  tiling=deepcopy(self.tiling),
-                                  data_path=self.data_path.copy(),
-                                  dtype=self.dtype,
-                                  node_name=self.node_name,
-                                  permutation=self.permutation,
-                                  data_moves=deepcopy(self.data_moves),
-                                  operand_type=self.operand_type,
-                                  write_destination=self.write_destination)
+        op_temp = Operand(name=self.name,
+                          supported_dtypes=self.supported_dtypes,
+                          shape_list=self.shape_list,
+                          shape_symbols=self.shape_symbols.copy(),
+                          dependencies=self.dependencies.copy(),
+                          tiling=deepcopy(self.tiling),
+                          data_path=self.data_path.copy(),
+                          dtype=self.dtype,
+                          node_name=self.node_name,
+                          permutation=self.permutation,
+                          data_moves=deepcopy(self.data_moves),
+                          write_destination=self.write_destination)
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
         return op_temp
 
@@ -779,7 +754,7 @@ class OperandTemplate:
 
 @dataclass
 class IndexedOperandTemplate:
-    operand_template: OperandTemplate
+    operand_template: Operand
     offsets: List[Union[int, str, Basic]]
 
     @property
@@ -792,6 +767,9 @@ class IndexedOperandTemplate:
     def add_compute_access(self, target, op_name, operand_type):
         return self.operand_template.add_compute_access(target, op_name, operand_type, self.offsets)
 
+    @property
+    def offset_names(self):
+        return [str(o) for o in self.offsets]
 
 
 

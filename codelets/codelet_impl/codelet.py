@@ -1,12 +1,13 @@
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Tuple, Any
 
 
 from codelets.adl.flex_param import FlexParam
-from codelets.adl.operation import Operation, Loop, Transfer, Compute, Configure, OperandTemplate, Datatype
+from codelets.adl.operation import Operation, Loop, Transfer, Compute, Configure, Operand, Datatype
 from types import LambdaType
 from pytools import memoize_method
 from collections import defaultdict
 from copy import deepcopy
+from contextlib import contextmanager
 
 import polymath as pm
 
@@ -16,8 +17,8 @@ class Codelet(object):
     operations = []
 
     def __init__(self, op_name,
-                 inputs: List[OperandTemplate],
-                 outputs: List[OperandTemplate],
+                 inputs: List[Operand],
+                 outputs: List[Operand],
                  hag,
                  is_instance: bool = False,
                  cdlt_id: int = None,
@@ -66,18 +67,27 @@ class Codelet(object):
         Operation.id_counter = 0
         Operation.loop_ctxt_level = 0
         Operation.op_id_counters = defaultdict(int)
-        OperandTemplate.current_codelet = self
-
+        Operand.current_codelet = self
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         Operation.current_codelet = None
-        OperandTemplate.current_codelet = None
+        Operand.current_codelet = None
         last_id = Operation.loop_stack.pop()
         self._id_counter = deepcopy(Operation.id_counter)
         self._loop_ctxt_level = deepcopy(Operation.loop_ctxt_level)
         self._op_id_counters = deepcopy(Operation.op_id_counters)
         assert last_id == -1
+
+    @contextmanager
+    def exit_context(self):
+        yield
+
+    @staticmethod
+    def reset():
+        Codelet.codelet_instance_id = 0
+        Codelet.codelet_id = 0
+        Codelet.operations = []
 
     @property
     def num_loop_levels(self):
@@ -116,12 +126,24 @@ class Codelet(object):
         return self._inputs
 
     @property
+    def used_inputs(self):
+        return [i for i in self.inputs if i.used]
+
+    @property
     def temps(self):
         return self._temps
 
     @property
+    def used_temps(self):
+        return [t for t in self.temps if t.used]
+
+    @property
     def outputs(self):
         return self._outputs
+
+    @property
+    def used_outputs(self):
+        return [o for o in self.outputs if o.used]
 
     @property
     def ops(self) -> List[Operation]:
@@ -148,6 +170,10 @@ class Codelet(object):
     def operands(self):
         return self.inputs + self.outputs
 
+    @property
+    def used_operands(self):
+        return [o for o in self.operands if o.used]
+
     @ops.setter
     def ops(self, ops):
         self._ops = ops
@@ -171,6 +197,8 @@ class Codelet(object):
     def id_counter(self, id_counter):
         self._id_counter = id_counter
 
+    def __repr__(self):
+        return f"codelet {self.op_name}{self.instance_id}"
 
     @memoize_method
     def operand_dimensions(self) -> List[str]:
@@ -196,7 +224,7 @@ class Codelet(object):
         return level in self.domain_tiling
 
     def is_noop(self):
-        return len(self.operands) == 0 and len(self.operations) == 0
+        return len(self.ops) == 0
 
     def operand_dim_mapping(self):
         operands = self.inputs + self.outputs
@@ -302,10 +330,6 @@ class Codelet(object):
         if found_band:
             assert start_idx >= 0
             bands.append((start_idx, len(self.ops) - 1))
-        # test_bands = self.extract_bands_()
-        # print(f"Actual bands: {bands}\n"
-        #       f"Test bands: {test_bands}")
-        # return test_bands
         return bands
 
     def copy(self, pre_increment=False):
@@ -373,13 +397,23 @@ class Codelet(object):
 
     def emit(self, output_type):
         if output_type == "operations":
+            input_str = ", ".join([f"{i.name}{i.shape_list}" for i in self.inputs])
+            out_str = ", ".join([f"{o.name}{o.shape_list}" for o in self.outputs])
+            operand_str = f"inputs={input_str}\n" \
+                          f"outputs={out_str}\n"
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
+            op_str += operand_str
             for o in self.ops:
                 ostr = f"\t" * (o.loop_level + 1)
                 ostr += f"{o.emit(output_type)}\n"
                 op_str += ostr
         elif output_type == "operations_idx":
+            input_str = ", ".join([f"{i.name}{i.shape_list}" for i in self.inputs])
+            out_str = ", ".join([f"{o.name}{o.shape_list}" for o in self.outputs])
+            operand_str = f"inputs={input_str}\n" \
+                          f"outputs={out_str}\n"
             op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
+            op_str += operand_str
             for i, o in enumerate(self.ops):
                 ostr = f"{i}" + f"\t" * (o.loop_level + 1)
                 ostr += f"{o.emit(output_type[:-4])}\n"
@@ -496,11 +530,11 @@ class Codelet(object):
 
 
         # TODO: Check back on this
-        if self.required_params[key].is_set() and self.required_params[key].value != value and\
-                not isinstance(self.required_params[key].value, LambdaType):
-            raise RuntimeError(f"Param {key} has already been set:\n"
-                               f"Previous value: {self.required_params[key]}\n"
-                               f"New value: {value}")
+        # if self.required_params[key].is_set() and self.required_params[key].value != value and\
+        #         not isinstance(self.required_params[key].value, LambdaType):
+        #     raise RuntimeError(f"Param {key} has already been set:\n"
+        #                        f"Previous value: {self.required_params[key]}\n"
+        #                        f"New value: {value}")
         if value is None:
             raise RuntimeError(f"Cannot self None value for required parameter:\n"
                                f"Value: {value}\n"
@@ -538,10 +572,9 @@ class Codelet(object):
         return count
 
     def create_temp_operand(self, shape_list, location,
-                            reference_operand: OperandTemplate=None,
+                            reference_operand: Operand=None,
                             **kwargs):
         name = f"temp{len(self.temps)}"
-        operand_type = "temp"
         if reference_operand:
             supported_dtypes = reference_operand.supported_dtypes
             dependencies = reference_operand.dependencies
@@ -551,12 +584,11 @@ class Codelet(object):
             dependencies = []
 
         # TODO: Fix check for node existance
-        temp_op = OperandTemplate(name, supported_dtypes,
-                                  shape_list,
-                                  data_path=[location],
-                                  dependencies=dependencies,
-                                  operand_type=operand_type,
-                                  **kwargs)
+        temp_op = Operand(name, supported_dtypes,
+                          shape_list,
+                          data_path=[location],
+                          dependencies=dependencies,
+                          **kwargs)
         self._temps.append(temp_op)
         return temp_op
 
@@ -578,6 +610,11 @@ class Codelet(object):
         self.add_op(xfer)
         return xfer
 
+    def loop(self, start, end=None, stride=1, offset=0,**kwargs):
+        loop_op = Loop(start, end=end, stride=stride, offset=offset, add_codelet=False, **kwargs)
+        self.add_op(loop_op)
+        return loop_op
+
     def set_domain_tile(self, tile_level: str, domain_key: str, split_factor: int):
 
         if tile_level not in self.domain_tiling:
@@ -596,7 +633,7 @@ class Codelet(object):
         self._tile_levels = deepcopy(self.hag.node_levels.copy())
         self._tile_levels = {i: self._tile_levels[i] for i in sorted(list(self._tile_levels.keys()))}
 
-    def set_dim_values(self, node: pm.Node, operand: OperandTemplate):
+    def set_dim_values(self, node: pm.Node, operand: Operand):
 
         if not operand.is_instantiated():
             if len(operand.permutation) == len(node.shape):
@@ -636,7 +673,7 @@ class Codelet(object):
         level = self.get_tile_level(node_name)
         return self.domain_tiling[level]
 
-    def get_node_shape_map(self, op_tmplt: OperandTemplate, node: pm.Node) -> Dict[str, Dict]:
+    def get_node_shape_map(self, op_tmplt: Operand, node: pm.Node) -> Dict[str, Dict]:
         shape_map = {}
         for i, s in enumerate(node.shape):
 
@@ -657,7 +694,7 @@ class Codelet(object):
             node.add_attribute("hag_dtype", str(dtype))
         operand.set_dtype(dtype)
 
-    def set_op_node_name(self, node: pm.Node, operand: OperandTemplate):
+    def set_op_node_name(self, node: pm.Node, operand: Operand):
         if operand.node_name is not None and operand.node_name != node.name:
             raise RuntimeError(f"Name already set to different value for operand:\n"
                                f"Previous name: {operand.node_name}\n"
@@ -671,8 +708,9 @@ class Codelet(object):
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)
-            self.set_dim_values(n, operand)
-            self.set_dtype(n, operand)
+
+            # self.set_dim_values(n, operand)
+            # self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
             operand.operand_type = n.__class__.__name__
@@ -682,12 +720,22 @@ class Codelet(object):
             for rp_key in operand.required_params:
                 if rp_key not in self.required_params:
                     self.add_required_param(rp_key)
-            self.set_dim_values(n, operand)
-            self.set_dtype(n, operand)
+            # self.set_dim_values(n, operand)
+            # self.set_dtype(n, operand)
             self.set_op_node_name(n, operand)
             operand.node_name = n.name
             operand.operand_type = n.__class__.__name__
 
+        # for t in self.temps:
+        #     if not t.is_instantiated():
+        #         for rp_key in t.required_params:
+        #             if rp_key not in self.required_params:
+        #                 self.add_required_param(rp_key)
+        #
+        #         for k in t.shape_list:
+        #             if k not in self.required_params or not self.required_params[k].is_set():
+        #                 raise RuntimeError(f"Shape {k} for operand {t.name} not found or not set.")
+        #             t.update_shape_symbols(k, self.required_params[k].value)
 
     def instantiate_node_params(self, node, hag):
         fn_params = []
@@ -717,10 +765,15 @@ class Codelet(object):
         self._op_id_counters[op.op_type] += 1
         return op_id, global_id
 
+    def all_dependencies(self, leaf_deps: List[str]):
+        deps = leaf_deps.copy()
+        for l in leaf_deps:
+            deps += self.all_dependencies(self.op_map[l].dependencies)
+        return list(set(deps))
+
     def instantiate_operations(self, node: pm.Node, hag):
         # First initialize shapes and symbols for operands, as well as datatypes
         self.instantiate_operands(node)
-
         # next, set the parameters supplied by the PolyMath node (e.g., stride, pad, etc)
         self.instantiate_node_params(node, hag)
 

@@ -33,7 +33,10 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: Ti
         for access in o.data_moves:
             if (access.src_node, access.dst_node) in path_constraints or access.src_node == access.dst_node:
                 continue
-
+            if access.src_node is None or access.dst_node is None:
+                raise RuntimeError(f"Source node for access in operand {access.operand_name} is not set:\n"
+                                   f"Source: {access.src_node}\n"
+                                   f"Dst: {access.dst_node}\n")
             src_node = hag.get_subgraph_node(access.src_node)
             dst_node = hag.get_subgraph_node(access.dst_node)
             edge = hag.get_subgraph_edge(access.src_node, access.dst_node)
@@ -130,6 +133,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     # we can add additional constraints to the first level
     level_accesses = defaultdict(list)
     loop_dependencies = []
+
     # Collect accesses and loop dependencies
     for o in cdlt.operands:
         for i, access in enumerate(o.data_moves):
@@ -138,12 +142,12 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
 
         loop_dependencies += [dp for dp in o.dependencies if dp not in loop_dependencies and "loop" in dp]
 
-
     tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
                            cdlt.domain_loop_map,
                            len(list(cdlt.tile_levels.keys())),
                            loop_dependencies,
                            level_accesses, factor_fn_name=factor_fn_name)
+
     tile_info.update_loop_order(cdlt)
     tile_info = get_tile_constraints(cdlt, hag, tile_info)
     first_perm = tile_info.initialize_shapes(cdlt)
