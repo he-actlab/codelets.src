@@ -73,17 +73,6 @@ class ComputeNode(ArchitectureNode):
     def viz_color(self):
         return self._node_color
 
-    # def parse_capability_json(self, cap_dict):
-    #     name = cap_dict.pop("field_name")
-    #     cap = Codelet(name, **cap_dict)
-    #     return cap
-    #
-    # def parse_codelet_json(self, cdlt_dict):
-    #     name = cdlt_dict.pop("field_name")
-    #     cap = Codelet(name, **cdlt_dict)
-    #     return cap
-
-    # Other methods
     def get_viz_attr(self):
         caps = list(self.primitives)
         if len(caps) > 5:

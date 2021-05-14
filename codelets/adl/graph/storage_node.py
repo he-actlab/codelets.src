@@ -21,6 +21,20 @@ class StorageNode(ArchitectureNode):
                  on_chip=True,
                  index=None):
         super(StorageNode, self).__init__(name=name, index=index)
+
+        '''
+                self.set_attr("node_color", self.viz_color)
+                self.access_type = access_type
+                self.banks = banks
+                self.width = width
+                self.depth = depth
+                self.input_ports = input_ports
+                self.output_ports = output_ports
+                self.buffering_scheme = buffering_scheme or "single"
+                self.indirection = indirection
+                self.latency = latency
+                self.on_chip = on_chip
+        '''
         # Configuration Attributes
         self._access_type = access_type
         self._banks = banks

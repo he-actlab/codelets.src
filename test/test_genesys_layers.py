@@ -1,14 +1,9 @@
-from codelets.examples.genesys import genesys_instructions, define_genesys,\
-    GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, compile_genesys_layer
-import polymath as pm
-from pprint import pprint
-from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes
+from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
+    compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
-from .util import store_compilation_output
-import json
-import pytest
+from .util import create_reference_outputs, validate_program
 from pathlib import Path
-
+import pytest
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
 BENCH_DIR = f"{CWD}/../benchmarks"
@@ -25,13 +20,44 @@ def update_genesys_cfg_from_dtypes():
     GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
     GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
 
+@pytest.mark.parametrize('source_model, layer_name',[
+    # ("lenet", "conv"),
+    ("resnet18_train", "batchnorm_grad"),
+])
+def test_extracted_layer(source_model, layer_name):
+    train = False
 
-def test_genesys_conv_resnet50():
-    # layer_name = "resnet50_relu"
-    layer_name = "lenet_gemm"
-    # layer_name = "resnet50_globalaveragepool"
-    # layer_name = "resnet50_add"
-    # layer_name = "resnet50_maxpool"
+    if "train" in source_model:
+        source_model = source_model.split("_")[0]
+        train = True
+
+    batch_size = 1
+    update_cfg_dtypes = False
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+
+    program = compile_extracted_genesys_layer(source_model,
+                                              layer_name,
+                                              train=train,
+                                              update_cfg_dtypes=update_cfg_dtypes,
+                                              verbose=False,
+                                              benchmark_path=BENCH_DIR,
+                                              factor_fn='default',
+                                              batch_size=batch_size,
+                                              print_config=False)
+    print(program.emit("operations_idx"))
+
+@pytest.mark.parametrize('layer_name',[
+    "resnet18_train_batchnormalization",
+    "resnet18_relu",
+    "resnet18_add",
+    "resnet18_conv",
+    "resnet18_gemm",
+    "resnet18_globalaveragepool",
+    "lenet_averagepool",
+    "lenet_gemm",
+    "lenet_conv",
+])
+def test_genesys_layers(layer_name):
     batch_size = 1
     update_cfg_dtypes = False
     tiling_path = None
@@ -56,41 +82,21 @@ def test_genesys_conv_resnet50():
                             do_tile_stage=True,
                             print_config=False
                               )
-    # res = program.emit("operations_idx")
-    # print(res)
+    print(program.emit("operations_idx"))
+    # validate_program(program, print_difference=True)
 
-    res = program.emit("string_final")
-    print(res)
-
-    # store_compilation_output(program, "json_no_ops", extension="json")
-    # store_compilation_output(program, "string_final", extension="txt")
-    # store_compilation_output(program, "decimal", extension="txt")
-    # store_compilation_output(program, "binary", extension="txt")
-
-
-
-@pytest.mark.parametrize('filtered_layers',[
-    # (['sgd1d', 'sgd2d', 'sgd3d', 'sgd4d']),
-    # (['cross_entropy_loss']),
-    # (['max_pool_grad']),
-    # (['global_average_pool_grad']),
-    # (['relu_grad']),
-    # (['elem_add_grad']),
-    # (['cross_entropy_loss_grad']),
-    (['reduce_sum']),
-])
-def test_filtered_layers(filtered_layers):
-    graph = pm.pb_load(f"{MODEL_DIR}/resnet18_train.srdfg")
-
-    train_graph = pm.create_training_graph(graph)
-    multi_dim_pass = pm.RenameMultiDimOps()
-    train_graph = multi_dim_pass(train_graph)
-    genesys = define_genesys(GENESYS_CFG)
-    program = initialize_program(train_graph, genesys)
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    program.add_compilation_step("tile", tile)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    program.compile(verbose=False, sequence_algorithm='filtered', filtered_layers=filtered_layers)
-    res = program.emit("json_no_ops")
-    pprint(res)
-
+def test_reference_creation():
+    batch_size = 1
+    update_cfg_dtypes = False
+    # names = ["resnet18", "resnet18_train", "lenet", "lenet_train"]
+    # names = ["lenet"]
+    names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool",
+                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
+    create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
+                             verbose=False)
+#
+# def test_validate_output():
+#     from codelets.codelet_impl import Codelet
+#     import pprint
+#     import inspect
+#     pprint.pprint(inspect.getmembers(Codelet,  lambda a: not(inspect.isroutine(a))))

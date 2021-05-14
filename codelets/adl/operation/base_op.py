@@ -59,6 +59,15 @@ class Operation(object):
             if r not in codelet.required_params:
                 codelet.add_required_param(r, value=v)
 
+    @staticmethod
+    def reset():
+        Operation.id_counter = 0
+        Operation.op_id_counters = defaultdict(int)
+        Operation.loop_ctx_dependencies = deque()
+        Operation.loop_ctxt_level = 0
+        Operation.loop_stack = deque()
+        Operation.current_codelet = None
+
     @property
     def loop_id(self) -> int:
         return self._loop_id
