@@ -147,6 +147,11 @@ class FlexParam:
 
     __copy__ = copy
 
+    def to_json(self):
+        blob = dict(name=self.name, args=self.fn_args, body=self.fn_body_str, value_type=self.value_type,
+                    id=self.flex_id)
+        return blob
+
 
 
 def lambda_to_str(fn):

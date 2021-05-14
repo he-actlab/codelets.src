@@ -251,16 +251,13 @@ def init_arch_node(blob, id_node_map={}):
     else:
         raise RuntimeError(f"Invalid node_type field {blob['node_type']} in json file")
     node.from_json(blob)
+    if blob['instruction_length'] != -1:
+        node.instr_length = blob['instruction_length']
     if 'codelets' in blob:
         with open(blob['codelets'], "rb") as f:
             codelets = dill.load(f)
         for k, v in codelets.items():
             node.add_codelet(v)
-    if 'primitives' in blob:
-        with open(blob['primitives'], "rb") as f:
-            primitives = dill.load(f)
-        for k, v in primitives.items():
-            node.add_primitive(v)
     with open(blob['utility_funcs'], "rb") as f:
         utility_funcs = dill.load(f)
     node.util_fns = utility_funcs
@@ -274,6 +271,11 @@ def init_arch_node(blob, id_node_map={}):
     for edge in blob['subgraph']['edges']:
         node.add_subgraph_edge(id_node_map[edge['src']].name, id_node_map[edge['dest']].name,
                                bandwidth=edge['bandwidth'], attributes=edge['attributes'])
+    if 'primitives' in blob:
+        with open(blob['primitives'], "rb") as f:
+            primitives = dill.load(f)
+        for k, v in primitives.items():
+            node.add_primitive(v, set_all_instr_lengths = False)
     return node
 
 

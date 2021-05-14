@@ -20,3 +20,10 @@ class PlaceholderStructure:
         args = TEMPLATE_CLASS_ARG_MAP[self.template_type]
         fp = FlexParam(f"{self.template_type}_{self.name}_dummy", args, f"{args[0]}.{name}")
         return DummyOp([self.template_type], fp)
+
+    def __getstate__(self):
+        return {'name': self.name, 'template_type': self.template_type}
+
+    def __setstate__(self, state):
+        self.name = state['name']
+        self.template_type = state['template_type']
