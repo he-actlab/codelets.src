@@ -7,10 +7,10 @@ from copy import deepcopy
 
 from codelets.common.flex_param import FlexParam
 from codelets.micro_templates.dummy_op import DummyOp, DummyParam
-from codelets.micro_templates.hag_placeholder import HAGPlaceholder
-from codelets.micro_templates.node_placeholder import NodePlaceholder
-from codelets.micro_templates.operand_template import OperandTemplate, IndexOperandTemplate
-from codelets.micro_templates.micro_template import MicroTemplate, LoopTemplate, ComputeTemplate, ConfigureTemplate, TransferTemplate
+from codelets.micro_templates import HAGPlaceholder
+from codelets.micro_templates import NodePlaceholder
+from codelets.micro_templates import OperandTemplate, IndexOperandTemplate
+from codelets.micro_templates import MicroTemplate, LoopTemplate, ComputeTemplate, TransferTemplate
 
 class CodeletTemplate(object):
     codelet_id = 0
@@ -270,11 +270,6 @@ class CodeletTemplate(object):
         self.ops.append(op)
         self.op_map[op.op_str] = op
         self.global_op_map[op.global_op_id] = op
-
-    def configure(self, start_end: str, target: str, **kwargs):
-        cfg_op_template = ConfigureTemplate(start_end, target, add_codelet=False, **kwargs)
-        self.add_op(cfg_op_template)
-        return cfg_op_template
 
     def loop(self, start, **kwargs):
         assert isinstance(start, (int, DummyOp))
