@@ -202,6 +202,14 @@ def get_transformed_srdfg(model_name,
     graph = layout_pass(graph)
     return graph
 
+def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
+    dtypes = dtypes or GENESYS_DTYPES
+    if update_cfg_dtypes:
+        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+    else:
+        def_cfg = GENESYS_CFG
+    return def_cfg
+
 def compile_genesys(model_name,
                     train=False,
                     update_cfg_dtypes=False,
