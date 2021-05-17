@@ -1,9 +1,7 @@
 from codelets.adl.operation import Operand
 from codelets.codelet_impl.codelet import Codelet
-from codelets.templates.operand_template import OperandTemplate
-from codelets.templates.operation_template import OperationTemplate
 from codelets.templates.codelet_template import CodeletTemplate
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 from codelets.adl.graph import ArchitectureNode
 from . import OP_DTYPES
 

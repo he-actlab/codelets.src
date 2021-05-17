@@ -1,6 +1,6 @@
 from codelets.adl.graph.architecture_node import ArchitectureNode
 
-from codelets.adl.flex_template.instruction import Instruction
+from codelets.instructions.instruction import Instruction
 from typing import Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:

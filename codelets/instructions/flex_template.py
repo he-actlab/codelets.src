@@ -1,7 +1,7 @@
 from typing import List, Union
 from dataclasses import dataclass, field
 from .instruction import Instruction
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
 

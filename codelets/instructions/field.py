@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Union
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 from itertools import count
 from dataclasses import dataclass, field
 from numbers import Integral

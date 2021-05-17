@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import polymath as pm
 import numpy as np
 from codelets.adl.graph import StorageNode
-from codelets.codelet_impl.codelet import Codelet
+from codelets.codelet_template import CodeletTemplate
 
 @dataclass
 class Fragment:
@@ -118,7 +118,7 @@ class RelocationTable(object):
                 relocatable.total_length += (size - stored_size)
             # assert stored_size == size
 
-    def add_data_relocation(self, node: pm.Node, cdlt: Codelet):
+    def add_data_relocation(self, node: pm.Node, cdlt: CodeletTemplate):
         for idx, operand in enumerate(cdlt.inputs):
             i = node.inputs[idx]
             data_size = np.prod(operand.shape)*operand.dtype.bits()

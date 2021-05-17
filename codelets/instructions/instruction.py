@@ -1,8 +1,8 @@
 import numpy as np
 from collections import namedtuple
 from typing import Callable, List, Dict, Optional, Union
-from . import Field
-from codelets.adl.flex_param import FlexParam
+from codelets.instructions.field import Field
+from codelets.common.flex_param import FlexParam
 
 CodeletOperand = namedtuple('Operand', ['field_name', 'supported_dtypes'])
 

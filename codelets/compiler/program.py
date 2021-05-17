@@ -2,10 +2,10 @@ import json
 from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
 from time import time
-from codelets.templates.codelet_template import CodeletTemplate
-from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
+from codelets.codelet_template import CodeletTemplate
+from codelets.micro_templates.operand_template import OperandTemplate
+from codelets.micro_templates.micro_template import MicroTemplate
 from codelets.adl.graph import ArchitectureNode
-from codelets.codelet_impl import Codelet
 from pathlib import Path
 from dataclasses import dataclass, field
 import numpy as np
@@ -41,19 +41,19 @@ class OperandDataflow:
     read_operand_names: List[str] = field(default_factory=list)
     write_operand_names: List[str] = field(default_factory=list)
 
-    def add_read(self, cdlt: Codelet, operand: Operand):
+    def add_read(self, cdlt: CodeletTemplate, operand: OperandTemplate):
         self.read_operand_names.append(operand.name)
         self.cdlt_read.append(cdlt.instance_id)
 
-    def add_write(self, cdlt: Codelet, operand: Operand):
+    def add_write(self, cdlt: CodeletTemplate, operand: OperandTemplate):
         self.write_operand_names.append(operand.name)
         self.cdlt_write.append(cdlt.instance_id)
 
 class CodeletProgram(object):
 
     def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference"):
-        Operation.reset()
-        Codelet.reset()
+        MicroTemplate.reset()
+        CodeletTemplate.reset()
         self._name = graph.name
         self._hag = hag
         self._graph = graph
@@ -88,7 +88,7 @@ class CodeletProgram(object):
         return self._operand_mapping
 
     @property
-    def codelets(self) -> List[Codelet]:
+    def codelets(self) -> List[CodeletTemplate]:
         return self._codelets
 
     @property
@@ -136,7 +136,7 @@ class CodeletProgram(object):
     def extract_bits(self, value: int, num_bits: int, pos: int):
         return ((((1 << num_bits) - 1) << pos) & value) >> pos
 
-    def add_codelet(self, cdlt: Codelet):
+    def add_codelet(self, cdlt: CodeletTemplate):
         self._codelets.append(cdlt)
 
     def get_codelet(self, cdlt_id: int):
@@ -165,7 +165,7 @@ class CodeletProgram(object):
     def save_binary(self, full_path):
         raise NotImplementedError
 
-    def get_tiling_dims(self, inputs: List[Operand], outputs: List[Operand]):
+    def get_tiling_dims(self, inputs: List[OperandTemplate], outputs: List[OperandTemplate]):
         assert all([i.is_instantiated() for i in inputs])
         assert all([o.is_instantiated() for o in outputs])
 
@@ -212,7 +212,7 @@ class CodeletProgram(object):
 
     INSTR_FN_TEMPLATE = """def param_fn{FN_ID}(hag, op, cdlt, relocation_table, program, fixed_val=None): return {FN_BODY}"""
 
-    def set_instruction_templates(self, cdlt: Codelet):
+    def set_instruction_templates(self, cdlt: CodeletTemplate):
         for o in cdlt.ops:
 
             template = self.hag.get_operation_template(o)
@@ -220,7 +220,7 @@ class CodeletProgram(object):
 
             o.set_template(template_copy)
 
-    def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
+    def instantiate_instructions(self, cdlt: CodeletTemplate, fixed_val=None):
 
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
@@ -228,13 +228,9 @@ class CodeletProgram(object):
                 ft.evaluate(*args)
 
     def instantiate_codelet(self, node):
-        cdlt_template = self.codelet_templates[node.op_name]
-
-        if isinstance(cdlt_template, Codelet):
-            cdlt = cdlt_template.copy(pre_increment=True)
-        else:
-            assert isinstance(cdlt_template, CodeletTemplate)
-            cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+        # TODO: Implement template copy
+        cdlt_template = self.codelet_templates[node.op_name].copy()
+        cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
@@ -273,7 +269,7 @@ class CodeletProgram(object):
             for ft in o.instructions:
                 ft.lazy_evaluate(*args)
 
-    def add_operand_mapping(self, cdlt: Codelet, parent_node: pm.Node, node: pm.Node, operand: Operand, operand_type):
+    def add_operand_mapping(self, cdlt: CodeletTemplate, parent_node: pm.Node, node: pm.Node, operand: OperandTemplate, operand_type):
 
         if node.name not in self.operand_mapping:
             self.operand_mapping[node.name] = OperandDataflow(node.name, node.__class__.__name__)

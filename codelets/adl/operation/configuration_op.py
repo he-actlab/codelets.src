@@ -1,5 +1,5 @@
 from .base_op import Operation
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 
 
 class Configure(Operation):

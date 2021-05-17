@@ -1,9 +1,7 @@
-from pytools import memoize_method
 from typing import List, Dict, Tuple, Any
-from codelets.adl.operation.operand import DataMovement
 from itertools import product
 from collections import defaultdict
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 from codelets.compiler.transformations import factors, factors_rand_sort,\
     factors_reversed
 from dataclasses import dataclass, field
