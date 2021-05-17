@@ -48,6 +48,14 @@ class DummyOp:
         self.flex_param.update_fn_code(new_code)
         return self
 
+    def __getstate__(self):
+        state = {'flexparam': self.flex_param.to_json(), 'template_types': self.template_types}
+        return state
+
+    def __setstate__(self, state):
+        self.flex_param = FlexParam(name=state['flexparam']['name'], fn_args=state['flexparam']['args'], fn_body_str=state['flexparam']['body'])
+        self.template_types = state['template_types']
+
     def __getitem__(self, key):
         if isinstance(key, str):
             key = f"'{key}'"

@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 import json
 from pprint import pprint
-
+from codelets.adl.serialization import deserialize_hag
 from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
     OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
 import polymath as pm
@@ -24,12 +24,11 @@ OUT_DIR = f"{BENCH_DIR}/compiler_outputs"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 TILING_DIR = f"{BENCH_DIR}/tiling_info"
 
-
-
 LOOPS_PER_LEVEL = 7
 INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
            "'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7}}"
 LD_ST_MAP = "{'LD': 0, 'ST': 1}"
+
 
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
@@ -41,19 +40,19 @@ def define_genesys(cfg):
 
         vmem2 = StorageNode("VMEM2", access_type='RAM', banks=cfg['SIMD_WIDTH'],
                             width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
-                           latency=1, input_ports=2, output_ports=2)
+                            latency=1, input_ports=2, output_ports=2)
 
         imm = StorageNode("IMM", access_type='RAM', banks=cfg['SIMD_WIDTH'],
-                            width=cfg['ACC_WIDTH'], depth=cfg['IMM_DEPTH'],
+                          width=cfg['ACC_WIDTH'], depth=cfg['IMM_DEPTH'],
                           latency=1, input_ports=2, output_ports=2)
 
         # TODO: Does this need to be added?
-        instr_mem = StorageNode("INSTR_MEM",access_type='RAM', width=cfg['INSTR_WIDTH'],
+        instr_mem = StorageNode("INSTR_MEM", access_type='RAM', width=cfg['INSTR_WIDTH'],
                                 banks=cfg['INSTR_BANKS'], depth=cfg['INSTR_DEPTH'],
                                 latency=1, input_ports=2, output_ports=2)
 
         dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
-                            width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'],
+                           width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'],
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
 
@@ -62,16 +61,16 @@ def define_genesys(cfg):
             # TODO: Need to formalize the storage node sizes by # elements, width, and datatype
             ibuf = StorageNode("IBUF",
                                access_type='RAM', banks=cfg['ARRAY_N'],
-                                width=cfg['DATA_WIDTH'], depth=cfg['IBUF_DEPTH'],
+                               width=cfg['DATA_WIDTH'], depth=cfg['IBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
-            wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N']*cfg['ARRAY_M'],
-                                width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
+            wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N'] * cfg['ARRAY_M'],
+                               width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
             bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'],
-                                width=cfg['DATA_WIDTH'], depth=cfg['BBUF_DEPTH'],
+                               width=cfg['DATA_WIDTH'], depth=cfg['BBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
             obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'],
-                                width=cfg['DATA_WIDTH'], depth=cfg['OBUF_DEPTH'],
+                               width=cfg['DATA_WIDTH'], depth=cfg['OBUF_DEPTH'],
                                latency=1, input_ports=2, output_ports=2)
             # TODO: BW for DRAM is 64bits/cycle
             # Channel bandwidth = axi bandwidth
@@ -85,29 +84,30 @@ def define_genesys(cfg):
             systolic_array.add_subgraph_edge('DRAM', 'OBUF', bandwidth=cfg['OBUF_CHANNEL_BW'])
             systolic_array.add_subgraph_edge('DRAM', 'INSTR_MEM', bandwidth=cfg['INSTR_CHANNEL_BW'])
 
-            systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0]*cfg['DATA_WIDTH'])
-            systolic_array.add_subgraph_edge('WBUF', 'pe_array', bandwidth=np.prod(pe_array.dimensions)*cfg['DATA_WIDTH'])
-            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
-            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('IBUF', 'pe_array', bandwidth=pe_array.dimensions[0] * cfg['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('WBUF', 'pe_array',
+                                             bandwidth=np.prod(pe_array.dimensions) * cfg['DATA_WIDTH'])
+            systolic_array.add_subgraph_edge('BBUF', 'pe_array', bandwidth=pe_array.dimensions[1] * cfg['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('OBUF', 'pe_array', bandwidth=pe_array.dimensions[1] * cfg['ACC_WIDTH'])
             systolic_array.add_subgraph_edge('OBUF', 'DRAM', bandwidth=cfg['OBUF_CHANNEL_BW'])
             # TODO: Add OBUF TO DRAM EDGE
-            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1]*cfg['ACC_WIDTH'])
+            systolic_array.add_subgraph_edge('pe_array', 'OBUF', bandwidth=pe_array.dimensions[1] * cfg['ACC_WIDTH'])
             for p in GENESYS_INSTRUCTIONS['systolic_array']:
                 systolic_array.add_primitive(p)
         simd = ComputeNode("SIMD", dimensions=[cfg['SIMD_WIDTH']])
-        hag.add_subgraph_edge('VMEM1', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'VMEM1', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('VMEM2', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'VMEM2', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'OBUF', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
-        hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('VMEM1', 'SIMD', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'VMEM1', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('VMEM2', 'SIMD', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'VMEM2', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'OBUF', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('IMM', 'SIMD', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('SIMD', 'IMM', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
         hag.add_subgraph_edge('DRAM', 'VMEM1', bandwidth=cfg['SIMD_CHANNEL_BW'])
         hag.add_subgraph_edge('VMEM1', 'DRAM', bandwidth=cfg['SIMD_CHANNEL_BW'])
 
         hag.add_subgraph_edge('DRAM', 'VMEM2', bandwidth=cfg['SIMD_CHANNEL_BW'])
         hag.add_subgraph_edge('VMEM2', 'DRAM', bandwidth=cfg['SIMD_CHANNEL_BW'])
-        hag.add_subgraph_edge('OBUF', 'SIMD', bandwidth=cfg['SIMD_WIDTH']*cfg['ACC_WIDTH'])
+        hag.add_subgraph_edge('OBUF', 'SIMD', bandwidth=cfg['SIMD_WIDTH'] * cfg['ACC_WIDTH'])
         for p in GENESYS_INSTRUCTIONS['SIMD']:
             simd.add_primitive(p)
 
@@ -131,8 +131,10 @@ def define_genesys(cfg):
         for op_name, cdlt in GENESYS_CODELETS.items():
             cdlt_instance = cdlt(hag)
             hag.add_codelet(cdlt_instance)
-        hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"], f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
+        hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"],
+                        f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
     return hag
+
 
 def add_genesys_templates(hag: ComputeNode):
     # Config
@@ -158,6 +160,7 @@ def add_genesys_templates(hag: ComputeNode):
     hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
     hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
+
 def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
     if inp_cfg:
         assert dtypes is not None
@@ -176,10 +179,10 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
 
 
 def get_transformed_srdfg(model_name,
-                    train=False,
-                    batch_size=1,
-                    verbose=False,
-                    benchmark_path=None):
+                          train=False,
+                          batch_size=1,
+                          verbose=False,
+                          benchmark_path=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for compilation")
@@ -210,6 +213,7 @@ def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
         def_cfg = GENESYS_CFG
     return def_cfg
 
+
 def compile_genesys(model_name,
                     train=False,
                     update_cfg_dtypes=False,
@@ -234,7 +238,6 @@ def compile_genesys(model_name,
         def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
     else:
         def_cfg = GENESYS_CFG
-
 
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for compilation")
@@ -269,8 +272,10 @@ def compile_genesys(model_name,
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
-    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
-    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
+                                 dependencies=["template_layout_pass"])
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
+                                 stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
     if store_tiling:
@@ -312,22 +317,24 @@ def compile_genesys(model_name,
 
 
 def compile_genesys_layer(layer_file,
-                    update_cfg_dtypes=False,
-                    tiling_path=None,
-                    store_tiling=False,
-                    store_json_output=False,
-                    json_output_filename=None,
-                    verbose=False,
-                    benchmark_path=None,
-                    genesys_cfg=None,
-                    dtypes=None,
-                    print_config=True,
-                    store_ops=False,
-                    store_checkpoint=False,
-                  do_tile_stage=True,
-                  do_hoist_stage=True,
-                  factor_fn='default',
-                  batch_size=1):
+                          update_cfg_dtypes=False,
+                          tiling_path=None,
+                          store_tiling=False,
+                          store_json_output=False,
+                          json_output_filename=None,
+                          verbose=False,
+                          benchmark_path=None,
+                          genesys_cfg=None,
+                          dtypes=None,
+                          print_config=True,
+                          store_ops=False,
+                          store_checkpoint=False,
+                          do_tile_stage=True,
+                          do_hoist_stage=True,
+                          factor_fn='default',
+                          batch_size=1,
+                          save_genesys_filename=None,
+                          load_genesys_filename=None):
     LAYER_DIR = f"{benchmark_path}/layers/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -346,7 +353,13 @@ def compile_genesys_layer(layer_file,
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
     graph = layout_pass(graph)
-    genesys = define_genesys(def_cfg)
+    if load_genesys_filename is None:
+        genesys = define_genesys(def_cfg)
+    else:
+        genesys = deserialize_hag(load_genesys_filename)
+    if save_genesys_filename is not None:
+        with open(save_genesys_filename, 'w') as f:
+            json.dump(genesys.to_json(), f, indent=4)
     if print_config:
         print(f"Compiling model with the following config:\n")
         sizes_cfg = def_cfg.copy()
@@ -358,9 +371,11 @@ def compile_genesys_layer(layer_file,
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
-    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
+                                 dependencies=["template_layout_pass"])
 
-    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
+                                 stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
     if store_tiling and store_checkpoint:
@@ -372,7 +387,6 @@ def compile_genesys_layer(layer_file,
     else:
         finalize_instructions = False
 
-
     if do_hoist_stage:
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])
         program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
@@ -380,9 +394,9 @@ def compile_genesys_layer(layer_file,
     else:
         finalize_instructions = False
 
-
     if tiling_path is not None:
-        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose, finalize_instructions=finalize_instructions)
+        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
+                        finalize_instructions=finalize_instructions)
     else:
         program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
 
@@ -461,7 +475,6 @@ def compile_extracted_genesys_layer(model_name,
     if not found_layer:
         raise RuntimeError(f"Invalid layer name {layer_name} for extracting layer from {model_name}")
 
-
     genesys = define_genesys(def_cfg)
     if print_config:
         print(f"Compiling model with the following config:\n")
@@ -475,8 +488,10 @@ def compile_extracted_genesys_layer(model_name,
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
-    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True, dependencies=["template_layout_pass"])
-    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True, stage_kwargs={'dtype_map': dtypes})
+    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
+                                 dependencies=["template_layout_pass"])
+    program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
+                                 stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
@@ -485,6 +500,7 @@ def compile_extracted_genesys_layer(model_name,
     program.compile(verbose=verbose, sequence_algorithm='filtered', filtered_layers=[layer_name])
 
     return program
+
 
 def add_genesys_codelets(hag: ComputeNode):
     for op_name, cdlt in GENESYS_CODELETS.items():
