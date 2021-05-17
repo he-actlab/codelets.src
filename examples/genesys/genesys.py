@@ -181,7 +181,7 @@ def get_transformed_srdfg(model_name,
                     verbose=False,
                     benchmark_path=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
-    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"
@@ -236,7 +236,7 @@ def compile_genesys(model_name,
         def_cfg = GENESYS_CFG
 
 
-    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"
@@ -431,7 +431,7 @@ def compile_extracted_genesys_layer(model_name,
         def_cfg = GENESYS_CFG
 
 
-    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet']:
+    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for extracting layer for compilation")
     if train:
         model_name = f"{model_name}_train"

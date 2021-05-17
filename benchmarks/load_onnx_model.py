@@ -104,9 +104,9 @@ if __name__ == "__main__":
     # argparser.add_argument('-pm', '--to_polymath', type=str2bool, nargs='?', default=False,
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
-    model_name = 'resnet18_train'
+    model_name = 'lenetbn'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     convert_model_to_polymath(model_path)
-    store_unique_model_layers(model_name, store_as_polymath=True)
+    # store_unique_model_layers(model_name, store_as_polymath=True)
     # store_target_model_layer(model_name, "BatchNormalization", store_name="batchnormalization", store_as_polymath=True)

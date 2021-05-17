@@ -669,6 +669,68 @@ class Codelet(object):
                 return i
         raise KeyError(f"Unable to find tile level for node {node_name}")
 
+    def get_loop_scope(self, loop_name: str):
+        op_names = []
+        loop = self.op_map[loop_name]
+        op_idx = self.ops.index(loop) + 1
+        target_level = loop.loop_level + 1
+        while op_idx < len(self.ops) and self.ops[op_idx].loop_level >= target_level:
+            if self.ops[op_idx].loop_level == target_level:
+                op_names.append(self.ops[op_idx].op_str)
+            op_idx += 1
+        return op_names
+
+    def get_combined_loop_scope(self, loop_name: str):
+        op_names = []
+        loop = self.op_map[loop_name]
+        op_idx = self.ops.index(loop) + 1
+        target_level = loop.loop_level + 1
+        while op_idx < len(self.ops) and self.ops[op_idx].loop_level >= target_level:
+            if self.ops[op_idx].loop_level >= target_level:
+                op_names.append(self.ops[op_idx].op_str)
+            op_idx += 1
+        return op_names
+
+    def get_operation_scopes(self):
+        operation_scopes = {}
+        for l in self.get_ops_by_type("loop"):
+            ops = self.get_loop_scope(l.op_str)
+            for o in ops:
+                operation_scopes[o] = l.op_str
+        return operation_scopes
+
+    def get_max_loop_dep_level(self, op: Operation):
+        all_deps = op.dependencies
+        loop_levels = []
+        for dep in all_deps:
+
+            dep_idx = self.ops.index(self.op_map[dep])
+            if self.ops[dep_idx].op_type == "loop":
+                loop_levels.append(self.ops[dep_idx].loop_level + 1)
+
+        if len(loop_levels) == 0:
+            return op.loop_level
+        else:
+            return max(loop_levels)
+
+    def get_max_loop_dep(self, op: Operation):
+        all_deps = op.dependencies
+        if op.loop_level == 0:
+            return None
+        max_loop_level = -1
+
+        scopes = self.get_operation_scopes()
+
+        max_level_name = scopes[op.op_str]
+        for dep in all_deps:
+
+            dep_idx = self.ops.index(self.op_map[dep])
+            if self.ops[dep_idx].op_type == "loop" and self.ops[dep_idx].loop_level > max_loop_level:
+                max_loop_level = self.ops[dep_idx].loop_level
+                max_level_name = self.ops[dep_idx].op_str
+        return max_level_name
+
+
     def get_tile_splits(self, node_name: str):
         level = self.get_tile_level(node_name)
         return self.domain_tiling[level]

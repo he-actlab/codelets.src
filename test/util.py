@@ -6,7 +6,7 @@ from dataclasses import is_dataclass
 import numpy as np
 import polymath as pm
 import torch
-import difflib
+import pprint
 import json
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
@@ -143,8 +143,11 @@ def validate_program(program, check_ops=True, check_instr=True, check_decimal=Tr
 
         if program_op_str != ref_op_str:
             if print_difference:
-                print(f"Reference: {ref_op_str}\n\n"
-                      f"New: {program_op_str}")
+                # str_diff = create_diff_map(program_op_str, ref_op_str)
+                # pprint.pprint(str_diff)
+                print(ref_op_str)
+                print()
+                print(program_op_str)
             raise RuntimeError(f"Instruction string outputs do not match for program {program.name}.\n"
                                f"Difference:\n"
                                f"Reference: {ref_op_str}\n"
@@ -157,11 +160,10 @@ def validate_program(program, check_ops=True, check_instr=True, check_decimal=Tr
 
 
         if program_instr_str != ref_instr_str:
-            d = difflib.Differ()
-            str_diff = list(d.compare(ref_instr_str, program_instr_str))
-            if print_difference:
-                print(f"Reference: {ref_instr_str}\n\n"
-                      f"New: {program_instr_str}")
+            str_diff = create_diff_map(program_instr_str, ref_instr_str)
+            print(ref_instr_str)
+            print()
+            print(program_instr_str)
             raise RuntimeError(f"Instruction string outputs do not match for program {program.name}.\n"
                                f"Difference:\n"
                                f"Reference: {ref_instr_str}\n"
@@ -208,6 +210,20 @@ def compare_dataclasses(ref_obj, test_obj, skip_fields=None):
                 assert ref_field == test_field, f"Field {k} do not match:\n" \
                                                 f"Reference field: {ref_field}\n" \
                                                 f"Test field: {test_field}"
+
+def create_diff_map(a, b):
+    a_list = a.split("\n")
+    b_list = b.split("\n")
+    diff_map = {}
+    if len(a_list) > len(b_list):
+        for i, str_b in enumerate(b_list):
+            if str_b != a_list[i]:
+                diff_map[i] = [str_b, a_list[i]]
+    else:
+        for i, str_a in enumerate(a_list):
+            if str_a != b_list[i]:
+                diff_map[i] = [str_a, b_list[i]]
+    return diff_map
 
 def compare_np_torch(np_fn, torch_fn, inputs, outputs):
 

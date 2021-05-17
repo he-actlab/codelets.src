@@ -45,8 +45,12 @@ class TilingInfo:
             fixed_dims = cdlt.compilation_params['fixed_tile_dims']
         else:
             fixed_dims = []
+
+
         for l in self.loop_dependencies:
             loop = cdlt.op_map[l]
+
+            # loop = cdlt.op_map[l]
             if cdlt.domain_loop_map[l] in fixed_dims:
                 self.level_factors[0][loop.op_str] = [1]
             else:
@@ -54,6 +58,19 @@ class TilingInfo:
             self.shapes[0][loop.op_str] = loop.iter_count
             self.selected_splits[0][loop.op_str] = 1
             self.accumulated_splits[loop.op_str] = 1
+
+        # for l in self.loop_dependencies:
+        #     dim = self.loop_dim_map[l]
+        #     if dim in self.level_factors[0]:
+        #         continue
+        #     # loop = cdlt.op_map[l]
+        #     if cdlt.domain_loop_map[l] in fixed_dims:
+        #         self.level_factors[0][loop.op_str] = [1]
+        #     else:
+        #         self.level_factors[0][loop.op_str] = FACTOR_FN_MAP[self.factor_fn_name](loop.iter_count, 0)
+        #     self.shapes[0][loop.op_str] = loop.iter_count
+        #     self.selected_splits[0][loop.op_str] = 1
+        #     self.accumulated_splits[loop.op_str] = 1
 
         if 0 in cdlt.domain_tiling:
             first_perm = [tuple(cdlt.domain_tiling[0][ld] for ld in self.loop_dependencies)]
@@ -110,7 +127,6 @@ class TilingInfo:
         valid_splits = perm
         perm_map = self.get_permutation_map(perm)
         size_map = {}
-
         for level_access in self.accesses[level]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
             key = (level_access.src_node, level_access.dst_node)
@@ -118,6 +134,7 @@ class TilingInfo:
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
                     raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
+                                       f"Perm map: {perm_map}\n"
                                        f"Operand: {level_access.operand_name}\n"
                                        f"Size from splits: {size}\n"
                                        f"Size map: {size_map}\n"

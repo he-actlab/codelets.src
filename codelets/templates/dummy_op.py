@@ -1,6 +1,6 @@
 from typing import Dict, Any, Tuple, List, TYPE_CHECKING, Union
 from dataclasses import dataclass, field
-from functools import singledispatchmethod, singledispatch
+from functools import singledispatch
 from . import TEMPLATE_CLASS_ARG_MAP
 from itertools import count
 from typing import ClassVar
