@@ -1,4 +1,4 @@
-from codelets.adl.flex_template.instruction import Field, Instruction
+from codelets.instructions.instruction import Field, Instruction
 
 OPCODE_WIDTH = 4
 FUNCTION_CODE_WIDTH = 4

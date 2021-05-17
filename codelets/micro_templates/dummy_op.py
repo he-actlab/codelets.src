@@ -1,16 +1,16 @@
-from typing import Dict, Any, Tuple, List, TYPE_CHECKING, Union
+from typing import Any, Tuple, List, TYPE_CHECKING, Union
 from dataclasses import dataclass, field
 from functools import singledispatch
-from . import TEMPLATE_CLASS_ARG_MAP
+from codelets.micro_templates import TEMPLATE_CLASS_ARG_MAP
 from itertools import count
 from typing import ClassVar
 import inspect
 
 
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 
 if TYPE_CHECKING:
-    from .operation_template import LoopTemplate
+    from .micro_template import LoopTemplate
 
 flex_param_cnt = count()
 
@@ -47,14 +47,6 @@ class DummyOp:
         new_code = f"{self.flex_param.fn_body_str}.{name}"
         self.flex_param.update_fn_code(new_code)
         return self
-
-    def __getstate__(self):
-        state = {'flexparam': self.flex_param.to_json(), 'template_types': self.template_types}
-        return state
-
-    def __setstate__(self, state):
-        self.flex_param = FlexParam(name=state['flexparam']['name'], fn_args=state['flexparam']['args'], fn_body_str=state['flexparam']['body'])
-        self.template_types = state['template_types']
 
     def __getitem__(self, key):
         if isinstance(key, str):
@@ -111,6 +103,9 @@ class DummyOp:
 
     def __rmod__(self, other):
         return dummy_op(other, self, '%', reflected=True)
+
+    def __str__(self):
+        return self.name
 
 @dataclass
 class DummyParam:

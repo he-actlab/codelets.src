@@ -1,5 +1,5 @@
 from codelets.adl.graph import ComputeNode, StorageNode
-from codelets.adl.flex_template import Instruction
+from codelets.instructions.flex_template import Instruction
 from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CAST_NAMES, \
     CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES, PLACEHOLDER_OP_NAMES
 

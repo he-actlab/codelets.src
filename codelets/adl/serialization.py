@@ -4,8 +4,8 @@ from typing import Union, Any
 from codelets import Datatype
 import dill
 from codelets.adl.graph import ComputeNode, StorageNode, CommunicationNode, ArchitectureNode
-from codelets.adl.flex_template import Instruction
-from codelets.codelet_impl import Codelet
+from codelets.instructions.instruction import Instruction
+from codelets.codelet_template import CodeletTemplate
 import linecache
 from typing import List, Dict
 from jsonschema import validate

@@ -1,5 +1,3 @@
-from sympy import Basic, Idx, IndexedBase, Lambda
-from sympy.utilities.lambdify import lambdastr
 from typing import Union, List, Dict
 from itertools import count
 import re

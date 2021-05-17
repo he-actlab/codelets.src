@@ -1,6 +1,6 @@
 from typing import Union, Tuple
 from dataclasses import dataclass
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 
 @dataclass
 class SideEffect:

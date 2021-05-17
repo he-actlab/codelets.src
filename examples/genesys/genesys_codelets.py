@@ -1,5 +1,4 @@
-from codelets.templates.codelet_template import CodeletTemplate
-from codelets.adl.flex_param import FlexParam
+from codelets.codelet_template import CodeletTemplate
 from codelets.adl.graph import ArchitectureNode
 from . import OP_DTYPES
 

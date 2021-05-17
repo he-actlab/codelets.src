@@ -1,9 +1,8 @@
 from typing import TYPE_CHECKING
 
-from codelets.templates.operand_template import IndexOperandTemplate, OperandTemplate
-from codelets.templates.operation_template import OperationTemplate
-from codelets.templates.codelet_template import CodeletTemplate
-from codelets.codelet_impl import Codelet
+from codelets.micro_templates.operand_template import IndexOperandTemplate, OperandTemplate
+from codelets.micro_templates.micro_template import MicroTemplate
+from codelets.codelet_template import CodeletTemplate
 from codelets.compiler.program import CodeletProgram
 from collections import defaultdict
 
@@ -56,7 +55,7 @@ TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 0, 1]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
-def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
+def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'CodeletTemplate', dtype_map=None) -> 'Codelet':
     if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
         cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
         cdlt.inputs[1].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])

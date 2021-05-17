@@ -8,14 +8,14 @@ from collections import namedtuple, deque
 from dataclasses import dataclass, field
 import itertools
 import dill
-from codelets.adl.flex_template import Instruction, FlexTemplate
+from codelets.instructions.instruction import Instruction
+from codelets.instructions.flex_template import FlexTemplate
 
 if TYPE_CHECKING:
-    from codelets.templates.codelet_template import CodeletTemplate
+    from codelets.codelet_template import CodeletTemplate
     from .compute_node import ComputeNode
     from .storage_node import StorageNode
     from .communication_node import CommunicationNode
-    from codelets.codelet_impl import Codelet
 
 # Edge = namedtuple('Edge', ['src', 'dst', 'attributes', 'transfer_fn_map'])
 OpTemplate = namedtuple('OpTemplate', ['instructions', 'functions'])
@@ -200,7 +200,7 @@ class ArchitectureNode(Node):
         return self._primitives
 
     @property
-    def codelets(self) -> Dict[str, 'Codelet']:
+    def codelets(self) -> Dict[str, 'CodeletTemplate']:
         return self._codelets
 
     @property

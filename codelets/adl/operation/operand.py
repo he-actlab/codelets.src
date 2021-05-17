@@ -1,8 +1,6 @@
-from typing import Callable, Any, List, Dict, Optional, Tuple, Set, Union, ClassVar
-from collections import namedtuple
-from functools import partial
+from typing import Any, List, Dict, Tuple, Union, ClassVar
 from codelets import Datatype
-from codelets.adl.flex_param import FlexParam
+from codelets.common.flex_param import FlexParam
 
 from pytools import memoize, memoize_method
 from collections import defaultdict
