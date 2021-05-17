@@ -75,7 +75,6 @@ class Transfer(Operation):
 
     @property
     def sizes(self) -> List[List[Union[str, Integral]]]:
-
         # TODO: Fix the data movement shapes, they are incorrect
         sizes = [list(v.values()) for k, v in self.operand.tiling.items() if k in self.path]
         return sizes
