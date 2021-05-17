@@ -18,3 +18,11 @@ class PlaceholderStructure:
         args = TEMPLATE_CLASS_ARG_MAP[self.template_type]
         fp = FlexParam(f"{self.template_type}_{self.name}_dummy", args, f"{args[0]}.{name}")
         return DummyOp([self.template_type], fp)
+
+@dataclass
+class HAGPlaceholder(PlaceholderStructure):
+    pass
+
+@dataclass
+class NodePlaceholder(PlaceholderStructure):
+    pass
