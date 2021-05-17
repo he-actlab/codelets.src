@@ -12,6 +12,7 @@ from .util import compare_dataclasses
 CWD = Path(f"{__file__}").parent
 BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
 LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
+MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 
 
 def test_shape_dummy_op():
@@ -295,3 +296,19 @@ def test_get_node_kwarg():
     alpha_eval = dummy_alpha.evaluate(instance_args)
     assert alpha_eval == target_node.kwargs['alpha']
 
+def test_autodiff_cross_entropy():
+    graph = pm.pb_load(f"{MODEL_DIR}/lenet.srdfg")
+    graph = pm.create_training_graph(graph)
+    entropy_names = ["cross_entropy_loss_grad", "cross_entropy_loss"]
+    for n, node in graph.nodes.items():
+        if isinstance(node, pm.Template) and node.op_name in entropy_names:
+            print(f"Node: {node.op_name}")
+            for i in node.inputs:
+                print(f"Input {i.name} - {i.shape}")
+            for o in node.outputs:
+                print(f"Input {o.name} - {o.shape}")
+            print()
+
+            # print(f"Result {node.inputs[0].name}: {node.inputs[0].shape}")
+            # print(f"Target {node.inputs[1].name}: {node.inputs[1].shape}")
+            # print(f"Output {node.outputs[0].name}: {node.outputs[0].shape}")

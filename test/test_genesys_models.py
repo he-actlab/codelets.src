@@ -44,6 +44,8 @@ def test_srdfg_creation():
             print(f"{name}: {node.op_name}")
 
 @pytest.mark.parametrize('model_name',[
+    # "lenetbn",
+    # "resnet50",
     # "resnet18",
     "resnet18_train",
     # "lenet",

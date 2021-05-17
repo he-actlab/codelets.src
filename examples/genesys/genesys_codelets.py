@@ -543,14 +543,14 @@ def batchnorm_grad(hag: ArchitectureNode):
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
         cdlt.configure("start", "SIMD")
         with cdlt.loop(C) as c:
+            cdlt.transfer(offset_grad[c], ["DRAM", "VMEM2"])
+            cdlt.transfer(mean[c], ["DRAM", "VMEM2"])
+            cdlt.transfer(istd[c], ["DRAM", "VMEM2"])
+            cdlt.transfer(scale_grad[c], ["DRAM", "VMEM2"])
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(offset_grad[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(mean[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(istd[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(scale_grad[c], ["DRAM", "VMEM2"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
                         data_grad.set_write_destination("VMEM1")
                         scale_grad.set_write_destination("VMEM1")
@@ -563,21 +563,21 @@ def batchnorm_grad(hag: ArchitectureNode):
                         cdlt.compute("ADD", [scale_grad, numer], [scale_grad], target="SIMD")
                         cdlt.compute("ADD", [grad, offset_grad], [offset_grad], target="SIMD")
 
-            with cdlt.loop(N) as n1:
-                with cdlt.loop(H) as h1:
-                    with cdlt.loop(W) as w1:
-                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
-                        data_grad.set_write_destination("VMEM1")
-                        cdlt.compute("MUL", [scale, istd], [temp1], target="SIMD")
-                        cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
-                        cdlt.compute("MUL", [denom_op, grad], [temp2], target="SIMD")
-                        cdlt.compute("MUL", [xhat, scale_grad], [temp3], target="SIMD")
-                        cdlt.compute("SUB", [temp2, temp3], [temp4], target="SIMD")
-                        cdlt.compute("SUB", [temp4, offset_grad], [temp5], target="SIMD")
-                        cdlt.compute("SUB", [temp1, temp5], [data_grad], target="SIMD")
-                        cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
-                        cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
-                        cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
+            # with cdlt.loop(N) as n1:
+            #     with cdlt.loop(H) as h1:
+            #         with cdlt.loop(W) as w1:
+            #             cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
+            #             data_grad.set_write_destination("VMEM1")
+            #             cdlt.compute("MUL", [scale, istd], [temp1], target="SIMD")
+            #             cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
+            #             cdlt.compute("MUL", [denom_op, grad], [temp2], target="SIMD")
+            #             cdlt.compute("MUL", [xhat, scale_grad], [temp3], target="SIMD")
+            #             cdlt.compute("SUB", [temp2, temp3], [temp4], target="SIMD")
+            #             cdlt.compute("SUB", [temp4, offset_grad], [temp5], target="SIMD")
+            #             cdlt.compute("SUB", [temp1, temp5], [data_grad], target="SIMD")
+            #             cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
+            cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
+            cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
 
 
     return cdlt
@@ -700,22 +700,26 @@ def cross_entropy_loss(hag: ArchitectureNode):
     with CodeletTemplate("cross_entropy_loss") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        D = cdlt.dummy_op("D", cdlt.node.outputs[0].shape[0])
         res = cdlt.create_operand_template("res", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        loss = cdlt.create_operand_template("loss", OP_DTYPES, [D], default_dtype=OP_DTYPES[2])
+        loss = cdlt.create_operand_template("loss", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([res, target])
         cdlt.set_outputs([loss])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        temp1.start_location = "VMEM1"
+        temp1.set_write_destination("VMEM1")
+        cdlt.add_temp_operand(temp1)
         cdlt.configure("start", "SIMD")
 
-        with cdlt.loop(D) as d:
-            with cdlt.loop(N) as n:
-                with cdlt.loop(C) as c:
-                    cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
-                    cdlt.transfer(target[n], ["DRAM", "VMEM2"])
-                    loss.set_write_destination("VMEM1")
-                    cdlt.compute("ADD", [res, target], [loss], target="SIMD")
-                    cdlt.transfer(loss[d], ["VMEM1", "DRAM"])
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(loss[n, c], ["DRAM", "VMEM1"])
+                loss.set_write_destination("VMEM1")
+                cdlt.compute("EXP", [res], [temp1], target="SIMD")
+                cdlt.compute("ADD", [temp1, loss], [loss], target="SIMD")
+            cdlt.compute("DIV", [temp1, loss], [loss], target="SIMD")
+            cdlt.transfer(loss[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
 def relu(_):
@@ -1125,26 +1129,22 @@ def cross_entropy_loss_grad(hag: ArchitectureNode):
     with CodeletTemplate("cross_entropy_loss_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        D = cdlt.dummy_op("D", cdlt.node.outputs[0].shape[0])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [D], default_dtype=OP_DTYPES[2])
         target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
         data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
 
-        cdlt.set_inputs([data, target, grad])
+        cdlt.set_inputs([data, target])
         cdlt.set_outputs([data_grad])
 
         cdlt.configure("start", "SIMD")
-        with cdlt.loop(D) as d:
-            with cdlt.loop(N) as n:
-                with cdlt.loop(C) as c:
-                    cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
-                    cdlt.transfer(target[n], ["DRAM", "VMEM2"])
-                    cdlt.transfer(grad[d], ["DRAM", "VMEM2"])
-                    data_grad.set_write_destination("VMEM1")
-                    cdlt.compute("ADD", [data, target, grad], [data_grad], target="SIMD")
-                    cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                data_grad.set_write_destination("VMEM1")
+                cdlt.compute("SUB", [data, target], [data_grad], target="SIMD")
+                cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
 GENESYS_CODELETS = {

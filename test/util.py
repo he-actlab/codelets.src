@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 from codelets.compiler.program import CodeletProgram
-from examples.genesys import compile_genesys_layer, compile_genesys
+from examples.genesys import compile_genesys_layer, compile_genesys, define_genesys, get_arch
 from dataclasses import is_dataclass
 import numpy as np
 import polymath as pm
@@ -40,9 +40,12 @@ def create_dirs(fpath, verification):
         print(f"Directory {base_path} already exists.")
     return base_path
 
-def store_compilation_output(program: CodeletProgram, output_type, extension="txt", verification=False):
+def store_compilation_output(program: CodeletProgram, output_type, extension="txt", verification=False, arch_cfg=None):
     out_path = create_dirs(program.name, verification)
-    result = program.emit(output_type)
+    if output_type == "arch_cfg":
+        result = arch_cfg
+    else:
+        result = program.emit(output_type)
     if not isinstance(result, str):
         assert isinstance(result, dict)
         result = json.dumps(result, indent=2)
@@ -106,6 +109,9 @@ def create_reference_outputs(names, batch_size=1, update_cfg_dtypes=False,
                                       )
         else:
             raise RuntimeError(f"Invalid layer name for compilation : {name}")
+        arch_cfg = get_arch(None, None, update_cfg_dtypes)
+
+        store_compilation_output(program, "arch_cfg", extension="json", verification=True, arch_cfg=arch_cfg)
         store_compilation_output(program, "operations_idx", extension="txt", verification=True)
         store_compilation_output(program, "json", extension="json", verification=True)
         store_compilation_output(program, "string_final", extension="txt", verification=True)

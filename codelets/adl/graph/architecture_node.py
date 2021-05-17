@@ -1,6 +1,6 @@
 from types import FunctionType
 from codelets.graph import Node, Graph
-from .graph_algorithms import compute_node_levels
+from .graph_algorithms import compute_node_levels, get_shortest_paths
 from . import ArchitectureGraph
 from typing import List, Dict, Union, TYPE_CHECKING
 # from pygraphviz import AGraph
@@ -430,10 +430,12 @@ class ArchitectureNode(Node):
         raise KeyError(f"{key} not found in subgraph or edges:"
                        f"Edges: {self.edge_map.keys()}")
 
-
     def set_node_depths(self):
         assert self.parent_graph != self
         self._node_levels = compute_node_levels(self.all_subgraph_nodes)
+
+    def get_paths(self, src, dst):
+        return get_shortest_paths(self.all_subgraph_nodes, src, dst)
 
     def get_off_chip_storage(self):
         min_level = min(list(self.node_levels.keys()))

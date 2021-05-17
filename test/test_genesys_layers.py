@@ -4,6 +4,7 @@ from collections import namedtuple
 from .util import create_reference_outputs, validate_program
 from pathlib import Path
 import pytest
+import pprint
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
 BENCH_DIR = f"{CWD}/../benchmarks"
@@ -22,7 +23,10 @@ def update_genesys_cfg_from_dtypes():
 
 @pytest.mark.parametrize('source_model, layer_name',[
     # ("lenet", "conv"),
-    ("resnet18_train", "batchnorm_grad"),
+    # ("resnet18_train", "batchnorm_grad"),
+    # ("resnet18_train", "cross_entropy_loss"),
+    ("lenet_train", "cross_entropy_loss"),
+    ("lenet_train", "cross_entropy_loss_grad"),
 ])
 def test_extracted_layer(source_model, layer_name):
     train = False
@@ -80,9 +84,9 @@ def test_genesys_layers(layer_name):
                             batch_size=batch_size,
                             do_hoist_stage=True,
                             do_tile_stage=True,
-                            print_config=False
+                            print_config=True
                               )
-    print(program.emit("operations_idx"))
+    pprint.pprint(program.emit("json_no_ops"))
     # validate_program(program, print_difference=True)
 
 def test_reference_creation():
@@ -90,8 +94,9 @@ def test_reference_creation():
     update_cfg_dtypes = False
     # names = ["resnet18", "resnet18_train", "lenet", "lenet_train"]
     # names = ["lenet"]
-    names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool",
-                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
+    # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool",
+    #                "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
+    names = ["resnet18_gemm"]
     create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
                              verbose=False)
 #
