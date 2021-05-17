@@ -552,7 +552,6 @@ def batchnorm_grad(hag: ArchitectureNode):
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
                         cdlt.transfer(grad[n, c, h, w], ["DRAM", "VMEM2"])
-                        data_grad.set_write_destination("VMEM1")
                         scale_grad.set_write_destination("VMEM1")
                         offset_grad.set_write_destination("VMEM1")
                         numer.set_write_destination("VMEM1")
@@ -563,19 +562,19 @@ def batchnorm_grad(hag: ArchitectureNode):
                         cdlt.compute("ADD", [scale_grad, numer], [scale_grad], target="SIMD")
                         cdlt.compute("ADD", [grad, offset_grad], [offset_grad], target="SIMD")
 
-            # with cdlt.loop(N) as n1:
-            #     with cdlt.loop(H) as h1:
-            #         with cdlt.loop(W) as w1:
-            #             cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
-            #             data_grad.set_write_destination("VMEM1")
-            #             cdlt.compute("MUL", [scale, istd], [temp1], target="SIMD")
-            #             cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
-            #             cdlt.compute("MUL", [denom_op, grad], [temp2], target="SIMD")
-            #             cdlt.compute("MUL", [xhat, scale_grad], [temp3], target="SIMD")
-            #             cdlt.compute("SUB", [temp2, temp3], [temp4], target="SIMD")
-            #             cdlt.compute("SUB", [temp4, offset_grad], [temp5], target="SIMD")
-            #             cdlt.compute("SUB", [temp1, temp5], [data_grad], target="SIMD")
-            #             cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
+            with cdlt.loop(N) as n1:
+                with cdlt.loop(H) as h1:
+                    with cdlt.loop(W) as w1:
+                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
+                        data_grad.set_write_destination("VMEM1")
+                        cdlt.compute("MUL", [scale, istd], [temp1], target="SIMD")
+                        cdlt.compute("DIV", [temp1, denom_op], [temp1], target="SIMD")
+                        cdlt.compute("MUL", [denom_op, grad], [temp2], target="SIMD")
+                        cdlt.compute("MUL", [xhat, scale_grad], [temp3], target="SIMD")
+                        cdlt.compute("SUB", [temp2, temp3], [temp4], target="SIMD")
+                        cdlt.compute("SUB", [temp4, offset_grad], [temp5], target="SIMD")
+                        cdlt.compute("SUB", [temp1, temp5], [data_grad], target="SIMD")
+                        cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
             cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
             cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
 
@@ -747,6 +746,26 @@ def relu(_):
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
     return cdlt
 
+def relu2d(_):
+
+    with CodeletTemplate("relu2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(op1[n, c], ["DRAM", "VMEM1"])
+                out.set_write_destination("VMEM1")
+                cdlt.compute("RELU", [op1], [out], target="SIMD")
+                cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
+
+    return cdlt
+
 def elem_tanh(hag: ArchitectureNode):
 
     with CodeletTemplate("elem_tanh") as cdlt:
@@ -820,6 +839,29 @@ def relu_grad(hag: ArchitectureNode):
                         data_grad.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
+    return cdlt
+
+
+def relu_grad2d(hag: ArchitectureNode):
+
+    with CodeletTemplate("relu_grad2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data, grad])
+        cdlt.set_outputs([data_grad])
+        cdlt.configure("start", "SIMD")
+        # cdlt.configure("start", "VMEM")
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(grad[n, c], ["DRAM", "VMEM1"])
+                data_grad.set_write_destination("VMEM1")
+                cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
+                cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
     return cdlt
 
 def elem_tanh_grad(hag: ArchitectureNode):
@@ -1159,6 +1201,7 @@ GENESYS_CODELETS = {
     "elem_tanh": elem_tanh,
     "elem_tanh2d": elem_tanh2d,
     "relu": relu,
+    "relu2d": relu2d,
     "batch_norm": batch_norm,
     "mean_var": mean_var,
     "batchnorm_grad": batchnorm_grad,
@@ -1176,6 +1219,7 @@ GENESYS_CODELETS = {
     'max_pool_grad': max_pool_grad,
     'gemm_no_bias': gemm_no_bias,
     'relu_grad': relu_grad,
+    'relu_grad2d': relu_grad2d,
     'global_average_pool_grad': global_average_pool_grad,
     'tensor_transpose': tensor_transpose,
     'tensor_reshape': tensor_reshape,

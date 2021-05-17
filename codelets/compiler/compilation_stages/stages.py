@@ -5,6 +5,7 @@ from codelets.templates.operation_template import OperationTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
 from codelets.compiler.program import CodeletProgram
+from collections import defaultdict
 
 from .tiling_utils import set_codelet_tiling
 from .stage_utils import default_tile_heuristic, \
@@ -232,10 +233,11 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
             else:
                 loop_splits[l] = max_level
-
     bands = cdlt.extract_bands()
-    cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
 
+    cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
+    outer_loop_map = {}
+    loop_replacement_map = {}
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -264,9 +266,11 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         outgoing = False
+
+                        offset -= 1
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+                            offset += 1
                             outgoing = True
-                            offset -= 1
                             cdlt.insert_op(op, target_idx)
                         op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
@@ -313,9 +317,11 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                 elif op.op_type == 'loop':
 
+
                     extra_kwargs['start'] = 0
                     extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
                     extra_kwargs['stride'] = 1
+
                     inner_op = op.copy(cdlt, loop_level=inner_loop_level,
                                                     op_id=new_op_id,
                                                     loop_id=new_op_id,
@@ -331,6 +337,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     inner_idx = target_idx + 1
                     num_splits += 1
                     cdlt.loop_param_map[inner_op.op_str] = cdlt.loop_param_map[op.op_str]
+
+                    if cdlt.loop_param_map[op.op_str] not in outer_loop_map:
+                        outer_loop_map[cdlt.loop_param_map[op.op_str]] = op.op_str
                 else:
                     assert op.op_type == 'compute', f"Invalid op type: {op.op_type}"
                     dep_mapping[op.op_str] = op.op_str
@@ -349,6 +358,18 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     num_splits += 1
 
                 cdlt.insert_op(inner_op, inner_idx)
+                if op.op_type == "loop" and outer_loop_map[cdlt.loop_param_map[op.op_str]] != op.op_str:
+                    old_op = cdlt.ops.pop(cdlt.ops.index(op))
+                    loop_replacement_map[old_op.op_str] = outer_loop_map[cdlt.loop_param_map[op.op_str]]
+
+    for op in cdlt.ops:
+        new_deps = []
+        for d in op.dependencies:
+            if d in loop_replacement_map:
+                new_deps.append(loop_replacement_map[d])
+            else:
+                new_deps.append(d)
+        op._dependencies = new_deps
 
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
@@ -361,7 +382,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
         if o in cdlt.outputs and not o.is_tiled():
             missing_tiles = [l for l in o.unique_data_locations() if l not in list(o.tiling.keys())]
-            prev_level = cdlt.get_tile_level(missing_tiles[0])
             for m in missing_tiles:
                 level = cdlt.get_tile_level(m)
                 level_sizes = cdlt.domain_loop_map[level]
@@ -388,36 +408,29 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
 
 def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
-
     for o in cdlt.ops:
+        if o.op_type == "loop":
+            continue
         i = cdlt.ops.index(o)
-        i_loop_level = o.loop_level
-        idx = -1
-        loop_level = -1
         all_deps = o.dependencies
-        for dep in all_deps:
+        loop_name = cdlt.get_max_loop_dep(o)
 
-            dep_idx = cdlt.ops.index(cdlt.op_map[dep])
-            if cdlt.ops[dep_idx].op_type == "loop":
-                dep_level = cdlt.ops[dep_idx].loop_level + 1
-            else:
-                dep_level = cdlt.ops[dep_idx].loop_level
-
-            if dep_level > loop_level:
-                loop_level = dep_level
-
-            if dep_idx > idx:
-                idx = dep_idx
-
-        if idx < 0:
+        if loop_name is None:
             idx = i
+            loop_level = 0
+        elif len(all_deps) == 0:
+            idx = cdlt.ops.index(cdlt.op_map[loop_name]) + 1
+            loop_level = cdlt.op_map[loop_name].loop_level + 1
+        else:
+            idx = max([cdlt.ops.index(cdlt.op_map[dep]) for dep in all_deps])
+            loop_level = cdlt.op_map[loop_name].loop_level + 1
 
-        if (idx + 1) < i and loop_level <= i_loop_level:
-            cdlt.ops.insert(idx + 1, cdlt.ops.pop(i))
+
+        if (idx + 1) < i and cdlt.ops[idx + 1].loop_level <= loop_level:
             idx += 1
-
-        if loop_level < i_loop_level and loop_level > 0:
+            cdlt.ops.insert(idx, cdlt.ops.pop(i))
             cdlt.ops[idx].loop_level = loop_level
+
     return cdlt
 
 
