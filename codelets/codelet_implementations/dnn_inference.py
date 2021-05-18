@@ -35,7 +35,6 @@ def gemm():
         _ = gemm.transfer(compute_out, out)
 
     with CodeletTemplate("gemm") as gemm:
-
         P = gemm.dummy_op("P", gemm.node.inputs[2].shape[0])
         N = gemm.dummy_op("N", gemm.node.inputs[0].shape[1])
         M = gemm.dummy_op("M", gemm.node.inputs[0].shape[0])
@@ -43,6 +42,7 @@ def gemm():
         weight = gemm.add_input("weight", [N, P], COMMON_DTYPES[0])
         bias = gemm.add_input("bias", [P], COMMON_DTYPES[0])
         out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
+
         with gemm.loop(N) as n:
             with gemm.loop(P) as p:
                 with gemm.loop(M) as m:
