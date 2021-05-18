@@ -81,7 +81,7 @@ class CodeletTemplate(object):
             raise RuntimeError(f"Cannot overwrite existing inputs")
         self._outputs = outputs
 
-    def add_input(self, name, shape_list, dtype, location, **kwargs):
+    def add_input(self, name, shape_list, dtype, location=None, **kwargs):
         assert all([isinstance(s, (int, DummyOp)) for s in shape_list])
         operand = OperandTemplate(name, location, "input",
                                   src_op=self.cdlt_uid,
@@ -90,7 +90,7 @@ class CodeletTemplate(object):
         self.inputs.append(operand)
         return operand
 
-    def add_output(self, name, shape_list, dtype, location, **kwargs):
+    def add_output(self, name, shape_list, dtype, location=None, **kwargs):
         assert all([isinstance(s, (int, DummyOp)) for s in shape_list])
         operand = OperandTemplate(name, location, "output",
                                   shape_list=shape_list,
@@ -277,7 +277,7 @@ class CodeletTemplate(object):
         self.add_op(loop_op_template)
         return loop_op_template
 
-    def compute(self, op_name, source_ops, compute_target, **kwargs):
+    def compute(self, op_name, source_ops, compute_target=None, **kwargs):
         compute_template = ComputeTemplate(op_name, source_ops, compute_target,
                                            add_codelet=False, **kwargs)
         self.add_op(compute_template)

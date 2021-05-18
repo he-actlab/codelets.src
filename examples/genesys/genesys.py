@@ -128,9 +128,6 @@ def define_genesys(cfg):
         # Loop
         hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
 
-        for op_name, cdlt in GENESYS_CODELETS.items():
-            cdlt_instance = cdlt(hag)
-            hag.add_codelet(cdlt_instance)
         hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"],
                         f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
     return hag

@@ -276,6 +276,13 @@ class ArchitectureNode(Node):
                     return True
         return False
 
+    def primitive_targets(self, name: str):
+        targets = []
+        for n in self.get_subgraph_nodes():
+            if n.has_primitive(name):
+                targets.append(n.name)
+        return targets
+
     def has_codelet(self, name):
         return name in self.all_codelet_names
 

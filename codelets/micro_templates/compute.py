@@ -19,8 +19,12 @@ class ComputeTemplate(MicroTemplate):
         param_map['sources'] = sources
         super(ComputeTemplate, self).__init__("compute", {**param_map, **kwargs}, add_codelet=add_codelet)
         for s in sources:
-            assert isinstance(s, (OperandTemplate, IndexOperandTemplate))
-            s.add_read(self.op_str)
+            if isinstance(s, OperandTemplate):
+                s.add_read(self.op_str)
+            elif isinstance(s,  IndexOperandTemplate):
+                s.operand.add_read(self.op_str)
+            else:
+                raise RuntimeError
 
     def __str__(self):
         return f"{self.output_operand.name} = {self.op_str}('{self.op_name}'; ARGS={self.operand_names}; TGT: {self.target}"
@@ -31,6 +35,8 @@ class ComputeTemplate(MicroTemplate):
         for o in self.sources:
             if isinstance(o, OperandTemplate):
                 names.append(o.name)
+            elif isinstance(o, IndexOperandTemplate):
+                names.append(o.operand.name)
             else:
                 names.append(str(o))
         return tuple(names)
@@ -55,3 +61,9 @@ class ComputeTemplate(MicroTemplate):
     @property
     def arg_dummy_strings(self):
         return ComputeTemplate.USE_DUMMY_STRING
+
+    def is_target_set(self):
+        return self.target is not None
+
+
+

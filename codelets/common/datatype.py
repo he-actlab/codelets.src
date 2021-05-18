@@ -41,3 +41,7 @@ class Datatype:
 
     def bits(self):
         return self.bitwidth
+
+
+COMMON_DTYPES = [Datatype(type='FXP', bitwidth=8), Datatype(type='FXP', bitwidth=16), Datatype(type='FXP', bitwidth=32),
+             Datatype(type='FP', bitwidth=16), Datatype(type='FP', bitwidth=32), Datatype(type='FXP', bitwidth=4)]
