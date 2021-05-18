@@ -38,22 +38,30 @@ class MicroTemplate(object):
 
         self._loop_id = MicroTemplate.current_loop_id()
         self._loop_level = copy(MicroTemplate.loop_ctxt_level)
-        self._global_op_id = MicroTemplate.id_counter
         self._op_id = copy(MicroTemplate.op_id_counters[operation_type])
         if operation_type == "loop":
             self._loop_id = self._op_id
-
+        self._global_op_id = MicroTemplate.id_counter
         MicroTemplate.op_id_counters[operation_type] += 1
         MicroTemplate.id_counter += 1
         self._dependencies = dependencies or []
         self._operation_type = operation_type
         self._output_operand = None
         self._param_map = param_map
+        self._param_options = {k: None for k in param_map.keys()}
         codelet = codelet or MicroTemplate.current_codelet
         if add_codelet:
             codelet.add_op(self)
 
         MicroTemplate.current_block.append(self.op_str)
+
+    @property
+    def global_op_id(self) -> int:
+        return self._global_op_id
+
+    @global_op_id.setter
+    def global_op_id(self, global_op_id: int):
+        self._global_op_id = global_op_id
 
     @property
     def loop_id(self) -> int:
@@ -68,20 +76,16 @@ class MicroTemplate(object):
         return self._param_map
 
     @property
+    def param_options(self) -> Dict[str, Any]:
+        return self._param_options
+
+    @property
     def op_id(self) -> int:
         return self._op_id
 
     @op_id.setter
     def op_id(self, op_id: int):
         self._op_id = op_id
-
-    @property
-    def global_op_id(self) -> int:
-        return self._global_op_id
-
-    @global_op_id.setter
-    def global_op_id(self, global_op_id: int):
-        self._global_op_id = global_op_id
 
     @property
     def loop_level(self):
@@ -188,21 +192,38 @@ class MicroTemplate(object):
     def __repr__(self):
         return f"<op={self.op_type}, id={self.op_id}>"
 
+    def is_param_set(self, param_name: str):
+        return self.param_map[param_name] is not None
+
+    def has_param_options(self, param_name: str):
+        return self.param_options[param_name] is not None
+
+    def set_parameter(self, param_name: str, value):
+        assert param_name in self.param_map and not self.is_param_set(param_name)
+        self.param_map[param_name] = value
+
+    def set_param_options(self, param_name: str, options):
+        assert param_name in self.param_map and not self.is_param_set(param_name) and not self.has_param_options(param_name)
+        self.param_options[param_name] = options
+
+
     @property
     def arg_dummy_strings(self):
         raise NotImplementedError
 
 class ConfigureTemplate(MicroTemplate):
-    PARAM_KEYS = ['start_or_finish', 'target']
-    USE_DUMMY_STRING = [False, False]
+    PARAM_KEYS = ['config_key', 'config_value', 'target']
+    USE_DUMMY_STRING = [False, False, False]
 
-    def __init__(self, start_or_finish,
+    def __init__(self, config_key,
+                 config_value,
                  target,
                  add_codelet=True,
                  **kwargs
                  ):
         param_map = {}
-        param_map['start_or_finish'] = start_or_finish
+        param_map['config_key'] = config_key
+        param_map['config_value'] = config_value
         param_map['target'] = target
         super(ConfigureTemplate, self).__init__("config", {**param_map, **kwargs}, add_codelet=add_codelet)
 
@@ -213,4 +234,19 @@ class ConfigureTemplate(MicroTemplate):
     @property
     def arg_dummy_strings(self):
         return ConfigureTemplate.USE_DUMMY_STRING
+
+    @property
+    def target(self):
+        return self.param_map['target']
+
+    @property
+    def config_key(self):
+        return self.param_map['config_key']
+
+    @property
+    def config_value(self):
+        return self.param_map['config_value']
+
+    def is_target_set(self):
+        return self.is_param_set('target')
 

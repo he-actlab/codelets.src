@@ -56,6 +56,13 @@ class OperandTemplate:
         assert len(permutation) == len(self.shape_list)
         self.shape_list = [self.shape_list[i] for i in permutation]
 
+    def is_location_set(self):
+        return self.location is not None
+
+    def set_location(self, location: str):
+        assert not self.is_location_set()
+        self.location = location
+
     @property
     def shape_list_names(self):
         slist = []
@@ -141,6 +148,10 @@ class IndexOperandTemplate:
     @property
     def name(self):
         return self.operand.name
+
+    def __str__(self):
+        offset_str = ",".join([str(o) for o in self.offsets])
+        return f"{self.operand}[{offset_str}]"
 
 
 def evaluate_args(args, instance_args, preserve_types):

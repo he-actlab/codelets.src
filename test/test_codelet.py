@@ -1,12 +1,13 @@
 import polymath as pm
 from codelets.adl.operation import Operand
-from codelets.templates.codelet_template import CodeletTemplate
+from codelets.codelet_template import CodeletTemplate
+from codelets.codelet_implementations import DNN_MAPPINGS
+from codelets.compiler.analysis.template_analysis import collect_unset_paths, identify_operand_targets
 from examples.genesys import OP_DTYPES, define_genesys, GENESYS_CFG
-from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
-from examples.genesys.genesys_codelets import averagepool2d as avgpool_template,\
-    gemm as gemm_template
+# from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
+# from examples.genesys.genesys_codelets import averagepool2d as avgpool_template,\
+#     gemm as gemm_template
 from pathlib import Path
-
 from .util import compare_dataclasses
 
 CWD = Path(f"{__file__}").parent
@@ -14,6 +15,11 @@ BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
 LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 
+def test_collect_unset_paths():
+    test_codelet = DNN_MAPPINGS['elem_add']
+    hag = define_genesys(GENESYS_CFG)
+    identify_operand_targets(test_codelet, hag)
+    # collect_unset_paths(test_codelet, None)
 
 def test_shape_dummy_op():
     with pm.Node(name="test_transpose") as graph:
@@ -152,39 +158,39 @@ def test_dummy_implementation():
                                                       (cdlt.node.perm, n, c, h, w))
                         cdlt.transfer(out[out_offset], ["VMEM1", "DRAM"])
 
-def test_codelet_instantiation():
-    with CodeletTemplate("relu") as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([op1])
-
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_outputs([out])
-        cdlt.configure("start", "SIMD")
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(H) as h:
-                    with cdlt.loop(W) as w:
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
-                        out.set_write_destination("VMEM1")
-                        cdlt.compute("RELU", [op1], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
-
-    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_relu.srdfg")
-    target_node = None
-    for name, node in graph.nodes.items():
-        if node.op_name == "relu":
-            target_node = node
-            break
-    assert target_node is not None
-    hag = define_genesys(GENESYS_CFG)
-    reference_codelt = relu(hag)
-    new_cdlt = cdlt.instantiate({"HAGPlaceholder": hag, "NodePlaceholder": target_node})
-    print(new_cdlt.emit("operations_idx"))
-    print(reference_codelt.emit("operations_idx"))
+# def test_codelet_instantiation():
+#     with CodeletTemplate("relu") as cdlt:
+#         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+#         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+#         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+#         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+#         op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+#         cdlt.set_inputs([op1])
+#
+#         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+#         cdlt.set_outputs([out])
+#         cdlt.configure("start", "SIMD")
+#         with cdlt.loop(N) as n:
+#             with cdlt.loop(C) as c:
+#                 with cdlt.loop(H) as h:
+#                     with cdlt.loop(W) as w:
+#                         cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+#                         out.set_write_destination("VMEM1")
+#                         cdlt.compute("RELU", [op1], [out], target="SIMD")
+#                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+#
+#     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_relu.srdfg")
+#     target_node = None
+#     for name, node in graph.nodes.items():
+#         if node.op_name == "relu":
+#             target_node = node
+#             break
+#     assert target_node is not None
+#     hag = define_genesys(GENESYS_CFG)
+#     reference_codelt = relu(hag)
+#     new_cdlt = cdlt.instantiate({"HAGPlaceholder": hag, "NodePlaceholder": target_node})
+#     print(new_cdlt.emit("operations_idx"))
+#     print(reference_codelt.emit("operations_idx"))
 
 def test_operand_instantiation():
     with CodeletTemplate("relu_template") as cdlt:
@@ -214,67 +220,67 @@ def test_operand_instantiation():
     for k in ref_op1.__dataclass_fields__.keys():
         assert getattr(ref_op1, k) == getattr(test_op1, k) or k == "name"
 
-
-def test_loop_offset():
-    hag = define_genesys(GENESYS_CFG)
-
-    ref_impl = averagepool2d(hag)
-
-    template_impl = avgpool_template(hag)
-
-    #
-    graph = pm.pb_load(f"{LAYER_DIR}/lenet_averagepool.srdfg")
-    target_node = None
-    #
-    for name, node in graph.nodes.items():
-        if node.op_name == "avg_pool":
-            target_node = node
-            break
-    assert target_node is not None
-    #
-    instance_args = {"HAGPlaceholder": hag, "NodePlaceholder": target_node}
-    new_cdlt = template_impl.instantiate(instance_args)
-    offset_transfer = new_cdlt.op_map['transfer0']
-    ref_transfer = ref_impl.op_map['transfer0']
-
-
-    ref_op1 = ref_transfer.operand
-    test_op1 = offset_transfer.operand
-
-    compare_dataclasses(ref_op1, test_op1, skip_fields=["name", "operand_name", "shape_symbols", "shape_list"])
-
-    ref_op2 = ref_impl.temps[0]
-    test_op2 = new_cdlt.temps[0]
-
-    compare_dataclasses(ref_op2, test_op2, skip_fields=["name", "operand_name", "supported_dtypes"])
-
-def test_op_levels():
-    hag = define_genesys(GENESYS_CFG)
-
-    ref_impl = gemm(hag)
-
-    template_impl = gemm_template(hag)
-
-    #
-    graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
-    target_node = None
-    #
-    for name, node in graph.nodes.items():
-        if node.op_name == "gemm":
-            target_node = node
-            break
-    assert target_node is not None
-    #
-    instance_args = {"HAGPlaceholder": hag, "NodePlaceholder": target_node}
-    new_cdlt = template_impl.instantiate(instance_args)
-    ref_emit_str = ref_impl.emit("operations_idx").split("\n")
-    template_emit_str = new_cdlt.emit("operations_idx").split("\n")
-    for idx in range(len(ref_emit_str)):
-        if idx == 0:
-            continue
-        ref_line = ref_emit_str[idx]
-        template_line = template_emit_str[idx]
-        assert ref_line == template_line
+#
+# def test_loop_offset():
+#     hag = define_genesys(GENESYS_CFG)
+#
+#     ref_impl = averagepool2d(hag)
+#
+#     template_impl = avgpool_template(hag)
+#
+#     #
+#     graph = pm.pb_load(f"{LAYER_DIR}/lenet_averagepool.srdfg")
+#     target_node = None
+#     #
+#     for name, node in graph.nodes.items():
+#         if node.op_name == "avg_pool":
+#             target_node = node
+#             break
+#     assert target_node is not None
+#     #
+#     instance_args = {"HAGPlaceholder": hag, "NodePlaceholder": target_node}
+#     new_cdlt = template_impl.instantiate(instance_args)
+#     offset_transfer = new_cdlt.op_map['transfer0']
+#     ref_transfer = ref_impl.op_map['transfer0']
+#
+#
+#     ref_op1 = ref_transfer.operand
+#     test_op1 = offset_transfer.operand
+#
+#     compare_dataclasses(ref_op1, test_op1, skip_fields=["name", "operand_name", "shape_symbols", "shape_list"])
+#
+#     ref_op2 = ref_impl.temps[0]
+#     test_op2 = new_cdlt.temps[0]
+#
+#     compare_dataclasses(ref_op2, test_op2, skip_fields=["name", "operand_name", "supported_dtypes"])
+#
+# def test_op_levels():
+#     hag = define_genesys(GENESYS_CFG)
+#
+#     ref_impl = gemm(hag)
+#
+#     template_impl = gemm_template(hag)
+#
+#     #
+#     graph = pm.pb_load(f"{LAYER_DIR}/resnet18_gemm.srdfg")
+#     target_node = None
+#     #
+#     for name, node in graph.nodes.items():
+#         if node.op_name == "gemm":
+#             target_node = node
+#             break
+#     assert target_node is not None
+#     #
+#     instance_args = {"HAGPlaceholder": hag, "NodePlaceholder": target_node}
+#     new_cdlt = template_impl.instantiate(instance_args)
+#     ref_emit_str = ref_impl.emit("operations_idx").split("\n")
+#     template_emit_str = new_cdlt.emit("operations_idx").split("\n")
+#     for idx in range(len(ref_emit_str)):
+#         if idx == 0:
+#             continue
+#         ref_line = ref_emit_str[idx]
+#         template_line = template_emit_str[idx]
+#         assert ref_line == template_line
 
 def test_hag_storage_levels():
     hag = define_genesys(GENESYS_CFG)
@@ -312,3 +318,4 @@ def test_autodiff_cross_entropy():
             # print(f"Result {node.inputs[0].name}: {node.inputs[0].shape}")
             # print(f"Target {node.inputs[1].name}: {node.inputs[1].shape}")
             # print(f"Output {node.outputs[0].name}: {node.outputs[0].shape}")
+

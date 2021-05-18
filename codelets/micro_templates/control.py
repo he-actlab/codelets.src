@@ -1,5 +1,6 @@
 from typing import List, Dict, Union
 
+import numpy as np
 from functools import singledispatch
 from .dummy_op import DummyOp, DummyParam
 from .operand_template import OperandTemplate, IndexOperandTemplate, Offset
