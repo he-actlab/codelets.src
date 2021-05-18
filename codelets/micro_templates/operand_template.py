@@ -79,7 +79,8 @@ class Offset:
     scales: List[Union[int, None]]
     loops: List[Union[str, None]]
     signs: List[Union[str]]
-
+    # signs = + or -
+    # offset = base (+) loops[0]*scales[0] (+) loops[1]*scales[1] ...
     @property
     def name(self):
         if len(self.loops) == 0:
