@@ -49,6 +49,7 @@ class MicroTemplate(object):
         self._output_operand = None
         self._param_map = param_map
         self._param_options = {k: None for k in param_map.keys()}
+        self._param_hints = {k: None for k in param_map.keys()}
         codelet = codelet or MicroTemplate.current_codelet
         if add_codelet:
             codelet.add_op(self)
@@ -78,6 +79,10 @@ class MicroTemplate(object):
     @property
     def param_options(self) -> Dict[str, Any]:
         return self._param_options
+
+    @property
+    def param_hints(self) -> Dict[str, Any]:
+        return self._param_hints
 
     @property
     def op_id(self) -> int:
@@ -198,11 +203,18 @@ class MicroTemplate(object):
     def has_param_options(self, param_name: str):
         return self.param_options[param_name] is not None
 
+    def has_param_hint(self, param_name: str):
+        return self.param_hints[param_name] is not None
+
     def set_parameter(self, param_name: str, value):
         assert param_name in self.param_map and not self.is_param_set(param_name)
         self.param_map[param_name] = value
 
     def set_param_options(self, param_name: str, options):
+        assert param_name in self.param_map and not self.is_param_set(param_name) and not self.has_param_options(param_name)
+        self.param_options[param_name] = options
+
+    def set_param_hint(self, param_name: str, options):
         assert param_name in self.param_map and not self.is_param_set(param_name) and not self.has_param_options(param_name)
         self.param_options[param_name] = options
 
