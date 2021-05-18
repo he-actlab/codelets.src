@@ -125,6 +125,7 @@ mldata/
 # Scratch code
 test/scratch/
 test/compilation_output
+tools/compilation_output
 
 codelets/templates_ssa
 test/test_template_ssa.py
