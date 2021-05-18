@@ -43,11 +43,12 @@ def gemm():
         weight = gemm.add_input("weight", [N, P], COMMON_DTYPES[0])
         bias = gemm.add_input("bias", [P], COMMON_DTYPES[0])
         out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
-        # with gemm.loop(P) as p:
-        #     with gemm.loop(N) as n:
-        #         with gemm.loop(M) as m:
-        #             compute_out = gemm.compute("MVMUL", [data, weight, bias])
-        # _ = gemm.transfer(compute_out, out)
+        with gemm.loop(N) as n:
+            with gemm.loop(P) as p:
+                with gemm.loop(M) as m:
+                    compute_out = gemm.compute("MUL", [data, weight])
+            compute_out1 = gemm.compute("ADD", [compute_out, out])
+            _ = gemm.transfer(compute_out1, out)
 
     return gemm
 

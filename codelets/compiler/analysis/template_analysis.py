@@ -1,5 +1,4 @@
 
-import polymath as pm
 from codelets.micro_templates import ComputeTemplate
 from codelets.codelet_template import CodeletTemplate
 from codelets.adl.graph import ArchitectureNode, StorageNode
