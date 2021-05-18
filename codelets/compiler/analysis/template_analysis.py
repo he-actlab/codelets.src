@@ -16,7 +16,7 @@ def identify_operand_targets(cdlt: CodeletTemplate, hag: ArchitectureNode):
 
     for o in cdlt.ops:
         if isinstance(o, ComputeTemplate):
-            options = hag.primitive_targets(o.op_name)
+            options = hag.compute_op_targets(o.op_name)
             if len(options) == 0:
                 raise RuntimeError(f"{o.op_name} is not a supported operation for the target architecture")
             elif o.is_target_set():
@@ -25,8 +25,10 @@ def identify_operand_targets(cdlt: CodeletTemplate, hag: ArchitectureNode):
                 o.set_parameter('target', options[0])
             else:
                 o.set_param_options('target', options)
-
     return cdlt
+
+def fuse_compute_templates(cdlt: CodeletTemplate, hag: ArchitectureNode):
+    pass
 
 def collect_unset_paths(cdlt: CodeletTemplate, hag: ArchitectureNode):
     unset_paths = {'in': {},

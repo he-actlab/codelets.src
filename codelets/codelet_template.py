@@ -32,7 +32,6 @@ class CodeletTemplate(object):
         self._global_op_map = {}
         # Added, possibly need to consolidate
         self._id_counter = 0
-        self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
         self._loop_param_map = {}
@@ -61,7 +60,6 @@ class CodeletTemplate(object):
         OperandTemplate.current_codelet = None
         last_id = MicroTemplate.loop_stack.pop()
         self._id_counter = deepcopy(MicroTemplate.id_counter)
-        self._loop_ctxt_level = deepcopy(MicroTemplate.loop_ctxt_level)
         self._op_id_counters = deepcopy(MicroTemplate.op_id_counters)
         MicroTemplate.finished_blocks.append(MicroTemplate.current_block)
         self._blocks = list(reversed(MicroTemplate.finished_blocks.copy()))

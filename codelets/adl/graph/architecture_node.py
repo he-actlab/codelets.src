@@ -276,11 +276,22 @@ class ArchitectureNode(Node):
                     return True
         return False
 
-    def primitive_targets(self, name: str):
-        targets = []
+    def _collect_targets(self, prim_name: str, targets: List):
         for n in self.get_subgraph_nodes():
-            if n.has_primitive(name):
+            if n.has_primitive(prim_name):
                 targets.append(n.name)
+            targets = n._collect_targets(prim_name, targets)
+        return targets
+
+    def primitive_targets(self, name: str):
+        targets = self._collect_targets(name, [])
+        return targets
+
+    def compute_op_targets(self, op_name: str):
+        targets = []
+        for target, ops in self.operation_mappings['compute'].items():
+            if op_name in ops:
+                targets.append(target)
         return targets
 
     def has_codelet(self, name):
@@ -392,6 +403,7 @@ class ArchitectureNode(Node):
             return (src, dst) in self.edge_map or (src, dst) in self.parent_ctx_edges
         else:
             return (src, dst) in self.edge_map
+
 
     # TODO: Need to validate that each parameter is correctly mapped
     def add_start_template(self, target, template, template_fns=None):

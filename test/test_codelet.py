@@ -16,7 +16,7 @@ LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 
 def test_collect_unset_paths():
-    test_codelet = DNN_MAPPINGS['elem_add']
+    test_codelet = DNN_MAPPINGS['gemm']
     hag = define_genesys(GENESYS_CFG)
     identify_operand_targets(test_codelet, hag)
     # collect_unset_paths(test_codelet, None)
