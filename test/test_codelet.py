@@ -1,5 +1,6 @@
 import polymath as pm
 from codelets.adl.operation import Operand
+from codelets.adl.graph.graph_algorithms import get_shortest_paths
 from codelets.codelet_template import CodeletTemplate
 from codelets.codelet_implementations import DNN_MAPPINGS
 from codelets.compiler.analysis.template_analysis import collect_unset_paths, identify_operand_targets
@@ -20,12 +21,13 @@ def test_collect_unset_paths():
     hag = define_genesys(GENESYS_CFG)
     identify_operand_targets(test_codelet, hag)
     # collect_unset_paths(test_codelet, None)
+    print(list(get_shortest_paths(hag.all_subgraph_nodes, "DRAM", "SIMD")))
 
 def test_shape_dummy_op():
     with pm.Node(name="test_transpose") as graph:
-        inp = pm.input(name="data", shape=(3,4,5,6))
-        out = pm.output(name="out", shape=(4,3,5,6))
-        test_op = pm.tensor_transpose(inp, out, (1,0,2,3))
+        inp = pm.input(name="data", shape=(3, 4, 5, 6))
+        out = pm.output(name="out", shape=(4, 3, 5, 6))
+        test_op = pm.tensor_transpose(inp, out, (1, 0, 2, 3))
 
     with CodeletTemplate("relu") as cdlt:
         op1_shape = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])

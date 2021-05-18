@@ -16,7 +16,7 @@ class OperandTemplate:
     name: str
     location: str
     operand_type: str
-    src_op: str = field(default=None)
+    writes: List[str] = field(default_factory=list)
     reads: List[str] = field(default_factory=list)
     init_value: Number = field(default=None)
     init_dummy_op: DummyOp = field(default=None)
@@ -47,10 +47,9 @@ class OperandTemplate:
         if op_name not in self.reads:
             self.reads.append(op_name)
 
-    def set_source_op(self, op_name: str):
-        if self.src_op is not None:
-            raise RuntimeError
-        self.src_op = op_name
+    def add_write(self, op_name: str):
+        if op_name not in self.writes:
+            self.writes.append(op_name)
 
     def reorder_shapes(self, permutation: List[int]):
         assert len(permutation) == len(self.shape_list)

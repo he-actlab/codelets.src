@@ -82,7 +82,7 @@ class CodeletTemplate(object):
     def add_input(self, name, shape_list, dtype, location=None, **kwargs):
         assert all([isinstance(s, (int, DummyOp)) for s in shape_list])
         operand = OperandTemplate(name, location, "input",
-                                  src_op=self.cdlt_uid,
+                                  writes=[self.cdlt_uid],
                                   shape_list=shape_list,
                                   default_dtype=dtype)
         self.inputs.append(operand)
@@ -100,8 +100,9 @@ class CodeletTemplate(object):
         self._temps.append(operand)
 
     def get_source_location(self, operand: OperandTemplate):
-        source_op = self.op_map[operand.src_op]
-        assert "transfer" in source_op.op_str and operand == source_op.dst_op
+        # TODO: This should be fixed to prevent ambiguity
+        source_op = self.op_map[operand.writes[-1]]
+        assert isinstance(source_op, TransferTemplate) and operand == source_op.dst_op
         return source_op.src_op.location
 
     @property
@@ -196,14 +197,14 @@ class CodeletTemplate(object):
 
     def get_output_operand(self, op_name: str):
         for t in self.temps:
-            if t.src_op == op_name:
+            if op_name in t.writes:
                 return t
         raise RuntimeError(f"Unable to find output for operation {op_name}")
 
     def get_operation_output(self, op: MicroTemplate):
         output_operand = self.get_output_operand(op.op_str)
         for t in self.ops:
-            if t.op_type == "transfer" and t.src_op == output_operand:
+            if isinstance(t, TransferTemplate) and t.src_op == output_operand:
                 return t.dst_op.location
         raise RuntimeError(f"Unable to find output location for operation {op.op_str}")
 
@@ -283,7 +284,8 @@ class CodeletTemplate(object):
         compute_output = OperandTemplate(f"temp{len(self.temps)}",
                                              compute_target,
                                          "intermediate")
-        compute_output.set_source_op(compute_template.op_str)
+        assert len(compute_output.writes) == 0
+        compute_output.add_write(compute_template.op_str)
         compute_template.set_output_operand(compute_output)
 
         self.add_temp_operand(compute_output)
@@ -293,7 +295,7 @@ class CodeletTemplate(object):
     def constant(self, value, location, dtype):
         assert isinstance(value, (Number, DummyOp))
         operand = OperandTemplate(f"constant{len(self.constants)}", location, "constant",
-                                  src_op=self.cdlt_uid,
+                                  writes=[self.cdlt_uid],
                                   shape_list=[0],
                                   default_dtype=dtype)
 

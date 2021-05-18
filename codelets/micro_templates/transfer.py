@@ -42,8 +42,8 @@ class TransferTemplate(MicroTemplate):
         super(TransferTemplate, self).__init__("transfer", {**param_map, **kwargs}, add_codelet=add_codelet)
         assert isinstance(src_op, OperandTemplate) and isinstance(dst_op, OperandTemplate)
         self.src_op.add_read(self.op_str)
-        if self.dst_op.src_op is None:
-            self.dst_op.set_source_op(self.op_str)
+        self.dst_op.add_write(self.op_str)
+
         self.set_output_operand(self.dst_op)
 
     def __str__(self):
