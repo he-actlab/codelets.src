@@ -1,6 +1,8 @@
 from pathlib import Path
 import os
 from codelets.compiler.program import CodeletProgram
+from codelets.common.datatype import COMMON_DTYPES
+from codelets.codelet_template import CodeletTemplate
 from examples.genesys import compile_genesys_layer, compile_genesys, define_genesys, get_arch
 from dataclasses import is_dataclass
 import numpy as np
@@ -237,3 +239,49 @@ def compare_np_torch(np_fn, torch_fn, inputs, outputs):
         np.testing.assert_allclose(o, torch_outputs[idx].numpy())
 
 
+def gemm_no_accum(order="NPM"):
+    with CodeletTemplate("gemm") as gemm:
+        P = gemm.dummy_op("P", gemm.node.inputs[2].shape[0])
+        N = gemm.dummy_op("N", gemm.node.inputs[0].shape[1])
+        M = gemm.dummy_op("M", gemm.node.inputs[0].shape[0])
+        data = gemm.add_input("data", [M, N], COMMON_DTYPES[0])
+        weight = gemm.add_input("weight", [N, P], COMMON_DTYPES[0])
+        bias = gemm.add_input("bias", [P], COMMON_DTYPES[0])
+        out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
+        zero_constant = gemm.constant(0)
+
+        if order == "NPM":
+            # This should initialize all of "out" on DRAM to zero
+            _ = gemm.transfer(zero_constant, out)
+            with gemm.loop(N) as n:
+                with gemm.loop(P) as p:
+                    with gemm.loop(M) as m:
+                        compute_out = gemm.compute("MUL", [data[m, n], weight[n, p]])
+                        compute_out1 = gemm.compute("ADD", [compute_out, out[m, p]])
+        elif order == "PMN":
+            with gemm.loop(P) as p:
+                with gemm.loop(M) as m:
+                    # This will handle zero initialization of "out" through on chip operations
+                    _ = gemm.transfer(zero_constant, out[m, p])
+                    with gemm.loop(N) as n:
+                        compute_out = gemm.compute("MUL", [data[m, n], weight[n, p]])
+                        compute_out1 = gemm.compute("ADD", [compute_out, out[m, p]])
+
+    return gemm
+
+def conv_no_accum(order="NPM"):
+    pass
+
+
+def gemm_test():
+    M = 52
+    N = 32
+    P = 20
+    x = np.random.rand(M, N)
+    w = np.random.rand(N, P)
+    o = np.zeros((M, P))
+    for n in range(N):
+        for p in range(P):
+            for m in range(M):
+                t = x[m, n] * w[n, p]
+                o[m, p] += t

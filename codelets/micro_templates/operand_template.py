@@ -61,6 +61,9 @@ class OperandTemplate:
                 offsets.append(Offset(i, [], [], []))
             elif isinstance(i, Offset):
                 offsets.append(i)
+            elif isinstance(i, slice):
+                assert i.start == None and i.stop == None and i.step == None
+                continue
             else:
                 assert i.__class__.__name__ == 'LoopTemplate'
                 offsets.append(Offset(i.start, [i.stride], [i.op_str], ['+']))
@@ -194,6 +197,14 @@ class IndexOperandTemplate:
     @property
     def name(self):
         return self.operand.name
+
+    @property
+    def reads(self):
+        return self.operand.reads
+
+    @property
+    def writes(self):
+        return self.operand.writes
 
     def __str__(self):
         offset_str = ",".join([str(o) for o in self.offsets])

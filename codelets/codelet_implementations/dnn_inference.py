@@ -1,7 +1,7 @@
 from codelets.common.datatype import COMMON_DTYPES
 from codelets.codelet_template import CodeletTemplate
 
-def elem_add():
+def elem_add_template():
     with CodeletTemplate("elem_add") as elem_add:
         N = elem_add.dummy_op("N", elem_add.node.inputs[0].shape[0])
         C = elem_add.dummy_op("C", elem_add.node.inputs[0].shape[1])
@@ -20,7 +20,7 @@ def elem_add():
 
     return elem_add
 
-def gemm():
+def gemm_template():
     with CodeletTemplate("gemm") as gemm:
 
         P = gemm.dummy_op("P", gemm.node.inputs[2].shape[0])
@@ -30,30 +30,44 @@ def gemm():
         weight = gemm.add_input("weight", [N, P], COMMON_DTYPES[0])
         bias = gemm.add_input("bias", [P], COMMON_DTYPES[0])
         out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
-
-        compute_out = gemm.compute("MVMUL", [data, weight, bias])
+        with gemm.loop(P) as p:
+            with gemm.loop(M) as m:
+                mvmul_out = gemm.compute("MVMUL", [data[m, :], weight[:, p], bias[p]])
+            compute_out = gemm.compute("ADD", [mvmul_out, bias[p]])
         _ = gemm.transfer(compute_out, out)
-
-    with CodeletTemplate("gemm") as gemm:
-        P = gemm.dummy_op("P", gemm.node.inputs[2].shape[0])
-        N = gemm.dummy_op("N", gemm.node.inputs[0].shape[1])
-        M = gemm.dummy_op("M", gemm.node.inputs[0].shape[0])
-        data = gemm.add_input("data", [M, N], COMMON_DTYPES[0])
-        weight = gemm.add_input("weight", [N, P], COMMON_DTYPES[0])
-        bias = gemm.add_input("bias", [P], COMMON_DTYPES[0])
-        out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
-
-        with gemm.loop(N) as n:
-            with gemm.loop(P) as p:
-                with gemm.loop(M) as m:
-                    compute_out = gemm.compute("MUL", [data, weight])
-            compute_out1 = gemm.compute("ADD", [compute_out, out])
-            _ = gemm.transfer(compute_out1, out)
 
     return gemm
 
+def conv_template():
+    with CodeletTemplate("conv") as conv:
+        OC = conv.dummy_op("OC", conv.node.outputs[0].shape[1])
+        N = conv.dummy_op("N", conv.node.inputs[0].shape[0])
+        IC = conv.dummy_op("IC", conv.node.inputs[0].shape[1])
+        KH = conv.dummy_op("KH", conv.node.inputs[1].shape[2])
+        KW = conv.dummy_op("KW", conv.node.inputs[1].shape[3])
+        OH = conv.dummy_op("OH", conv.node.outputs[0].shape[2])
+        OW = conv.dummy_op("OW", conv.node.outputs[0].shape[3])
+        IH = conv.dummy_op("IH", conv.node.inputs[0].shape[2])
+        IW = conv.dummy_op("IW", conv.node.inputs[0].shape[3])
+        data = conv.add_input("data", [N, IC, IH, IW], COMMON_DTYPES[0])
+        weight = conv.add_input("weight", [OC, IC, KH, KW], COMMON_DTYPES[0])
+        out = conv.add_output("out", [N, OC, OH, OW], COMMON_DTYPES[2])
+        stride = conv.dummy_op("stride", conv.node.stride)
+        # OS ->
+        with conv.loop(OC) as oc:
+            with conv.loop(N) as n:
+                with conv.loop(IC) as ic:
+                    with conv.loop(KH) as kh:
+                        with conv.loop(KW) as kw:
+                            with conv.loop(OH) as y:
+                                with conv.loop(OW) as x:
+                                    compute_out = conv.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw]])
+
+    return conv
+
 
 DNN_MAPPINGS = {
-    'elem_add': elem_add(),
-    'gemm': gemm()
+    'elem_add': elem_add_template(),
+    'gemm': gemm_template(),
+    'conv': conv_template()
 }

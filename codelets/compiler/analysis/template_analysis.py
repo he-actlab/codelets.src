@@ -1,5 +1,5 @@
 
-from codelets.micro_templates import ComputeTemplate
+from codelets.micro_templates import ComputeTemplate, TransferTemplate
 from codelets.codelet_template import CodeletTemplate
 from codelets.adl.graph import ArchitectureNode, StorageNode
 
@@ -26,8 +26,20 @@ def identify_operand_targets(cdlt: CodeletTemplate, hag: ArchitectureNode):
                 o.set_param_options('target', options)
     return cdlt
 
-def fuse_compute_templates(cdlt: CodeletTemplate, hag: ArchitectureNode):
-    pass
+def identify_reductions(cdlt: CodeletTemplate, hag: ArchitectureNode):
+    # First, identify  body of expressions which are being accumulated
+    op_names = [cdlt.cdlt_uid] + [o.op_str for o in cdlt.ops]
+
+    for o in cdlt.ops:
+        if isinstance(o, ComputeTemplate):
+            print(f"Operation: {o.op_str}")
+            for s in o.sources:
+                write_idx = [op_names.index(w) for w in s.writes]
+                read_idx = [op_names.index(r) for r in s.reads]
+                print(f"Op: {s.name}\n"
+                      f"Writes: {s.writes}, {write_idx}\n"
+                      f"Reads: {s.reads}, {read_idx}")
+            print()
 
 def collect_unset_paths(cdlt: CodeletTemplate, hag: ArchitectureNode):
     unset_paths = {'in': {},
