@@ -34,7 +34,6 @@ class CodeletTemplate(object):
         self._id_counter = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
-        self._loop_param_map = {}
         self._blocks = None
 
         if cdlt_id:
@@ -105,6 +104,21 @@ class CodeletTemplate(object):
         assert isinstance(source_op, TransferTemplate) and operand == source_op.dst_op
         return source_op.src_op.location
 
+    def get_operand(self, operand_name: str):
+        for op in self.operands:
+            if op.name == operand_name:
+                return op
+
+        for t in self.temps:
+            if t.name == operand_name:
+                return t
+
+        for c in self.constants:
+            if c.name == operand_name:
+                return c
+
+        raise RuntimeError(f"No operand with name {operand_name} in {self.op_name}.")
+
     @property
     def dummy_ops(self):
         return self._dummy_ops
@@ -149,10 +163,6 @@ class CodeletTemplate(object):
     @property
     def global_op_map(self) -> Dict[int, MicroTemplate]:
         return self._global_op_map
-
-    @property
-    def loop_param_map(self):
-        return self._loop_param_map
 
     # TODO: Memoize this method
     @property
@@ -382,6 +392,30 @@ class CodeletTemplate(object):
         # Codelet.codelet_instance_id += 1
         # cdlt._instance_id = Codelet.codelet_instance_id
         # return cdlt
+
+    def copy(self):
+        obj = type(self).__new__(self.__class__)
+        obj._op_name = self.op_name
+        obj._node_placeholder = NodePlaceholder(self.op_name)
+        obj._hag_placeholder = HAGPlaceholder(self.op_name)
+        obj._dummy_ops = {k: v.copy(obj) for k, v in self.dummy_ops.items()}
+
+        obj._inputs = [i.copy() for i in self.inputs]
+        obj._outputs = [o.copy() for o in self.outputs]
+        obj._temps = [t.copy() for t in self.temps]
+        obj._constants = [c.copy() for c in self.constants]
+        obj._op_id_counters = deepcopy(self._op_id_counters)
+        obj._id_counter = self._id_counter
+        obj._compilation_params = deepcopy(self._compilation_params)
+        obj._cdlt_id = self.cdlt_id
+        obj._ops = []
+        obj._op_map = {}
+        obj._global_op_map = {}
+
+        for o in self.ops:
+            obj.add_op(o.copy(obj))
+
+        return obj
 
     def emit(self, output_type):
         if output_type not in ["operations", "operations_idx"]:

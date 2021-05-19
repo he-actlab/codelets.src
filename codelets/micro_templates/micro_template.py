@@ -1,22 +1,43 @@
 from collections import defaultdict, deque
 from codelets.adl.operation import Loop, Compute, Configure, Transfer
+from codelets.common.datatype import Datatype
 from codelets.common.flex_param import FlexParam
-from functools import singledispatch
 from typing import List, Dict, Union, Any
 from copy import copy
-import numpy as np
 from .dummy_op import DummyOp, DummyParam
-from .operand_template import OperandTemplate, IndexOperandTemplate, Offset
+from .operand_template import OperandTemplate, IndexOperandTemplate
 
 INITIALIZER_FN_MAP = {'loop': Loop,
                       'config': Configure,
                       'transfer': Transfer,
                       'compute': Compute}
 
+def copy_object(param, cdlt):
+
+    if isinstance(param, list):
+        new_param = []
+        for p in param:
+            new_param.append(copy_object(p, cdlt))
+    elif isinstance(param, tuple):
+        new_param = []
+        for p in param:
+            new_param.append(copy_object(p, cdlt))
+        new_param = tuple(new_param)
+    elif isinstance(param, dict):
+        new_param = {}
+        for k, v in param.items():
+            new_param[k] = copy_object(v, cdlt)
+    elif isinstance(param, (DummyParam, DummyOp)):
+        new_param = param.copy(cdlt)
+    elif isinstance(param, Datatype):
+        new_param = Datatype(param.type, param.bitwidth, param.fractional, param.exp)
+    else:
+        new_param = param
+    return new_param
+
 class MicroTemplate(object):
 
-    BASE_ATTRS = ['loop_id', 'loop_level', 'op_id', 'global_op_id', 'target', 'operation_type',
-                  'dependencies', 'param_symbols', 'target', 'operation_type', 'instructions',
+    BASE_ATTRS = ['loop_id', 'loop_level', 'op_id', 'global_op_id', 'target', 'operation_type', 'param_symbols', 'target', 'operation_type', 'instructions',
                   'required_params', 'resolved_params', 'dependencies']
     BASE_KWARG_NAMES = ['codelet', 'target', 'instructions', 'resolved_params', 'param_symbols',
                         'add_codelet', 'dependencies']
@@ -33,8 +54,7 @@ class MicroTemplate(object):
     def __init__(self, operation_type: str,
                  param_map: Dict[str, Union[FlexParam, int, None]],
                  codelet=None,
-                 add_codelet=True,
-                 dependencies=None):
+                 add_codelet=True):
 
         self._loop_id = MicroTemplate.current_loop_id()
         self._loop_level = copy(MicroTemplate.loop_ctxt_level)
@@ -44,7 +64,6 @@ class MicroTemplate(object):
         self._global_op_id = MicroTemplate.id_counter
         MicroTemplate.op_id_counters[operation_type] += 1
         MicroTemplate.id_counter += 1
-        self._dependencies = dependencies or []
         self._operation_type = operation_type
         self._output_operand = None
         self._param_map = param_map
@@ -119,14 +138,6 @@ class MicroTemplate(object):
     @property
     def op_str(self):
         return f"{self.op_type}{self.op_id}"
-
-    @property
-    def dependencies(self):
-        return self._dependencies
-
-    @dependencies.setter
-    def dependencies(self, dependencies):
-        self._dependencies = dependencies
 
     @staticmethod
     def reset():
@@ -218,6 +229,30 @@ class MicroTemplate(object):
         assert param_name in self.param_map and not self.is_param_set(param_name) and not self.has_param_options(param_name)
         self.param_options[param_name] = options
 
+    def copy(self, cdlt):
+        obj = type(self).__new__(self.__class__)
+        obj._loop_id = self._loop_id
+        obj._loop_level = self._loop_level
+        obj._op_id = self._op_id
+        obj._global_op_id = self._global_op_id
+        obj._operation_type = self._operation_type
+        obj._output_operand = None
+        if self.output_operand:
+            obj._output_operand = cdlt.get_operand(self.output_operand.name)
+
+        obj._param_map = {}
+
+        for key, param in self.param_map.items():
+            obj._param_map[key] = copy_object(param, obj)
+
+        obj._param_options = {}
+        for key, param in self.param_options.items():
+            obj._param_options[key] = copy_object(param, obj)
+
+        obj._param_hints = {}
+        for key, param in self.param_hints.items():
+            obj._param_hints[key] = copy_object(param, obj)
+        return obj
 
     @property
     def arg_dummy_strings(self):
