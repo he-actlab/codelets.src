@@ -1,6 +1,7 @@
 from numbers import Number
 from typing import List, Dict, Union, Tuple
-from dataclasses import dataclass, field
+
+from dataclasses import dataclass, field, replace
 from functools import singledispatch
 import numpy as np
 
@@ -10,6 +11,28 @@ from .dummy_op import DummyOp, DummyParam
 OPERATION_TEMPLATE_CLASSES = ['MicroTemplate', 'LoopTemplate', 'ComputeTemplate', 'ConfigureTemplate',
                               'TransferTemplate']
 
+def copy_object(param, cdlt=None):
+
+    if isinstance(param, list):
+        new_param = []
+        for p in param:
+            new_param.append(copy_object(p, cdlt))
+    elif isinstance(param, tuple):
+        new_param = []
+        for p in param:
+            new_param.append(copy_object(p, cdlt))
+        new_param = tuple(new_param)
+    elif isinstance(param, dict):
+        new_param = {}
+        for k, v in param.items():
+            new_param[k] = copy_object(v, cdlt)
+    elif isinstance(param, (DummyParam, DummyOp)):
+        new_param = param.copy(cdlt)
+    elif isinstance(param, Datatype):
+        new_param = Datatype(param.type, param.bitwidth, param.fractional, param.exp)
+    else:
+        new_param = param
+    return new_param
 
 @dataclass
 class OperandTemplate:
@@ -72,14 +95,37 @@ class OperandTemplate:
                 slist.append(s)
         return slist
 
+    def copy(self):
+        operand = OperandTemplate(
+            name=self.name,
+            location=self.location,
+            operand_type=self.operand_type,
+            writes=self.writes.copy(),
+            reads=self.reads.copy(),
+            init_value=self.init_value,
+            init_dummy_op=copy_object(self.init_dummy_op),
+            shape_list=copy_object(self.shape_list),
+            default_dtype=copy_object(self.default_dtype),
+            extra_kwargs=copy_object(self.extra_kwargs)
+        )
+        return operand
+
+
+
 @dataclass
 class Offset:
     base: Union[int, DummyOp]
     scales: List[Union[int, None]]
     loops: List[Union[str, None]]
     signs: List[Union[str]]
-    # signs = + or -
-    # offset = base (+) loops[0]*scales[0] (+) loops[1]*scales[1] ...
+
+    def copy(self, cdlt):
+        off = Offset(base=copy_object(self.base, cdlt),
+                     scales=copy_object(self.scales, cdlt),
+                     loops=copy_object(self.loops, cdlt),
+                     signs=copy_object(self.signs, cdlt))
+        return off
+
     @property
     def name(self):
         if len(self.loops) == 0:
@@ -153,9 +199,13 @@ class IndexOperandTemplate:
         offset_str = ",".join([str(o) for o in self.offsets])
         return f"{self.operand}[{offset_str}]"
 
+    def copy(self, cdlt):
+        offset = tuple([o.copy(cdlt) for o in self.offsets])
+        op = cdlt.get_operand(self.operand.name)
+        return IndexOperandTemplate(operand=op, offsets=offset)
+
 
 def evaluate_args(args, instance_args, preserve_types):
-
 
     if isinstance(args, list):
         eval_arg = []
@@ -218,3 +268,5 @@ def _(op1: Offset, op2: Offset):
                   op1.scales + op2.scales,
                   op1.loops + op2.loops,
                   op1.signs + op2.signs)
+
+

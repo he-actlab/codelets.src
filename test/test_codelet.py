@@ -23,6 +23,27 @@ def test_collect_unset_paths():
     # collect_unset_paths(test_codelet, None)
     print(list(get_shortest_paths(hag.all_subgraph_nodes, "DRAM", "SIMD")))
 
+def test_codelet_copy():
+    test_codelet = DNN_MAPPINGS['elem_add']
+
+    test_copy = test_codelet.copy()
+    test_copy._cdlt_id = 1
+    assert test_copy.cdlt_uid != test_codelet.cdlt_uid
+    test_op = test_copy.ops[2]
+    template_op = test_codelet.ops[2]
+    assert test_op.op_str == template_op.op_str
+    test_op._op_id = 8
+    assert test_op.op_str != template_op.op_str
+
+    test_inp = test_copy.inputs[0]
+    template_inp = test_codelet.inputs[0]
+    assert test_inp.writes == template_inp.writes
+    test_inp.writes.append("loop0")
+    assert test_inp.writes != template_inp.writes
+
+
+
+
 def test_shape_dummy_op():
     with pm.Node(name="test_transpose") as graph:
         inp = pm.input(name="data", shape=(3, 4, 5, 6))
