@@ -302,7 +302,7 @@ class CodeletTemplate(object):
 
         return compute_output
 
-    def constant(self, value, location, dtype):
+    def constant(self, value, location=None, dtype=None):
         assert isinstance(value, (Number, DummyOp))
         operand = OperandTemplate(f"constant{len(self.constants)}", location, "constant",
                                   writes=[self.cdlt_uid],

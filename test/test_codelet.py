@@ -3,13 +3,13 @@ from codelets.adl.operation import Operand
 from codelets.adl.graph.graph_algorithms import get_shortest_paths
 from codelets.codelet_template import CodeletTemplate
 from codelets.codelet_implementations import DNN_MAPPINGS
-from codelets.compiler.analysis.template_analysis import collect_unset_paths, identify_operand_targets
+from codelets.compiler.analysis.template_analysis import identify_operand_targets, identify_reductions
 from examples.genesys import OP_DTYPES, define_genesys, GENESYS_CFG
 # from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
 # from examples.genesys.genesys_codelets import averagepool2d as avgpool_template,\
 #     gemm as gemm_template
 from pathlib import Path
-from .util import compare_dataclasses
+from .util import compare_dataclasses, gemm_no_accum
 
 CWD = Path(f"{__file__}").parent
 BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
@@ -42,6 +42,13 @@ def test_codelet_copy():
     assert test_inp.writes != template_inp.writes
 
 
+
+def test_reduction_identification():
+    hag = define_genesys(GENESYS_CFG)
+
+    gemm_op = DNN_MAPPINGS['gemm']
+    gemm_no_acc = gemm_no_accum()
+    identify_reductions(gemm_no_acc, hag)
 
 
 def test_shape_dummy_op():

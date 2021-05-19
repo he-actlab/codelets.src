@@ -30,7 +30,7 @@ INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
 LD_ST_MAP = "{'LD': 0, 'ST': 1}"
 
 
-def define_genesys(cfg):
+def define_genesys(cfg, pe_array_elements=False):
     # TODO: Add capabilties to PE array not systolic_array
 
     with ComputeNode("Genesys") as hag:
@@ -57,7 +57,12 @@ def define_genesys(cfg):
                            on_chip=False)
 
         with ComputeNode("systolic_array") as systolic_array:
-            pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])
+            if pe_array_elements:
+                pass
+                # with ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']]) as pe_array:
+                #     for n in range()
+            else:
+                pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])
             # TODO: Need to formalize the storage node sizes by # elements, width, and datatype
             ibuf = StorageNode("IBUF",
                                access_type='RAM', banks=cfg['ARRAY_N'],
