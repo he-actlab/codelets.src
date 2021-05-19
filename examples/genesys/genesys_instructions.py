@@ -43,11 +43,13 @@ def loop_cfg_instr():
     return instr_temp
 
 def specific_loop_instr():
-    ic_loop = Field("IC_LOOP", 6)
-    ic_loop.set_value(1 << 5)
+    red_loop = Field("REDUCTION_LOOP", 6)
+    red_loop.set_value(1 << 5)
     loop_id = Field("LOOP_ID", 6)
-    loop_type = Field("LOOP_TYPE", 16, value_names={"INNER": 1, "OUTER": 0})
-    instr_temp = Instruction("SA_LOOP_IC", 9, OPCODE_WIDTH, (ic_loop, loop_id, loop_type))
+    loop_dim = Field("LOOP_DIM", 2, value_names={"IC": 0, "KW": 1, "KH": 2, "N": 0})
+    loop_type = Field("LOOP_TYPE", 14, value_names={"INNER": 1, "OUTER": 0})
+    instr_temp = Instruction("SA_REDUCTION_LOOP", 9, OPCODE_WIDTH, (red_loop, loop_id, loop_type, loop_dim))
+
 
     return instr_temp
 
