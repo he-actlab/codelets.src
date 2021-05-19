@@ -52,18 +52,18 @@ def test_extracted_layer(source_model, layer_name):
     print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
-    "resnet18_train_batchnormalization",
-    "resnet18_relu",
-    "resnet18_add",
-    "resnet18_conv",
     "resnet18_gemm",
-    "resnet18_globalaveragepool",
-    "lenet_averagepool",
-    "lenet_gemm",
-    "lenet_conv",
+    # "resnet18_train_batchnormalization",
+    # "resnet18_relu",
+    # "resnet18_add",
+    # "resnet18_conv",
+    # "resnet18_globalaveragepool",
+    # "lenet_averagepool",
+    # "lenet_gemm",
+    # "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
-    batch_size = 1
+    batch_size = 16
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -87,20 +87,16 @@ def test_genesys_layers(layer_name):
                             do_tile_stage=True,
                             print_config=False
                               )
-    # print(program.emit("operations_idx"))
-    validate_program(program, print_difference=True)
+    print(program.emit("string_final"))
+    print(program.emit("operations_idx"))
+    # validate_program(program, print_difference=True)
 
-def test_reference_creation():
-    batch_size = 1
-    update_cfg_dtypes = False
-    names = ["resnet18", "lenet", "lenet_train"]
-    # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool", "lenet_averagepool", "lenet_conv", "lenet_gemm",
-    #              "resnet18_train_batchnormalization"]
-    create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
-                             verbose=False)
+# def test_reference_creation():
+#     batch_size = 1
+#     update_cfg_dtypes = False
+#     names = ["resnet18", "lenet", "lenet_train"]
+#     # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool", "lenet_averagepool", "lenet_conv", "lenet_gemm",
+#     #              "resnet18_train_batchnormalization"]
+#     create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
+#                              verbose=False)
 #
-# def test_validate_output():
-#     from codelets.codelet_impl import Codelet
-#     import pprint
-#     import inspect
-#     pprint.pprint(inspect.getmembers(Codelet,  lambda a: not(inspect.isroutine(a))))
