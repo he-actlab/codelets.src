@@ -35,6 +35,7 @@ class TilingInfo:
     level_factors: Dict[int, Dict] = field(default_factory=lambda: defaultdict(dict))
     factor_fn_name: str = field(default='default')
     print_debug: bool = field(default=True)
+    dims: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         for i in range(self.levels):
@@ -45,37 +46,24 @@ class TilingInfo:
             fixed_dims = cdlt.compilation_params['fixed_tile_dims']
         else:
             fixed_dims = []
+        assert len(fixed_dims) == 0
 
-
+        # TODO: Need to validate this across all loops
         for l in self.loop_dependencies:
+            dim = self.loop_dim_map[l]
+            if dim in self.level_factors[0]:
+                continue
+            self.dims.append(dim)
+            # TODO: update this for when dims are fixed
             loop = cdlt.op_map[l]
 
-            # loop = cdlt.op_map[l]
-            if cdlt.domain_loop_map[l] in fixed_dims:
-                self.level_factors[0][loop.op_str] = [1]
-            else:
-                self.level_factors[0][loop.op_str] = FACTOR_FN_MAP[self.factor_fn_name](loop.iter_count, 0)
-            self.shapes[0][loop.op_str] = loop.iter_count
-            self.selected_splits[0][loop.op_str] = 1
-            self.accumulated_splits[loop.op_str] = 1
-
-        # for l in self.loop_dependencies:
-        #     dim = self.loop_dim_map[l]
-        #     if dim in self.level_factors[0]:
-        #         continue
-        #     # loop = cdlt.op_map[l]
-        #     if cdlt.domain_loop_map[l] in fixed_dims:
-        #         self.level_factors[0][loop.op_str] = [1]
-        #     else:
-        #         self.level_factors[0][loop.op_str] = FACTOR_FN_MAP[self.factor_fn_name](loop.iter_count, 0)
-        #     self.shapes[0][loop.op_str] = loop.iter_count
-        #     self.selected_splits[0][loop.op_str] = 1
-        #     self.accumulated_splits[loop.op_str] = 1
-
-        if 0 in cdlt.domain_tiling:
-            first_perm = [tuple(cdlt.domain_tiling[0][ld] for ld in self.loop_dependencies)]
-        else:
-            first_perm = product(*tuple(self.level_factors[0].values()))
+            # TODO: replace iter_count with dimension
+            self.level_factors[0][dim] = FACTOR_FN_MAP[self.factor_fn_name](loop.iter_count, 0)
+            self.shapes[0][dim] = loop.iter_count
+            self.selected_splits[0][dim] = 1
+            self.accumulated_splits[dim] = 1
+        assert 0 not in cdlt.domain_tiling
+        first_perm = product(*tuple(self.level_factors[0].values()))
 
         return first_perm
 
@@ -99,9 +87,9 @@ class TilingInfo:
         self.tile_hints[name] = hint
 
     def check_tile_hints(self, level, loop_deps, sizes, splits):
-
+        #TODO: Check if this works when there are actual tile hints
         for l, th in self.tile_hints[level].items():
-            idx = loop_deps.index(l)
+            idx = self.dims.index(self.loop_dim_map[l])
             size = sizes[idx]
             split = splits[idx]
             valid = th.evaluate_fn(size, split)
@@ -121,7 +109,7 @@ class TilingInfo:
         pass
 
     def get_permutation_map(self, perm):
-        return {l: perm[i] * self.accumulated_splits[l] for i, l in enumerate(self.loop_dependencies)}
+        return {l: perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]] for i, l in enumerate(self.loop_dependencies)}
 
     def validate_splits(self, cdlt, perm, level):
         valid_splits = perm
@@ -162,7 +150,7 @@ class TilingInfo:
 
     def get_tile_permutations(self, level, perm_stack, cdlt):
         if level in cdlt.domain_tiling:
-            perms = [tuple(cdlt.domain_tiling[level][ld] for ld in self.loop_dependencies)]
+            perms = [tuple(cdlt.domain_tiling[level][ld] for ld in self.dims)]
         else:
             perms = perm_stack[level - 1]
 
@@ -196,18 +184,9 @@ class TilingInfo:
 
     def get_level_tiling(self, cdlt, splits, level):
 
-        if 'fixed_tile_dims' in cdlt.compilation_params:
-            fixed_dims = cdlt.compilation_params['fixed_tile_dims']
-        else:
-            fixed_dims = []
-
-        for l in self.loop_dependencies:
+        for l in self.dims:
             self.shapes[level][l] = self.shapes[level-1][l] // splits[l]
-
-            if cdlt.domain_loop_map[l] in fixed_dims:
-                self.level_factors[level][l] = [1]
-            else:
-                self.level_factors[level][l] = self.run_factor_fn(self.shapes[level][l], level)
+            self.level_factors[level][l] = self.run_factor_fn(self.shapes[level][l], level)
 
         perms = product(*tuple(self.level_factors[level].values()))
         return perms

@@ -229,12 +229,8 @@ class CodeletProgram(object):
 
     def instantiate_codelet(self, node):
         cdlt_template = self.codelet_templates[node.op_name]
-
-        if isinstance(cdlt_template, Codelet):
-            cdlt = cdlt_template.copy(pre_increment=True)
-        else:
-            assert isinstance(cdlt_template, CodeletTemplate)
-            cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+        assert isinstance(cdlt_template, CodeletTemplate), f"Invalid template: {cdlt_template}"
+        cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
@@ -415,6 +411,9 @@ class CodeletProgram(object):
                 cdlt_tmplt = self.codelet_templates[template_name]
                 for fn in fns:
                     cdlt_tmplt = fn.run(self, cdlt_tmplt)
+                    if not isinstance(cdlt_tmplt, CodeletTemplate):
+                        raise RuntimeError(f"Compilation stage {fn.name}"
+                                           f" does not return codelet template.")
                 self.codelet_templates[template_name] = cdlt_tmplt
 
     def run_preprocessing_stages(self, node_sequence, codelets, verbose=False):
@@ -493,6 +492,8 @@ class CodeletProgram(object):
                 cdlt = codelets[n.name]
 
                 for fn in fns:
+
+
                     if cdlt.is_noop() and fn.skip_noops:
                         if verbose:
                             print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")

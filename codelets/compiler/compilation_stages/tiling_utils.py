@@ -128,6 +128,7 @@ def find_valid_splits(cdlt, p, lvl,
             break
     return valid_splits
 
+
 def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name):
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level
@@ -142,14 +143,15 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
 
         loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
 
-
     tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
                            cdlt.domain_loop_map,
                            len(list(cdlt.tile_levels.keys())),
                            loop_dependencies,
                            level_accesses, factor_fn_name=factor_fn_name)
-
+    # TODO: IF loop ordering is specified, need to figure out how to handle multiple loop blocks over the same
+    # dimension
     tile_info.update_loop_order(cdlt)
+
     tile_info = get_tile_constraints(cdlt, hag, tile_info)
     first_perm = tile_info.initialize_shapes(cdlt)
     perm_stack = deque()
@@ -158,6 +160,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     level = 1
     level_counter = defaultdict(int)
     loop_deps_fixed = tuple(tile_info.loop_dependencies)
+    loop_dims_fixed = tuple(tile_info.dims)
     parent_perms = deque()
     prev_perm = None
     parent_perms.append(prev_perm)
@@ -168,11 +171,11 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
         assert perms is not None
         valid_splits = None
-        fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.loop_dependencies])
+        fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
 
         for p in perms:
             level_counter[level] += 1
-            perm_shapes = get_sizes_from_splits(loop_deps_fixed, fixed_shapes, p)
+            perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
@@ -180,7 +183,8 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
 
             if valid_splits:
                 prev_perm = p
-                valid_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in enumerate(valid_splits)}
+                valid_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
+                                enumerate(valid_splits)}
                 break
 
         if not valid_splits:
@@ -195,11 +199,11 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
             level += 1
 
     if level == 0:
-        raise RuntimeError(f"Unable to find adequate tiling for Codelet:"
-                       f"Codelet Dimensions: {cdlt.operand_dim_mapping()}\n"
+        raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
+                           f"Dimensions: {cdlt.operand_dim_mapping()}\n"
                            f"Times per level: {level_counter}\n"
-                       f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
-                       f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n")
+                           f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
+                           f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n")
     # Lastly, update operands
     for o in cdlt.operands:
 
@@ -214,7 +218,12 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
             a.set_offset_map(cdlt, tile_info.shapes)
 
     # TODO: Store all information int he codelet
-    cdlt._domain_tiling = tile_info.selected_splits
-    cdlt._domain_loop_map = tile_info.shapes
-
+    cdlt._domain_tiling = {}
+    cdlt._domain_loop_map = {}
+    for l, dim_splits in tile_info.selected_splits.items():
+        cdlt._domain_tiling[l] = {}
+        cdlt._domain_loop_map[l] = {}
+        for ld in tile_info.loop_dependencies:
+            cdlt._domain_tiling[l][ld] = dim_splits[tile_info.loop_dim_map[ld]]
+            cdlt._domain_loop_map[l][ld] = tile_info.shapes[l][tile_info.loop_dim_map[ld]]
     return cdlt
