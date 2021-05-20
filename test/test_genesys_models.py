@@ -47,7 +47,7 @@ def test_srdfg_creation():
             print(f"{name}: {node.op_name}")
 
 @pytest.mark.parametrize('model_name',[
-    "lenetbn",
+    # "lenetbn",
     # "lenetbn_train",
     # "resnet50_train",
     # "resnet18",
@@ -77,7 +77,7 @@ def test_genesys_model(model_name):
     tiling_path = None
 
     # If this is changed, the batch size will updated for the model
-    batch_size = 1
+    batch_size = 4
 
     # If you had previously never stored tiling for this program, store it
     store_tiling = False

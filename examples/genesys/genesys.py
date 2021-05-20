@@ -189,8 +189,7 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
 
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
-    # layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    # graph = layout_pass(graph)
+
     return graph
 
 def get_transformed_srdfg(model_name,
