@@ -23,8 +23,11 @@ def update_genesys_cfg_from_dtypes():
 
 @pytest.mark.parametrize('source_model, layer_name',[
     # ("lenet", "conv"),
-    # ("resnet18_train", "batchnorm_grad"),
-    ("lenetbn_train", "batchnorm_grad"),
+    ("resnet18_train", "batchnorm_grad"),
+    # ("resnet18_train", "batch_norm"),
+    # ("lenetbn_train", "batchnorm_grad"),
+    # ("lenetbn_train", "batch_norm"),
+    # ("lenetbn", "mean_var"),
     # ("resnet18_train", "cross_entropy_loss"),
     # ("lenet_train", "cross_entropy_loss"),
     # ("lenet_train", "cross_entropy_loss_grad"),
@@ -49,21 +52,21 @@ def test_extracted_layer(source_model, layer_name):
                                               factor_fn='default',
                                               batch_size=batch_size,
                                               print_config=False)
-    print(program.emit("operations_idx"))
+    # print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
     "resnet18_gemm",
     # "resnet18_train_batchnormalization",
-    # "resnet18_relu",
-    # "resnet18_add",
-    # "resnet18_conv",
-    # "resnet18_globalaveragepool",
-    # "lenet_averagepool",
-    # "lenet_gemm",
-    # "lenet_conv",
+    "resnet18_relu",
+    "resnet18_add",
+    "resnet18_conv",
+    "resnet18_globalaveragepool",
+    "lenet_averagepool",
+    "lenet_gemm",
+    "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
-    batch_size = 16
+    batch_size = 1
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -87,16 +90,16 @@ def test_genesys_layers(layer_name):
                             do_tile_stage=True,
                             print_config=False
                               )
-    print(program.emit("string_final"))
     print(program.emit("operations_idx"))
-    # validate_program(program, print_difference=True)
+    validate_program(program, print_difference=True)
 
-# def test_reference_creation():
-#     batch_size = 1
-#     update_cfg_dtypes = False
-#     names = ["resnet18", "lenet", "lenet_train"]
-#     # names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool", "lenet_averagepool", "lenet_conv", "lenet_gemm",
-#     #              "resnet18_train_batchnormalization"]
-#     create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
-#                              verbose=False)
+def test_reference_creation():
+    batch_size = 1
+    update_cfg_dtypes = False
+    # names = ["resnet18", "lenet", "lenet_train"]
+    # names = []
+    names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool", "lenet_averagepool", "lenet_conv", "lenet_gemm",
+                 "resnet18_train_batchnormalization"]
+    create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
+                             verbose=False)
 #

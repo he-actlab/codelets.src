@@ -177,6 +177,21 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
         out_cfg = GENESYS_CFG
     return out_cfg
 
+def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
+    if batch_size > 1:
+        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
+        graph = batch_size_pass(graph)
+
+    if train:
+        if verbose:
+            print(f"Generating training graph for {graph.name}")
+        graph = pm.create_training_graph(graph)
+
+    multi_dim_pass = pm.RenameMultiDimOps()
+    graph = multi_dim_pass(graph)
+    # layout_pass = pm.UpdateLayout('nchw', 'nhwc')
+    # graph = layout_pass(graph)
+    return graph
 
 def get_transformed_srdfg(model_name,
                           train=False,
@@ -189,20 +204,7 @@ def get_transformed_srdfg(model_name,
     if train:
         model_name = f"{model_name}_train"
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-
-    if batch_size > 1:
-        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
-        graph = batch_size_pass(graph)
-
-    if train:
-        if verbose:
-            print(f"Generating training graph for {model_name}")
-        graph = pm.create_training_graph(graph)
-
-    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    multi_dim_pass = pm.RenameMultiDimOps()
-    graph = multi_dim_pass(graph)
-    graph = layout_pass(graph)
+    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
     return graph
 
 def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
@@ -244,20 +246,7 @@ def compile_genesys(model_name,
     if train:
         model_name = f"{model_name}_train"
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-
-    if batch_size > 1:
-        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
-        graph = batch_size_pass(graph)
-
-    if train:
-        if verbose:
-            print(f"Generating training graph for {model_name}")
-        graph = pm.create_training_graph(graph)
-
-    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    multi_dim_pass = pm.RenameMultiDimOps()
-    graph = multi_dim_pass(graph)
-    graph = layout_pass(graph)
+    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -346,13 +335,8 @@ def compile_genesys_layer(layer_file,
         def_cfg = GENESYS_CFG
 
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
-    if batch_size > 1:
-        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
-        graph = batch_size_pass(graph)
-    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    multi_dim_pass = pm.RenameMultiDimOps()
-    graph = multi_dim_pass(graph)
-    graph = layout_pass(graph)
+    graph = run_srdfg_passes(graph, train=False, batch_size=batch_size, verbose=verbose)
+
     if load_genesys_filename is None:
         genesys = define_genesys(def_cfg)
     else:
@@ -435,7 +419,8 @@ def compile_extracted_genesys_layer(model_name,
                                     genesys_cfg=None,
                                     dtypes=None,
                                     print_config=True,
-                                    factor_fn='default'):
+                                    factor_fn='default',
+                                    specific_layer_name=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
 
     dtypes = dtypes or GENESYS_DTYPES
@@ -450,21 +435,7 @@ def compile_extracted_genesys_layer(model_name,
     if train:
         model_name = f"{model_name}_train"
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-
-    if batch_size > 1:
-        batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
-        graph = batch_size_pass(graph)
-
-    if train:
-        if verbose:
-            print(f"Generating training graph for {model_name}")
-        graph = pm.create_training_graph(graph)
-
-    layout_pass = pm.UpdateLayout('nchw', 'nhwc')
-    multi_dim_pass = pm.RenameMultiDimOps()
-    graph = multi_dim_pass(graph)
-    graph = layout_pass(graph)
-
+    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
     found_layer = False
     for node in list(graph.nodes.values()):
         if not isinstance(node, (pm.write, pm.placeholder)):

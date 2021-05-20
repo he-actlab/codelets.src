@@ -69,111 +69,81 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
     return cdlt
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
-    if not isinstance(template, CodeletTemplate):
-        return template
+
+    if template.op_name in ["avg_pool", 'global_avg_pool']:
+        template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+
+    if template.op_name == "mean_var":
+        template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+
+    if template.op_name in ["conv", "conv_bias"]:
+        template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
+        template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
+
+    if template.op_name in SA_OPS:
+        inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
+        out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
+
+        inp_dim = template.inputs[0].shape_list[-1]
+        out_dim = template.outputs[0].shape_list[-1]
+        dummy_inp_dim = template.node.inputs[0].shape[-1]
+        dummy_out_dim = template.node.outputs[0].shape[-1]
+        template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
+        template.update_dummy_op(out_dim.name, dummy_out_dim + (out_constr - dummy_out_dim) % out_constr)
     else:
-        if template.op_name in ["avg_pool", 'global_avg_pool']:
-            template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-
-        if template.op_name == "mean_var":
-            template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-
-        if template.op_name in ["conv", "conv_bias"]:
-            template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
-            template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
-
-        if template.op_name in SA_OPS:
-            inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
-            out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
-
-            inp_dim = template.inputs[0].shape_list[-1]
-            out_dim = template.outputs[0].shape_list[-1]
-            dummy_inp_dim = template.node.inputs[0].shape[-1]
-            dummy_out_dim = template.node.outputs[0].shape[-1]
-            template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
-            template.update_dummy_op(out_dim.name, dummy_out_dim + (out_constr - dummy_out_dim) % out_constr)
-        else:
-            constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
-            updated_dims = []
-            for idx, i in enumerate(template.inputs):
-                if i.shape_list_names[-1] not in updated_dims:
-                    dim = i.shape_list[-1]
-                    dummy_dim = template.node.inputs[idx].shape[-1]
-                    template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
-                    updated_dims.append(dim.name)
-
-            for idx, o in enumerate(template.outputs):
-                if o.shape_list_names[-1] not in updated_dims:
-                    dim = o.shape_list[-1]
-                    dummy_dim = template.node.outputs[idx].shape[-1]
-                    template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
-                    updated_dims.append(dim.name)
-
-            # inp_dim = template.inputs[0].shape_list[-1]
-            # out_dim = template.outputs[0].shape_list[-1]
-            # dummy_inp_dim = template.node.inputs[0].shape[-1]
-            # dummy_out_dim = template.node.outputs[0].shape[-1]
-            # template.update_dummy_op(inp_dim.name, dummy_inp_dim + (constr - dummy_inp_dim) % constr)
-            # template.update_dummy_op(out_dim.name, dummy_out_dim + (constr - dummy_out_dim) % constr)
-
-        return template
-
-def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
-    if not isinstance(template, CodeletTemplate):
-        return template
-    else:
-        reordered_operands = {}
-        updated_ops = []
+        constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
+        updated_dims = []
         for idx, i in enumerate(template.inputs):
-            if i.shape_list_names in TRANSPOSED_SHAPES:
-                for sidx, s in enumerate(i.shape_list):
-                    if s.name not in updated_ops:
-                        template.update_dummy_op(s.name, template.node.inputs[idx].shape[TRANSPOSE_POS[sidx]])
-                        updated_ops.append(s.name)
-                i.reorder_shapes(TRANSPOSE_PERM)
-                reordered_operands[i.name] = TRANSPOSE_PERM
-            elif i.shape_list_names in FLIP_SHAPES:
-                for sidx, s in enumerate(i.shape_list):
-                    if s.name not in updated_ops:
-                        template.update_dummy_op(s.name, template.node.inputs[idx].shape[FLIP_SHAPE_PERM[sidx]])
-                        updated_ops.append(s.name)
-
-                i.reorder_shapes(FLIP_SHAPE_PERM)
-                reordered_operands[i.name] = FLIP_SHAPE_PERM
+            if i.shape_list_names[-1] not in updated_dims:
+                dim = i.shape_list[-1]
+                dummy_dim = template.node.inputs[idx].shape[-1]
+                template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
+                updated_dims.append(dim.name)
 
         for idx, o in enumerate(template.outputs):
-            if o.shape_list_names in TRANSPOSED_SHAPES:
-                for sidx, s in enumerate(o.shape_list):
-                    if s.name not in updated_ops:
-                        template.update_dummy_op(s.name, template.node.outputs[idx].shape[TRANSPOSE_POS[sidx]])
-                        updated_ops.append(s.name)
-                o.reorder_shapes(TRANSPOSE_PERM)
-                reordered_operands[o.name] = TRANSPOSE_PERM
-            elif o.shape_list_names in FLIP_SHAPES:
-                for sidx, s in enumerate(o.shape_list):
-                    if s.name not in updated_ops:
-                        template.update_dummy_op(s.name, template.node.outputs[idx].shape[FLIP_SHAPE_PERM[sidx]])
-                        updated_ops.append(s.name)
-                o.reorder_shapes(FLIP_SHAPE_PERM)
-                reordered_operands[o.name] = FLIP_SHAPE_PERM
+            if o.shape_list_names[-1] not in updated_dims:
+                dim = o.shape_list[-1]
+                dummy_dim = template.node.outputs[idx].shape[-1]
+                template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
+                updated_dims.append(dim.name)
+    return template
+
+def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
+
+    reordered_operands = {}
+    for idx, i in enumerate(template.inputs):
+        if i.shape_list_names in TRANSPOSED_SHAPES:
+            i.reorder_shapes(TRANSPOSE_PERM)
+            reordered_operands[i.name] = TRANSPOSE_PERM
+        elif i.shape_list_names in FLIP_SHAPES:
+            i.reorder_shapes(FLIP_SHAPE_PERM)
+            reordered_operands[i.name] = FLIP_SHAPE_PERM
+
+    for idx, o in enumerate(template.outputs):
+        if o.shape_list_names in TRANSPOSED_SHAPES:
+            o.reorder_shapes(TRANSPOSE_PERM)
+            reordered_operands[o.name] = TRANSPOSE_PERM
+        elif o.shape_list_names in FLIP_SHAPES:
+            o.reorder_shapes(FLIP_SHAPE_PERM)
+            reordered_operands[o.name] = FLIP_SHAPE_PERM
 
 
-        for o in template.ops:
-            if o.op_type == 'transfer':
-                operand = o.param_map['operand']
-                if isinstance(operand, IndexOperandTemplate) and operand.name in reordered_operands:
-                    operand.reorder_offsets(reordered_operands[operand.name])
+    for o in template.ops:
+        if o.op_type == 'transfer':
+            operand = o.param_map['operand']
+            if isinstance(operand, IndexOperandTemplate) and operand.name in reordered_operands:
+                operand.reorder_offsets(reordered_operands[operand.name])
 
-            elif o.op_type == 'compute':
-                for iop in o.param_map['sources']:
-                    if isinstance(iop, IndexOperandTemplate) and iop.name in reordered_operands:
-                        iop.reorder_offsets(reordered_operands[iop.name])
+        elif o.op_type == 'compute':
+            for iop in o.param_map['sources']:
+                if isinstance(iop, IndexOperandTemplate) and iop.name in reordered_operands:
+                    iop.reorder_offsets(reordered_operands[iop.name])
 
-                for oop in o.param_map['dests']:
-                    if isinstance(oop, IndexOperandTemplate) and oop.name in reordered_operands:
-                        oop.reorder_offsets(reordered_operands[oop.name])
+            for oop in o.param_map['dests']:
+                if isinstance(oop, IndexOperandTemplate) and oop.name in reordered_operands:
+                    oop.reorder_offsets(reordered_operands[oop.name])
 
-        return template
+    return template
 
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
     if cdlt.is_noop():
@@ -212,7 +182,6 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
 
 def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     assert isinstance(shaped_nodes, dict)
-
     return cdlt
 
 def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
@@ -234,7 +203,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             else:
                 loop_splits[l] = max_level
     bands = cdlt.extract_bands()
-
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
     outer_loop_map = {}
     loop_replacement_map = {}
