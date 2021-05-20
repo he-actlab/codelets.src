@@ -4,7 +4,10 @@ import polymath as pm
 from collections import namedtuple
 import json
 from pathlib import Path
-from .util import validate_program
+try:
+    from .util import validate_program
+except:
+    from util import validate_program
 
 CWD = Path(f"{__file__}").parent
 TEST_DIR = f"{CWD}/input_files"
