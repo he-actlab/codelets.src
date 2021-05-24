@@ -5,12 +5,17 @@ from pytools import memoize_method
 from collections import defaultdict, deque
 from copy import deepcopy
 
+import networkx as nx
 from codelets.common.flex_param import FlexParam
 from codelets.micro_templates.dummy_op import DummyOp, DummyParam
 from codelets.micro_templates import HAGPlaceholder
 from codelets.micro_templates import NodePlaceholder
 from codelets.micro_templates import OperandTemplate, IndexOperandTemplate
 from codelets.micro_templates import MicroTemplate, LoopTemplate, ComputeTemplate, TransferTemplate
+
+STORAGE_COLOR = "lightgreen"
+TRANSFER_COLOR = "lightyellow"
+COMPUTE_COLOR = "lightblue"
 
 class CodeletTemplate(object):
     codelet_id = 0
@@ -25,6 +30,7 @@ class CodeletTemplate(object):
         self._inputs = []
         self._outputs = []
         self._temps = []
+        self._locals = []
         self._constants = []
         self._ops = []
         self._op_map = {}
@@ -140,8 +146,20 @@ class CodeletTemplate(object):
         return self._inputs
 
     @property
+    def input_leaf_operands(self):
+        return (self.inputs + self.locals + self.constants)
+
+    @property
+    def output_leaf_operands(self):
+        return (self.outputs)
+
+    @property
     def temps(self) -> List[OperandTemplate]:
         return self._temps
+
+    @property
+    def locals(self) -> List[OperandTemplate]:
+        return self._locals
 
     @property
     def constants(self) -> List[OperandTemplate]:
@@ -304,7 +322,7 @@ class CodeletTemplate(object):
 
     def constant(self, value, location=None, dtype=None):
         assert isinstance(value, (Number, DummyOp))
-        operand = OperandTemplate(f"constant{len(self.constants)}", location, "constant",
+        operand = OperandTemplate(f"const{len(self.constants)}", location, "constant",
                                   writes=[self.cdlt_uid],
                                   shape_list=[0],
                                   default_dtype=dtype)
@@ -315,6 +333,14 @@ class CodeletTemplate(object):
             operand.init_dummy_op = value
 
         self.constants.append(operand)
+        return operand
+
+    def local(self, shape, dtype=None):
+        operand = OperandTemplate(f"local{len(self.locals)}", None, "local",
+                                  writes=[self.cdlt_uid],
+                                  shape_list=shape,
+                                  default_dtype=dtype)
+        self.locals.append(operand)
         return operand
 
 
@@ -447,3 +473,94 @@ class CodeletTemplate(object):
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value
+
+    def get_src_node(self, operand):
+        if isinstance(operand, IndexOperandTemplate):
+            operand = operand.operand
+        if operand in (self.inputs + self.constants + self.locals + self.outputs):
+            src_name = operand.name
+        else:
+            assert operand in self.temps and len(operand.writes) == 1
+            src_name = operand.writes[0]
+        return src_name
+
+    def pattern(self):
+        pass
+
+    def create_dfg(self):
+        g = nx.MultiDiGraph()
+
+        for idx, i in enumerate(self.inputs + self.constants + self.locals + self.outputs):
+            g.add_node(i.name, ntype="var", color=STORAGE_COLOR)
+
+        for idx, t in enumerate(self.temps):
+            assert len(t.writes) == 1
+            w = t.writes[0]
+            wr_op = self.op_map[w]
+            if isinstance(wr_op, TransferTemplate):
+                self.create_dfg_transfer_node(g, wr_op)
+            elif isinstance(wr_op, ComputeTemplate):
+                self.create_dfg_compute_node(g, wr_op)
+
+        for idx, l in enumerate(self.locals):
+            for w in l.writes[1:]:
+                wr_op = self.op_map[w]
+                if isinstance(wr_op, TransferTemplate):
+                    self.create_dfg_transfer_node(g, wr_op)
+                elif isinstance(wr_op, ComputeTemplate):
+                    self.create_dfg_compute_node(g, wr_op)
+
+        for idx, o in enumerate(self.outputs):
+            # g.add_node(o.name, ntype="var", color=STORAGE_COLOR)
+            assert len(o.writes) > 0
+            for w in o.writes:
+                if w not in g:
+                    wr_op = self.op_map[w]
+                    assert isinstance(wr_op, TransferTemplate)
+                    self.create_dfg_transfer_node(g, wr_op)
+                g.add_edge(w, o.name)
+        g = self.set_dfg_node_positions(g)
+        return g
+
+    def create_dfg_compute_node(self, dfg, op):
+
+        dfg.add_node(op.op_str, ntype="compute", color=COMPUTE_COLOR)
+
+        for s in op.sources:
+            src_name = self.get_src_node(s)
+            assert src_name in dfg
+            dfg.add_edge(src_name, op.op_str)
+
+    def create_dfg_transfer_node(self, dfg, op):
+
+        src_name = self.get_src_node(op.src_op)
+
+
+        dfg.add_node(op.op_str, ntype="transfer", color=TRANSFER_COLOR)
+        assert src_name in dfg
+        dfg.add_edge(src_name, op.op_str)
+        if op.dst_op in self.locals and op.src_op not in self.temps:
+            dfg.add_edge(op.op_str, op.dst_op.name)
+
+    def set_dfg_node_positions(self, dfg: nx.MultiDiGraph):
+        node_groupings = topological_sort_grouped(dfg)
+        print(list(node_groupings))
+        for level, nodes in enumerate(node_groupings):
+            h = level
+            for idx, node in enumerate(nodes):
+                nx.set_node_attributes(dfg, {node: (h, idx + (level % 2) * (1.1**level))}, 'pos')
+        return dfg
+
+def topological_sort_grouped(G):
+    indegree_map = {v: d for v, d in G.in_degree() if d > 0}
+    zero_indegree = [v for v, d in G.in_degree() if d == 0]
+    while zero_indegree:
+        yield zero_indegree
+        new_zero_indegree = []
+        for v in zero_indegree:
+            for _, child in G.edges(v):
+                indegree_map[child] -= 1
+                if not indegree_map[child]:
+                    new_zero_indegree.append(child)
+        zero_indegree = new_zero_indegree
+
