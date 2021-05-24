@@ -57,13 +57,13 @@ def test_extracted_layer(source_model, layer_name):
 @pytest.mark.parametrize('layer_name',[
     "resnet18_gemm",
     # "resnet18_train_batchnormalization",
-    "resnet18_relu",
-    "resnet18_add",
-    "resnet18_conv",
-    "resnet18_globalaveragepool",
-    "lenet_averagepool",
-    "lenet_gemm",
-    "lenet_conv",
+    # "resnet18_relu",
+    # "resnet18_add",
+    # "resnet18_conv",
+    # "resnet18_globalaveragepool",
+    # "lenet_averagepool",
+    # "lenet_gemm",
+    # "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -90,8 +90,9 @@ def test_genesys_layers(layer_name):
                             do_tile_stage=True,
                             print_config=False
                               )
+    print(program.emit("string_final"))
     print(program.emit("operations_idx"))
-    validate_program(program, print_difference=True)
+    # validate_program(program, print_difference=True)
 
 def test_reference_creation():
     batch_size = 1
