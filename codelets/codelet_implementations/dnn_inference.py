@@ -32,7 +32,8 @@ def gemm_template():
         out = gemm.add_output("out", [M, P], COMMON_DTYPES[2])
         with gemm.loop(P) as p:
             with gemm.loop(M) as m:
-                mvmul_out = gemm.compute("MVMUL", [data[m, :], weight[:, p], bias[p]])
+                with gemm.loop(N) as n:
+                    mvmul_out = gemm.compute("MACC", [data[m, n], weight[n, p], out[m, p]])
             compute_out = gemm.compute("ADD", [mvmul_out, bias[p]])
         _ = gemm.transfer(compute_out, out)
 
@@ -51,6 +52,7 @@ def conv_template():
         IW = conv.dummy_op("IW", conv.node.inputs[0].shape[3])
         data = conv.add_input("data", [N, IC, IH, IW], COMMON_DTYPES[0])
         weight = conv.add_input("weight", [OC, IC, KH, KW], COMMON_DTYPES[0])
+        bias = conv.add_input("weight", [OC], COMMON_DTYPES[0])
         out = conv.add_output("out", [N, OC, OH, OW], COMMON_DTYPES[2])
         stride = conv.dummy_op("stride", conv.node.stride)
         # OS ->
@@ -61,7 +63,13 @@ def conv_template():
                         with conv.loop(KW) as kw:
                             with conv.loop(OH) as y:
                                 with conv.loop(OW) as x:
-                                    compute_out = conv.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw]])
+                                    macc_res = conv.compute("MACC", [data[n, ic, y*stride + kh, x*stride + kw],
+                                                                        weight[oc, ic, kh, kw],
+                                                                        out[n, oc, y, x]
+                                                                        ])
+                                    compute_out = conv.compute("ADD", [macc_res, bias[oc]])
+                        # conv.transfer
+
 
     return conv
 
