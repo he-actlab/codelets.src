@@ -47,7 +47,7 @@ def specific_loop_instr():
     red_loop.set_value(1 << 5)
     loop_id = Field("LOOP_ID", 6)
     loop_dim = Field("LOOP_DIM", 2, value_names={"IC": 0, "KW": 1, "KH": 2, "N": 0})
-    loop_type = Field("LOOP_TYPE", 14, value_names={"INNER": 1, "OUTER": 0})
+    loop_type = Field("LOOP_TYPE", 14, value_names={"INNER": 0, "OUTER": 1})
     instr_temp = Instruction("SA_REDUCTION_LOOP", 9, OPCODE_WIDTH, (red_loop, loop_id, loop_type, loop_dim))
 
 
