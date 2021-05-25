@@ -455,7 +455,9 @@ def mean_var(hag: ArchitectureNode):
         denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[0]*cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        eps_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
         cdlt.configure("start", "IMM", immediate_value=denom, index=0)
+        cdlt.configure("start", "IMM", immediate_value=0.0001, index=1)
 
 
         with cdlt.loop(C) as c:
@@ -475,6 +477,7 @@ def mean_var(hag: ArchitectureNode):
             cdlt.compute("DIV", [temp2, denom_op], [temp3], target="SIMD")
             cdlt.compute("SUB", [istd, temp3], [istd], target="SIMD")
             cdlt.compute("DIV", [istd, denom_op], [istd], target="SIMD")
+            cdlt.compute("ADD", [istd, eps_op], [istd], target="SIMD")
             cdlt.compute("INV_SQRT", [istd], [istd], target="SIMD")
             cdlt.compute("DIV", [mean, denom_op], [mean], target="SIMD")
             cdlt.transfer(mean[c], ["VMEM1", "DRAM"])
