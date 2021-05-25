@@ -77,7 +77,7 @@ def test_genesys_model(model_name):
     tiling_path = None
 
     # If this is changed, the batch size will updated for the model
-    batch_size = 4
+    batch_size = 1
 
     # If you had previously never stored tiling for this program, store it
     store_tiling = False
@@ -102,4 +102,6 @@ def test_genesys_model(model_name):
                               factor_fn='default',
                               print_config=False
                               )
+    import pprint
+    pprint.pprint(program.emit("json_no_ops"))
     # validate_program(program, print_difference=True)
