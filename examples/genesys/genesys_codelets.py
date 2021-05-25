@@ -573,7 +573,7 @@ def batchnorm_grad(hag: ArchitectureNode):
                         cdlt.compute("MUL", [xhat, scale_grad], [temp3], target="SIMD")
                         cdlt.compute("SUB", [temp2, temp3], [temp4], target="SIMD")
                         cdlt.compute("SUB", [temp4, offset_grad], [temp5], target="SIMD")
-                        cdlt.compute("SUB", [temp1, temp5], [data_grad], target="SIMD")
+                        cdlt.compute("MUL", [temp1, temp5], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
             cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
             cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
