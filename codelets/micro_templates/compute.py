@@ -54,6 +54,10 @@ class ComputeTemplate(MicroTemplate):
     def target(self):
         return self.param_map['target']
 
+    @target.setter
+    def target(self, target):
+        self.param_map['target'] = target
+
     @property
     def positional_args(self):
         return ComputeTemplate.PARAM_KEYS

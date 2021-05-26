@@ -1,6 +1,6 @@
 
 from numbers import Number
-from typing import List, Dict
+from typing import List, Dict, Union
 from pytools import memoize_method
 from collections import defaultdict, deque
 from copy import deepcopy
@@ -171,11 +171,11 @@ class CodeletTemplate(object):
         return self._outputs
 
     @property
-    def ops(self) -> List[MicroTemplate]:
+    def ops(self) -> List[Union[MicroTemplate, ComputeTemplate, TransferTemplate]]:
         return self._ops
 
     @property
-    def op_map(self) -> Dict[str, MicroTemplate]:
+    def op_map(self) -> Dict[str, Union[MicroTemplate, ComputeTemplate]]:
         return self._op_map
 
     @property
