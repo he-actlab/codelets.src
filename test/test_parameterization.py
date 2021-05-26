@@ -17,5 +17,4 @@ def test_set_targets():
     genesys = define_genesys(GENESYS_CFG)
     assert elem_add.op_map['compute0'].is_target_set() is False
     p.set_targets(elem_add, genesys)
-    print(elem_add.op_map)
     assert elem_add.op_map['compute0'].is_target_set()
