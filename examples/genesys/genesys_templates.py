@@ -370,15 +370,17 @@ def buffer_dram_template(buffer_name, hag: ArchitectureNode):
     # loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * 2"
     loop_id_str = f"hag.util_fns.get_loop_level_id('{buffer_name}', op.loop_id, 2, 'ST')"
 
-    req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{buffer_name}', 'DRAM').bandwidth / " \
-                   f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
+    # req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{buffer_name}', 'DRAM').bandwidth / " \
+    #                f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
+    req_size_str = f"int(op.data_transfer_sizes[-1] * op.operand.dtype.bytes()/hag.get_subgraph_node('{buffer_name}').banks)"
+
     req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0)"
     req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16)"
     # TODO: Change this back to non-integer
     n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str}) / hag.get_subgraph_node('{buffer_name}').banks)"
     instr = hag.get_primitive_template("SA_LOOP_CFG")
     instr.set_field_flex_param("LOOP_ID", loop_id_str)
-    instr.set_field_flex_param("NUM_ITERATIONS", f"{n_iter_str} - 1")
+    instr.set_field_value("NUM_ITERATIONS", 0)
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
