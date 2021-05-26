@@ -1,0 +1,21 @@
+import pytest
+from codelets.common.datatype import COMMON_DTYPES
+from codelets.codelet_template import CodeletTemplate
+from codelets.micro_templates.analysis import parameterization as p
+from examples.genesys import GENESYS_CFG, define_genesys
+
+
+def test_set_targets():
+    with CodeletTemplate("elem_add") as elem_add:
+        N = elem_add.dummy_op("N", elem_add.node.inputs[0].shape[0])
+        C = elem_add.dummy_op("C", elem_add.node.inputs[0].shape[1])
+        H = elem_add.dummy_op("H", elem_add.node.inputs[0].shape[2])
+        W = elem_add.dummy_op("W", elem_add.node.inputs[0].shape[3])
+        op1 = elem_add.add_input("op1", [N, C, H, W], COMMON_DTYPES[2])
+        op2 = elem_add.add_input("op2", [N, C, H, W], COMMON_DTYPES[2])
+        elem_add.compute("ADD", [op1, op2])
+    genesys = define_genesys(GENESYS_CFG)
+    assert elem_add.op_map['compute0'].is_target_set() is False
+    p.set_targets(elem_add, genesys)
+    print(elem_add.op_map)
+    assert elem_add.op_map['compute0'].is_target_set()
