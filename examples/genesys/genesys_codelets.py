@@ -111,13 +111,15 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("start", "OBUF")
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         # OS ->
+
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
-                with cdlt.loop(IC) as ic:
-                    with cdlt.loop(KH) as kh:
-                        with cdlt.loop(KW) as kw:
-                            with cdlt.loop(OH) as y:
-                                with cdlt.loop(OW) as x:
+                with cdlt.loop(OH) as y:
+                    with cdlt.loop(OW) as x:
+                        with cdlt.loop(IC) as ic:
+                            with cdlt.loop(KH) as kh:
+                                with cdlt.loop(KW) as kw:
+
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(data[n, ic, y*stride + kh, x*stride + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
@@ -258,21 +260,37 @@ def sgd1d(hag: ArchitectureNode):
 
     with CodeletTemplate("sgd1d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
 
         param = cdlt.create_operand_template("param", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
         grad = cdlt.create_operand_template("grad", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
         updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
-
         cdlt.configure("start", "SIMD")
+        lr = cdlt.dummy_op("lr", cdlt.node.kwargs['lr'])
+        momentum = cdlt.dummy_op("momentum", cdlt.node.kwargs['momentum'])
+
+        cdlt.configure("start", "IMM", immediate_value=lr, index=0)
+        cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(itemp1)
+        cdlt.add_temp_operand(itemp2)
+        lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        momentum_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+
         with cdlt.loop(N) as n:
             cdlt.transfer(param[n], ["DRAM", "VMEM1"])
             cdlt.transfer(grad[n], ["DRAM", "VMEM2"])
             updated_param.set_write_destination("VMEM1")
-            cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
+            itemp1.set_write_destination("VMEM2")
+            itemp2.set_write_destination("VMEM1")
+            cdlt.compute("MUL", [param, momentum_op], [itemp1], target="SIMD")
+            cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
+            cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
             cdlt.transfer(updated_param[n], ["VMEM1", "DRAM"])
+
     return cdlt
 
 def sgd2d(hag: ArchitectureNode):
