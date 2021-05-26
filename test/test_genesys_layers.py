@@ -55,7 +55,7 @@ def test_extracted_layer(source_model, layer_name):
     # print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
-    # "resnet18_gemm",
+    "resnet18_gemm",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
