@@ -1,1 +1,2 @@
-from .dnn_inference import DNN_MAPPINGS
+from .dnn_inference import DNN_INFERENCE_MAPPINGS
+from .dnn_training import DNN_TRAINING_MAPPINGS
