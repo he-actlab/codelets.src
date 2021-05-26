@@ -2,7 +2,7 @@ import polymath as pm
 from codelets.adl.operation import Operand
 from codelets.adl.graph.graph_algorithms import get_shortest_paths
 from codelets.codelet_template import CodeletTemplate
-from codelets.codelet_implementations import DNN_MAPPINGS
+from codelets.codelet_implementations import DNN_INFERENCE_MAPPINGS
 from codelets.compiler.analysis.template_analysis import identify_operand_targets, identify_reductions
 from examples.genesys import OP_DTYPES, define_genesys, GENESYS_CFG
 # from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
@@ -17,14 +17,14 @@ LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 
 def test_collect_unset_paths():
-    test_codelet = DNN_MAPPINGS['gemm']
+    test_codelet = DNN_INFERENCE_MAPPINGS['gemm']
     hag = define_genesys(GENESYS_CFG)
     identify_operand_targets(test_codelet, hag)
     # collect_unset_paths(test_codelet, None)
     print(list(get_shortest_paths(hag.all_subgraph_nodes, "DRAM", "SIMD")))
 
 def test_codelet_copy():
-    test_codelet = DNN_MAPPINGS['elem_add']
+    test_codelet = DNN_INFERENCE_MAPPINGS['elem_add']
 
     test_copy = test_codelet.copy()
     test_copy._cdlt_id = 1
@@ -46,7 +46,7 @@ def test_codelet_copy():
 def test_reduction_identification():
     hag = define_genesys(GENESYS_CFG)
 
-    gemm_op = DNN_MAPPINGS['gemm']
+    gemm_op = DNN_INFERENCE_MAPPINGS['gemm']
     gemm_no_acc = gemm_no_accum()
     identify_reductions(gemm_no_acc, hag)
 
