@@ -144,12 +144,17 @@ def conv2d(hag: ArchitectureNode):
     cdlt.add_compilation_param("N_hint2", f"size == 1")
     cdlt.add_compilation_param("OH_hint2", f"size == 1")
     cdlt.add_compilation_param("OW_hint2", f"size == 1")
+
     cdlt.add_compilation_param("KH_hint2", f"size == 1")
     cdlt.add_compilation_param("KW_hint2", f"size == 1")
     cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
     cdlt.add_compilation_param("OC_hint2", f"size == {sys_array_dims[1]}")
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
+    # TESTING
+    cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    cdlt.add_compilation_param("KW_hint1", f"split == 1")
+    ####
 
     return cdlt
 
@@ -224,6 +229,10 @@ def conv2d_bias(hag: ArchitectureNode):
     cdlt.add_compilation_param("OC_hint2", f"size == {sys_array_dims[1]}")
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
+    # TESTING
+    cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    cdlt.add_compilation_param("KW_hint1", f"split == 1")
+    ####
     return cdlt
 
 def elem_add(hag: ArchitectureNode):

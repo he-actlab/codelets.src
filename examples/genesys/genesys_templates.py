@@ -502,6 +502,8 @@ def inner_simd_loops(hag: ArchitectureNode):
 def outer_sa_loops(hag: ArchitectureNode):
     instructions = []
     loop_cond_str = 'cdlt.is_loop_node_target(op, "pe_array") and not cdlt.is_direct_loop_dep(op, "pe_array")'
+    reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
+                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
     instr = hag.get_primitive_template("SA_LOOP_CFG")
     instr.add_condition(loop_cond_str)
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
@@ -509,7 +511,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SA_REDUCTION_LOOP")
-    instr.add_condition(f'{loop_cond_str} and cdlt.loop_param_map[op.op_str] in ["IC", "N", "KH", "KW"]')
+    instr.add_condition(f'{loop_cond_str} and ({reduction_loop_cond})')
     instr.set_field_flex_param("LOOP_DIM", "cdlt.loop_param_map[op.op_str]")
     instr.set_field_by_name("LOOP_TYPE", "OUTER")
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
@@ -563,19 +565,22 @@ def outer_sa_loops(hag: ArchitectureNode):
 def inner_sa_loops(hag: ArchitectureNode):
     instructions = []
     inner_loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL}"
+    reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
+                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    sa_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "OC"]) ' \
+                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["N", "P"])'
     instr = hag.get_primitive_template("SA_LOOP_CFG")
     instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
+
     instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     sa_constraints = hag.get_subgraph_node("pe_array").dimensions[0]
-    n_iter_str = f"int(np.ceil(op.iter_count / {sa_constraints})) " \
-                 f"if cdlt.loop_param_map[op.op_str] in ['IC', 'OC', 'N', 'P'] else op.iter_count"
-    # instr.set_field_flex_param("NUM_ITERATIONS", f"int(np.ceil(op.iter_count / {sa_constraints}))")
-    instr.set_field_flex_param("NUM_ITERATIONS", f"{n_iter_str} - 1")
+    n_iter_str = f"int(np.ceil(op.iter_count / {sa_constraints})) - 1" \
+                 f"if {sa_loop_cond} else op.iter_count - 1"
+    instr.set_field_flex_param("NUM_ITERATIONS", f"{n_iter_str}")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SA_REDUCTION_LOOP")
-    instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array") and cdlt.loop_param_map[op.op_str] in '
-                        f'["IC", "N", "KH", "KW"]')
+    instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array") and ({reduction_loop_cond})')
     instr.set_field_flex_param("LOOP_DIM", "cdlt.loop_param_map[op.op_str]")
     instr.set_field_by_name("LOOP_TYPE", "INNER")
     instr.set_field_flex_param("LOOP_ID", f"op.loop_id % (cdlt.op_id_counters['loop']//2)")
