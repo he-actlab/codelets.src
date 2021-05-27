@@ -53,7 +53,7 @@ TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['ON', 'OC', 'OH', 'OW'], ['N', 'C', 'OH', 'OW']]
 TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
-FLIP_SHAPE_PERM = [2, 3, 0, 1]
+FLIP_SHAPE_PERM = [2, 3, 1, 0]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
@@ -133,6 +133,7 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
             operand = o.param_map['operand']
             if isinstance(operand, IndexOperandTemplate) and operand.name in reordered_operands:
                 operand.reorder_offsets(reordered_operands[operand.name])
+
 
         elif o.op_type == 'compute':
             for iop in o.param_map['sources']:
