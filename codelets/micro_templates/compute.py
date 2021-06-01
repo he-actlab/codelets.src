@@ -50,6 +50,10 @@ class ComputeTemplate(MicroTemplate):
     def sources(self):
         return self.param_map['sources']
 
+    @sources.setter
+    def sources(self, sources):
+        self.param_map['sources'] = sources
+
     @property
     def target(self):
         return self.param_map['target']
