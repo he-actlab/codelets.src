@@ -133,7 +133,10 @@ class MicroTemplate(object):
 
     @staticmethod
     def current_loop_id():
-        return MicroTemplate.loop_stack[-1]
+        if len(MicroTemplate.loop_stack)  == 0:
+            return None
+        else:
+            return MicroTemplate.loop_stack[-1]
 
     @property
     def op_str(self):

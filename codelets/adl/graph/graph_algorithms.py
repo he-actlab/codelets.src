@@ -165,7 +165,8 @@ def get_shortest_paths(nodes: dict, src: str, dst: str):
         for v in node._succs.values():
             graph.add_edge(name, v.name)
 
-    return nx.all_shortest_paths(graph, src, dst)
+    gen =  nx.all_shortest_paths(graph, src, dst)
+    return [x for x in gen]
 
 
 

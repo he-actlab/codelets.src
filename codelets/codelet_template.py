@@ -344,7 +344,7 @@ class CodeletTemplate(object):
         return operand
 
 
-    def transfer(self, source, dest, dest_offset=None, size=None, **kwargs):
+    def transfer(self, source, dest, dest_offset=None, size=None, add_op=True, **kwargs):
         if size is None:
             if isinstance(source, OperandTemplate):
                 size = source.shape_list
@@ -368,9 +368,11 @@ class CodeletTemplate(object):
 
         transfer_template = TransferTemplate(source, transfer_output, size,
                                              add_codelet=False, **kwargs)
-
-        self.add_op(transfer_template)
-        return transfer_output
+        if add_op:
+            self.add_op(transfer_template)
+            return transfer_output
+        else:
+            return transfer_output, transfer_template
 
 
     def instantiate(self, instance_args):
