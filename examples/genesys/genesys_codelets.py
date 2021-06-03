@@ -107,6 +107,8 @@ def conv2d(hag: ArchitectureNode):
         cdlt.set_outputs([out])
         cdlt.configure("start", "systolic_array")
         cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "BBUF")
+
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
@@ -129,6 +131,7 @@ def conv2d(hag: ArchitectureNode):
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "BBUF")
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")

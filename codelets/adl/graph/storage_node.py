@@ -166,6 +166,9 @@ class StorageNode(ArchitectureNode):
     def node_type(self):
         return 'storage'
 
+    def addr_offset_from_bits(self, bit_offset):
+        return bit_offset // self.width
+
     # Class methods
     def get_viz_attr(self):
         return f"Access Type: {self.access_type}\\n" \

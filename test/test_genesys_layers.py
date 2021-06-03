@@ -1,3 +1,4 @@
+from codelets.compiler.relocation_table import RelocationTable
 from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
     compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
@@ -59,10 +60,10 @@ def test_extracted_layer(source_model, layer_name):
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
-    "resnet18_conv",
+    # "resnet18_conv",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
-    # "lenet_gemm",
+    "lenet_gemm",
     # "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
@@ -73,6 +74,8 @@ def test_genesys_layers(layer_name):
     store_json_output = False
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+    offsets = [0, 2048, 4096]
+    reloc_offsets = {ns: offsets[i] for i, ns in enumerate(RelocationTable.MEM_LAYOUT)}
 
     # This function returns
     program = compile_genesys_layer(layer_name,
@@ -88,7 +91,8 @@ def test_genesys_layers(layer_name):
                             batch_size=batch_size,
                             do_hoist_stage=True,
                             do_tile_stage=True,
-                            print_config=False
+                            print_config=False,
+                                    relocation_offsets=reloc_offsets
                               )
     # print(program.emit("decimal"))
     # print(program.emit("string_final"))
