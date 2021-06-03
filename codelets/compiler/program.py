@@ -125,6 +125,17 @@ class CodeletProgram(object):
             raise RuntimeError(f"Currently no other scopes are supported for side effects other than 'program'"
                                f" and 'codelet'. Request side effect: {scope}")
 
+    def set_relocation_ns_offsets(self, offsets: Dict[str, int], offset_type="address"):
+        assert self.relocatables.is_empty
+        mem_layout = list(offsets.keys())
+        assert offset_type in ["address", "bits"]
+        if offset_type == "address":
+            nbanks = self.relocatables.storage_node.banks
+            width = self.relocatables.storage_node.width
+            offsets = {k: v*nbanks*width for k, v in offsets.items()}
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage(),
+                                             mem_layout=mem_layout,
+                                             offsets=offsets)
 
     def update_side_effect_param(self, name, scope, value, codelet_id=None, operation_id=None):
         if scope == 'program':
@@ -144,7 +155,6 @@ class CodeletProgram(object):
             if cdlt.instance_id == cdlt_id:
                 return cdlt
         raise KeyError(f"Unable to get codelet with id {cdlt_id} in codelet list")
-
 
     def save(self, output_path=None, save_format="json"):
         if output_path:

@@ -79,6 +79,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     if template.op_name in ["conv", "conv_bias"]:
         template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
         template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
+        # if template.op_name == ["conv"]:
+
 
     if template.op_name in SA_OPS:
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]

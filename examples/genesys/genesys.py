@@ -229,7 +229,8 @@ def compile_genesys(model_name,
                     dtypes=None,
                     print_config=True,
                     store_ops=False,
-                    factor_fn='default'):
+                    factor_fn='default',
+                    relocation_offsets=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -273,6 +274,8 @@ def compile_genesys(model_name,
     program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
                                  stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
                                  skip_noops=False)
+    if relocation_offsets:
+        program.set_relocation_ns_offsets(relocation_offsets)
 
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
@@ -322,7 +325,8 @@ def compile_genesys_layer(layer_file,
                           factor_fn='default',
                           batch_size=1,
                           save_genesys_filename=None,
-                          load_genesys_filename=None):
+                          load_genesys_filename=None,
+                          relocation_offsets=None):
     LAYER_DIR = f"{benchmark_path}/layers/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -377,6 +381,9 @@ def compile_genesys_layer(layer_file,
     else:
         finalize_instructions = False
 
+    if relocation_offsets:
+        program.set_relocation_ns_offsets(relocation_offsets)
+
     if tiling_path is not None:
         program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
                         finalize_instructions=finalize_instructions)
@@ -419,7 +426,8 @@ def compile_extracted_genesys_layer(model_name,
                                     dtypes=None,
                                     print_config=True,
                                     factor_fn='default',
-                                    specific_layer_name=None):
+                                    specific_layer_name=None,
+                                    relocation_offsets=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
 
     dtypes = dtypes or GENESYS_DTYPES
@@ -466,7 +474,8 @@ def compile_extracted_genesys_layer(model_name,
     tile_kwargs = {'factor_fn_name': factor_fn}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-
+    if relocation_offsets:
+        program.set_relocation_ns_offsets(relocation_offsets)
     program.compile(verbose=verbose, sequence_algorithm='filtered', filtered_layers=[layer_name])
 
     return program

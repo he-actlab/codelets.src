@@ -34,16 +34,23 @@ class Relocation:
 
 class RelocationTable(object):
     MEM_LAYOUT = ['INSTR_MEM', 'STATE', 'INTERMEDIATE']
-    def __init__(self, storage_node: StorageNode, mem_layout=None):
+    def __init__(self, storage_node: StorageNode, mem_layout=None, offsets=None):
         self._mem_layout = mem_layout or RelocationTable.MEM_LAYOUT
+        if offsets:
+            self._offset_type = "static"
+            assert list(offsets.keys()) == self.mem_layout
+            self._namespace_offsets = {ml: off for ml, off in offsets.items()}
+        else:
+            self._offset_type = "dynamic"
+            self._namespace_offsets = {ml: 0 for ml in self.mem_layout}
+
+
         assert isinstance(self.mem_layout, list)
-        self._namespace_offsets = {}
         self._relocatables = {}
         self._storage_node = storage_node
-
         for ml in self.mem_layout:
             self._relocatables[ml] = Relocation(ml)
-            self._namespace_offsets[ml] = 0
+
 
     def __repr__(self):
         return str([(k, list(v.item_names())) for k, v in self.relocatables.items()])
@@ -64,6 +71,14 @@ class RelocationTable(object):
     def storage_node(self):
         return self._storage_node
 
+    @property
+    def offset_type(self):
+        return self._offset_type
+
+    @property
+    def is_empty(self):
+        return all([self.relocatables[ml].total_length == 0 for ml in self.mem_layout])
+
     def get_relocation_by_name(self, name: str):
         for k, v in self.relocatables.items():
             if name in v.item_names():
@@ -83,14 +98,24 @@ class RelocationTable(object):
     def get_relocation(self, namespace: str, item_id: Union[str, int]):
         return self.relocatables[namespace][item_id]
 
-    def get_namespace_offset(self, namespace: str):
-        assert namespace in self.mem_layout
+    def update_namespace_offsets(self):
         offset = 0
-        for ns in self.mem_layout:
-            if ns == namespace:
-                return offset
-            offset += self.relocatables[ns].total_length
-        raise RuntimeError(f"Invalid namespace name: {namespace}")
+
+        if self.offset_type == "dynamic":
+            for ns in self.mem_layout:
+                self.namespace_offsets[ns] = offset
+                offset += self.relocatables[ns].total_length
+        else:
+            for i, ns in enumerate(self.mem_layout):
+                if offset > self.namespace_offsets[ns]:
+                    assert i > 0, f"Something is broken"
+                    raise RuntimeError(f"Storage in {self.mem_layout[i - 1]} overruns {ns} memory.")
+                offset += self.relocatables[ns].total_length
+
+
+    def get_namespace_offset(self, namespace: str):
+        assert namespace in self.mem_layout and namespace in self.namespace_offsets
+        return self.namespace_offsets[namespace]
 
     def get_relocation_base(self, namespace: str, item_id: Union[str, int]):
         namespace_offset = self.get_namespace_offset(namespace)
@@ -101,7 +126,7 @@ class RelocationTable(object):
                                                            f"Storage width: {self.storage_node.width}\n" \
                                                            f"Namespace {namespace} offset: {namespace_offset}\n" \
                                                            f"Object {item_id} offset: {object_offset}"
-        return (namespace_offset + object_offset) // self.storage_node.width
+        return self.storage_node.addr_offset_from_bits(namespace_offset + object_offset)
 
     def update_relocation_offset(self, offset_type, offset_id, size):
         current_offset = self.relocatables[offset_type].total_length
@@ -116,7 +141,7 @@ class RelocationTable(object):
                 prev_fragment = relocatable.bases[offset_id]
                 relocatable.bases[offset_id] = Fragment(offset_id, prev_fragment.start, prev_fragment.start + size)
                 relocatable.total_length += (size - stored_size)
-            # assert stored_size == size
+        self.update_namespace_offsets()
 
     def add_data_relocation(self, node: pm.Node, cdlt: Codelet):
         for idx, operand in enumerate(cdlt.inputs):
@@ -133,3 +158,5 @@ class RelocationTable(object):
             data_size = np.prod(operand.shape)*operand.dtype.bits()
             offset_type = 'INTERMEDIATE'
             self.update_relocation_offset(offset_type, o.name, data_size)
+
+        self.update_namespace_offsets()
