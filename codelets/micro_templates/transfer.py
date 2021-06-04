@@ -63,9 +63,17 @@ class TransferTemplate(MicroTemplate):
     def src_op(self) -> OperandTemplate:
         return self.param_map['src_op']
 
+    @src_op.setter
+    def src_op(self, op) -> OperandTemplate:
+        self.param_map['src_op'] = op
+
     @property
     def dst_op(self) -> OperandTemplate:
         return self.param_map['dst_op']
+
+    @dst_op.setter
+    def dst_op(self, op) -> OperandTemplate:
+        self.param_map['dst_op'] = op
 
     @property
     def src_offset(self) -> OperandTemplate:
