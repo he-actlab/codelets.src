@@ -69,17 +69,16 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
     return cdlt
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
-
-    if template.op_name in ["avg_pool", 'global_avg_pool']:
-        template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-
-    if template.op_name == "mean_var":
-        template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+    #
+    # if template.op_name in ["avg_pool", 'global_avg_pool']:
+    #     template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
+    #
+    # if template.op_name == "mean_var":
+    #     template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
 
     if template.op_name in ["conv", "conv_bias"]:
-        template.update_dummy_op('IH', template.node.inputs[0].shape[1] + 2*template.node.kwargs['pad'])
-        template.update_dummy_op('IW', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
-        # if template.op_name == ["conv"]:
+        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
+        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.kwargs['pad'])
 
 
     if template.op_name in SA_OPS:

@@ -116,12 +116,11 @@ def conv2d(hag: ArchitectureNode):
 
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
-                with cdlt.loop(OH) as y:
-                    with cdlt.loop(OW) as x:
-                        with cdlt.loop(IC) as ic:
-                            with cdlt.loop(KH) as kh:
-                                with cdlt.loop(KW) as kw:
-
+                with cdlt.loop(IC) as ic:
+                    with cdlt.loop(KH) as kh:
+                        with cdlt.loop(KW) as kw:
+                            with cdlt.loop(OH) as y:
+                                with cdlt.loop(OW) as x:
                                     cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
                                     cdlt.transfer(data[n, ic, y*stride + kh, x*stride + kw], ["DRAM", "IBUF"])
                                     cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
