@@ -459,6 +459,14 @@ class ArchitectureNode(Node):
 
         raise KeyError(f"{name} not found in subgraph or input_components")
 
+    def get_subgraph_nodes_of_type(self, type):
+        filtered_subgraph_nodes = {}
+        # Filter and get only nodes of type
+        for name, node in self.all_subgraph_nodes.items():
+            if node.get_type() == type:
+                filtered_subgraph_nodes[name] = node
+        return filtered_subgraph_nodes
+
     def get_subgraph_edge(self, src: str, dst: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
         key = (src, dst)
         if key in self.edge_map:
