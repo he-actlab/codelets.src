@@ -3,6 +3,7 @@ from codelets.common.datatype import COMMON_DTYPES
 from codelets.codelet_template import CodeletTemplate
 from codelets.micro_templates.analysis.parameterization import set_targets, add_transfers
 from examples.genesys import GENESYS_CFG, define_genesys
+from codelets.codelet_implementations import dnn_inference
 
 def test_set_targets():
     with CodeletTemplate("elem_add") as elem_add:
@@ -62,3 +63,11 @@ def test_add_transfers_tanh():
     set_targets(tanh, genesys)
     add_transfers(tanh, genesys)
     assert (len(tanh.ops)) == 11
+
+def test_add_transfers_mean_var():
+    mean_var = dnn_inference.mean_var_template()
+    genesys = define_genesys(GENESYS_CFG)
+    print(mean_var.ops)
+    set_targets(mean_var, genesys)
+    add_transfers(mean_var, genesys)
+    print(mean_var.ops)

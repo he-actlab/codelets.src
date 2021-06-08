@@ -17,7 +17,8 @@ class TransferTemplate(MicroTemplate):
                  **kwargs
                  ):
         assert isinstance(source, (OperandTemplate, IndexOperandTemplate))
-        assert isinstance(destination, (str, DummyOp, OperandTemplate, IndexOperandTemplate))
+        if destination is not None:
+            assert isinstance(destination, (str, DummyOp, OperandTemplate, IndexOperandTemplate))
         param_map = {}
         if isinstance(source, IndexOperandTemplate):
             src_offset = source.offsets
@@ -40,10 +41,10 @@ class TransferTemplate(MicroTemplate):
         param_map['dst_offset'] = dst_offset
 
         super(TransferTemplate, self).__init__("transfer", {**param_map, **kwargs}, add_codelet=add_codelet)
-        assert isinstance(src_op, OperandTemplate) and isinstance(dst_op, OperandTemplate)
+        assert isinstance(src_op, OperandTemplate)
+        assert isinstance(dst_op, OperandTemplate)
         self.src_op.add_read(self.op_str)
         self.dst_op.add_write(self.op_str)
-
         self.set_output_operand(self.dst_op)
 
     def __str__(self):
