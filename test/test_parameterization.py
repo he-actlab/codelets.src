@@ -67,7 +67,5 @@ def test_add_transfers_tanh():
 def test_add_transfers_mean_var():
     mean_var = dnn_inference.mean_var_template()
     genesys = define_genesys(GENESYS_CFG)
-    print(mean_var.ops)
     set_targets(mean_var, genesys)
     add_transfers(mean_var, genesys)
-    print(mean_var.ops)
