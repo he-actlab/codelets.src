@@ -1,4 +1,3 @@
-
 from numbers import Number
 from typing import List, Dict, Union
 from pytools import memoize_method
@@ -16,6 +15,7 @@ from codelets.micro_templates import MicroTemplate, LoopTemplate, ComputeTemplat
 STORAGE_COLOR = "lightgreen"
 TRANSFER_COLOR = "lightyellow"
 COMPUTE_COLOR = "lightblue"
+
 
 class CodeletTemplate(object):
     codelet_id = 0
@@ -165,7 +165,6 @@ class CodeletTemplate(object):
     def constants(self) -> List[OperandTemplate]:
         return self._constants
 
-
     @property
     def outputs(self) -> List[OperandTemplate]:
         return self._outputs
@@ -235,7 +234,6 @@ class CodeletTemplate(object):
             if isinstance(t, TransferTemplate) and t.src_op == output_operand:
                 return t.dst_op.location
         raise RuntimeError(f"Unable to find output location for operation {op.op_str}")
-
 
     def __repr__(self):
         return f"codelet_template {self.op_name}{self.codelet_id}"
@@ -310,7 +308,7 @@ class CodeletTemplate(object):
         self.add_op(compute_template)
 
         compute_output = OperandTemplate(f"temp{len(self.temps)}",
-                                             compute_target,
+                                         compute_target,
                                          "intermediate")
         assert len(compute_output.writes) == 0
         compute_output.add_write(compute_template.op_str)
@@ -343,7 +341,6 @@ class CodeletTemplate(object):
         self.locals.append(operand)
         return operand
 
-
     def transfer(self, source, dest, dest_offset=None, size=None, add_op=True, **kwargs):
         if size is None:
             if isinstance(source, OperandTemplate):
@@ -352,10 +349,8 @@ class CodeletTemplate(object):
                 assert isinstance(source, IndexOperandTemplate)
                 size = source.operand.shape_list
 
-        if isinstance(dest, str):
-
+        if dest is None or isinstance(dest, str):
             transfer_output = OperandTemplate(f"temp{len(self.temps)}", dest, "intermediate")
-
             if dest_offset is not None:
                 assert isinstance(dest_offset, list)
                 self.add_temp_operand(transfer_output)
@@ -373,7 +368,6 @@ class CodeletTemplate(object):
             return transfer_output
         else:
             return transfer_output, transfer_template
-
 
     def instantiate(self, instance_args):
         pass
@@ -537,7 +531,6 @@ class CodeletTemplate(object):
 
         src_name = self.get_src_node(op.src_op)
 
-
         dfg.add_node(op.op_str, ntype="transfer", color=TRANSFER_COLOR)
         assert src_name in dfg
         dfg.add_edge(src_name, op.op_str)
@@ -550,8 +543,9 @@ class CodeletTemplate(object):
         for level, nodes in enumerate(node_groupings):
             h = level
             for idx, node in enumerate(nodes):
-                nx.set_node_attributes(dfg, {node: (h, idx + (level % 2) * (1.1**level))}, 'pos')
+                nx.set_node_attributes(dfg, {node: (h, idx + (level % 2) * (1.1 ** level))}, 'pos')
         return dfg
+
 
 def topological_sort_grouped(G):
     indegree_map = {v: d for v, d in G.in_degree() if d > 0}
@@ -565,4 +559,3 @@ def topological_sort_grouped(G):
                 if not indegree_map[child]:
                     new_zero_indegree.append(child)
         zero_indegree = new_zero_indegree
-

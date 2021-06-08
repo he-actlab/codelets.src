@@ -309,7 +309,7 @@ def reduce_sum_template():
             with rsum.loop(N) as n:
                 compute_out = rsum.compute("ADD", [data[n, c], accum])
                 _ = rsum.transfer(compute_out, accum)
-            _ = rsum.transfer(rsum, out[c])
+            _ = rsum.transfer(accum, out[c])
 
     return rsum
 

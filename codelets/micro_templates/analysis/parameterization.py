@@ -42,13 +42,24 @@ def add_transfers(cdlt: CodeletTemplate, hag: ArchitectureNode):
                     source_in_inputs = source in cdlt.inputs
                 elif isinstance(source, IndexOperandTemplate):
                     source_in_inputs = source.operand in cdlt.inputs
-                if source.name not in transferred_sources and source_in_inputs:
-                    path = paths[path_index]
-                    source.location = 'DRAM'
-                    result = source
-                    for storage_node in path[1:]:
-                        result, operand = cdlt.transfer(result, storage_node, add_op=False)
-                        result.location = storage_node
+                if source.name not in transferred_sources:
+                    if source_in_inputs:
+                        path = paths[path_index]
+                        source.location = 'DRAM'
+                        result = source
+                        for storage_node in path[1:]:
+                            result, operand = cdlt.transfer(result, storage_node, add_op=False)
+                            result.location = storage_node
+                            # Store the loop information, same as compute op, in the new operand from the transfer
+                            operand.loop_id = o.loop_id
+                            operand.loop_level = o.loop_level
+                            transfer_operands.append(operand)
+                    else:
+                        # Allocate storage for this source which is an intermediate value
+                        # In the paths, last element is the compute node and elements before that are storage nodes
+                        source.location = paths[path_index][-2]
+                        result, operand = cdlt.transfer(source, o.target, add_op=False)
+                        result.location = o.target
                         # Store the loop information, same as compute op, in the new operand from the transfer
                         operand.loop_id = o.loop_id
                         operand.loop_level = o.loop_level
@@ -57,8 +68,6 @@ def add_transfers(cdlt: CodeletTemplate, hag: ArchitectureNode):
                     new_sources.append(result)
                     # Mark the source as transferred
                     transferred_sources[source.name] = 1
-                else:
-                    continue
             # Set the location of output operand of compute operation as target
             o.output_operand.location = o.target
             # Store the index in the list of codelet ops where the new transfers should be inserted
@@ -66,7 +75,7 @@ def add_transfers(cdlt: CodeletTemplate, hag: ArchitectureNode):
                 operand_map[i] = transfer_operands
             # Update the sources with the results of final transfers
             o.sources = new_sources
-        if o.op_type == 'transfer':
+        if o.op_type == 'transfer' and o.src_op.location is not None:
             # Filter and get only storage nodes from subgraph nodes
             storage_subgraph_nodes = hag.get_subgraph_nodes_of_type('StorageNode')
             # Add the node where the source operand of transfer is executed.
