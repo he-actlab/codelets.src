@@ -69,6 +69,21 @@ def store_unique_model_layers(model_name, store_as_polymath=False):
         else:
             layers[n.op_type] += 1
 
+def print_unique_model_layers(model_name, store_as_polymath=False):
+    layers = {}
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    new_model_path = f"{MODEL_DIR}/{model_name}_shapes.onnx"
+    model = onnx.load_model(model_path)
+    model = onnx.shape_inference.infer_shapes(model)
+    with open(new_model_path, "wb") as f:
+        f.write(model.SerializeToString())
+    for n in model.graph.node:
+        if n.op_type not in layers:
+            layers[n.op_type] = 1
+        else:
+            layers[n.op_type] += 1
+    print(list(layers.keys()))
+
 def store_target_model_layer(model_name, layer_name, store_name=None, store_as_polymath=False):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
@@ -104,9 +119,11 @@ if __name__ == "__main__":
     # argparser.add_argument('-pm', '--to_polymath', type=str2bool, nargs='?', default=False,
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
-    model_name = 'lenetbn'
+    # model_name = 'lenetbn'
+    model_name = 'bertsquad-10'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     # convert_model_to_polymath(model_path)
-    store_unique_model_layers(model_name, store_as_polymath=True)
+    # store_unique_model_layers(model_name, store_as_polymath=True)
+    print_unique_model_layers(model_name, store_as_polymath=True)
     # store_target_model_layer(model_name, "BatchNormalization", store_name="batchnormalization", store_as_polymath=True)
