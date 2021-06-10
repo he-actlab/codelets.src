@@ -3,6 +3,7 @@ from collections import namedtuple
 from functools import partial
 from codelets import Datatype
 from codelets.adl.flex_param import FlexParam
+import numpy as np
 
 from pytools import memoize, memoize_method
 from collections import defaultdict
@@ -345,7 +346,7 @@ class Operand:
 
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
-    def get_offset(self, cdlt, level, loop_id, movement_type='up', zero_not_found=True):
+    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True):
         if movement_type == 'up':
             prev_level = level - 1
         else:
@@ -355,9 +356,7 @@ class Operand:
         for dm in self.data_moves:
 
             if cdlt.get_tile_level(dm.dst_node) == level:
-                # assert cdlt.get_tile_level(dm.src_node) == prev_level, f"{self.name}: {dm.src_node}({cdlt.get_tile_level(dm.src_node)})" \
-                #                                                        f"-> {dm.dst_node}({cdlt.get_tile_level(dm.dst_node)})\n" \
-                #                                                        f"Levels: {cdlt.tile_levels}"
+
                 target_movement = dm
                 break
             elif cdlt.get_tile_level(dm.src_node) == level:
@@ -382,7 +381,34 @@ class Operand:
                 raise RuntimeError(f"Could not find offset movement {level} from "
                                    f"{target_movement.src_node}->{target_movement.dst_node} "
                                    f"in operand {self.name}")
-        return offset_val.stride
+        src_node = hag.get_subgraph_node(target_movement.src_node)
+        dst_node = hag.get_subgraph_node(target_movement.dst_node)
+        if src_node.node_type == "compute":
+            assert dst_node.node_type == "storage"
+            width = dst_node.banks
+            target_node = dst_node
+        elif dst_node.node_type == "compute":
+            assert src_node.node_type == "storage"
+            width = src_node.banks
+            target_node = src_node
+        else:
+            assert dst_node.node_type == "storage" and src_node.node_type == "storage"
+            if cdlt.get_tile_level(dst_node.name) == level:
+                width = dst_node.banks
+                target_node = dst_node
+            else:
+                assert cdlt.get_tile_level(src_node.name) == level
+                width = src_node.banks
+                target_node = src_node
+
+        if target_node.name == "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
+            if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
+                    or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
+                width = np.sqrt(width)
+
+        return np.ceil(offset_val.stride/width).astype(np.int64)
 
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":

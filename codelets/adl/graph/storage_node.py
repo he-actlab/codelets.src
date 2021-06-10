@@ -1,5 +1,6 @@
 from codelets.adl.graph.architecture_node import ArchitectureNode
 from typing import Dict
+import numpy as np
 
 
 class StorageNode(ArchitectureNode):
@@ -19,6 +20,8 @@ class StorageNode(ArchitectureNode):
                  depth=-1,
                  indirection=False,
                  on_chip=True,
+                 partitions=None,
+                 addressable_dim=None,
                  index=None):
         super(StorageNode, self).__init__(name=name, index=index)
 
@@ -42,12 +45,19 @@ class StorageNode(ArchitectureNode):
         self._depth = depth
         self._input_ports = input_ports
         self._output_ports = output_ports
-        self._buffering_scheme = buffering_scheme or "single"
+        self._buffering_scheme = None
+        self.buffering_scheme = buffering_scheme or "single"
         self._indirection = indirection
         self._latency = latency
         self._on_chip = on_chip
         # Visualization Attributes
         self._node_color = "#7FFFFF"
+        self._partitions = partitions or []
+        if not addressable_dim:
+            self._addressable_dim = 1 if len(self.partitions) > 1 else 0
+        else:
+            self._addressable_dim = addressable_dim
+
 
     @property
     def attribute_names(self):
@@ -79,6 +89,22 @@ class StorageNode(ArchitectureNode):
     @width.setter
     def width(self, width):
         self._width = width
+
+    @property
+    def partitions(self):
+        return self._partitions
+
+    @partitions.setter
+    def partitions(self, partitions):
+        self._partitions = partitions
+
+    @property
+    def addressable_dim(self):
+        return self._addressable_dim
+
+    @addressable_dim.setter
+    def addressable_dim(self, addressable_dim):
+        self._addressable_dim = addressable_dim
 
     @property
     def depth(self):
@@ -159,6 +185,13 @@ class StorageNode(ArchitectureNode):
         return self._depth * self._banks
 
     @property
+    def addressable_elements(self):
+        if len(self.partitions) == 1:
+            return self.partitions[0]
+        else:
+            return np.prod(self.partitions[:-1])
+
+    @property
     def size_bytes(self):
         return self.size // 8
 
@@ -166,8 +199,31 @@ class StorageNode(ArchitectureNode):
     def node_type(self):
         return 'storage'
 
+    @property
+    def mem_width(self):
+        return np.prod(self.partitions[self.addressable_dim:])
+
+    @property
+    def mem_depth(self):
+        return self.partitions[self.addressable_dim]
+
+    @property
+    def total_capacity(self):
+        return np.prod(self.partitions)
+
+    @property
+    def capacity(self):
+        return self.total_capacity / self.buffering_scheme
+
     def addr_offset_from_bits(self, bit_offset):
         return bit_offset // self.width
+
+    def address_from_bits(self, bits):
+        assert bits % self.mem_width == 0, f"Invalid offset for {self.name}: \n" \
+                                           f"Bit Offset: {bits}\n" \
+                                           f"Memory width: {self.mem_width}\n" \
+                                           f"Width: {self.width}\n"
+        return bits // self.mem_width
 
     # Class methods
     def get_viz_attr(self):

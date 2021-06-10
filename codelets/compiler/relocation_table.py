@@ -122,11 +122,12 @@ class RelocationTable(object):
         object_offset = self.get_relocation(namespace, item_id).start
         total_bit_offset = (namespace_offset + object_offset)
 
-        assert total_bit_offset % self.storage_node.width == 0, f"Invalid offset for address retrieval:\n" \
+        assert total_bit_offset % self.storage_node.mem_width == 0, f"Invalid offset for address retrieval:\n" \
                                                            f"Storage width: {self.storage_node.width}\n" \
                                                            f"Namespace {namespace} offset: {namespace_offset}\n" \
                                                            f"Object {item_id} offset: {object_offset}"
-        return self.storage_node.addr_offset_from_bits(namespace_offset + object_offset)
+        return self.storage_node.address_from_bits(namespace_offset + object_offset)
+
 
     def update_relocation_offset(self, offset_type, offset_id, size):
         current_offset = self.relocatables[offset_type].total_length

@@ -46,11 +46,10 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: Ti
                 # TODO: Need to add something which adds padding function here and uses a function constraint
             elif dst_node.node_type == 'storage':
                 if src_node.node_type == 'compute':
-                    # constraint = f"size == {edge.bandwidth}"
-                    constraint = f"size <= {dst_node.size}"
+                    constraint = f"size <= {dst_node.capacity}"
                 else:
                     assert src_node.node_type == 'storage'
-                    constraint = f"size <= {dst_node.size} and size >= 0"
+                    constraint = f"size <= {dst_node.capacity} and size >= 0"
             else:
                 raise TypeError(f"Unable to handle architecture node type {type(dst_node)}")
             level = cdlt.get_tile_level(access.dst_node)

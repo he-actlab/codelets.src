@@ -137,8 +137,8 @@ def conv2d(hag: ArchitectureNode):
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
     # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
-    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").num_elements
+    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
     cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
@@ -216,8 +216,8 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "OH", "OW", "N", "KH", "KW"])
-    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").num_elements
+    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
     # cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
