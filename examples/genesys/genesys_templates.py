@@ -322,16 +322,13 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
     # loop_id_str = f"(op.loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * 2"
     loop_id_str = f"hag.util_fns.get_loop_level_id('{buffer_name}', op.loop_id, 2, 'LD')"
 
-    # TODO: Change this back to non-integer
-    # req_size_str = f"int(np.ceil(hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth / " \
-    #                f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
-    req_size_str = f"int(op.data_transfer_sizes[-1] * op.operand.dtype.bytes()/hag.get_subgraph_node('{buffer_name}').banks)"
-    n_iter_str = f"int(op.data_transfer_sizes[-1] / ({req_size_str})/ hag.get_subgraph_node('{buffer_name}').banks)"
+    # TODO: Change to LOW/HIGH request
+    req_size_str = f"int(op.data_transfer_sizes[-1] * op.operand.dtype.bytes() / " \
+                   f"hag.get_subgraph_node('{buffer_name}').banks)"
     req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0)"
     req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16)"
     instr = hag.get_primitive_template("SA_LOOP_CFG")
     instr.set_field_flex_param("LOOP_ID", loop_id_str)
-    # instr.set_field_flex_param("NUM_ITERATIONS", f"{n_iter_str} - 1")
     instr.set_field_value("NUM_ITERATIONS", 0)
     instructions.append(instr)
 
@@ -357,7 +354,6 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
     instr.set_field_flex_param("LOOP_ID", loop_id_str)
-    # instr.set_field_flex_param("REQUEST_SIZE", req_size_str)
     instr.set_field_flex_param("REQUEST_SIZE", req_size_str)
     instructions.append(instr)
     return instructions
@@ -424,7 +420,7 @@ def outer_simd_loops(hag: ArchitectureNode):
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
-    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id)")
+    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id, hag)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -465,7 +461,7 @@ def outer_simd_loops(hag: ArchitectureNode):
     micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
-    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id)")
+    micro_instr.set_field_flex_param("STRIDE", f"operand.get_offset(cdlt, 1, op.loop_id, hag)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -525,7 +521,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     macro_instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     macro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("STRIDE",
-                                     "program.extract_bits(operand.get_offset(cdlt, 1, op.loop_id) << 12, 16, 0)")
+                                     "program.extract_bits(operand.get_offset(cdlt, 1, op.loop_id, hag) << 12, 16, 0)")
 
     micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     micro_instr.add_iterable('operand', f'cdlt.operands')
@@ -535,7 +531,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     micro_instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     micro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("STRIDE",
-                                     "program.extract_bits(operand.get_offset(cdlt, 1, op.loop_id) << 12, 16, 16)")
+                                     "program.extract_bits(operand.get_offset(cdlt, 1, op.loop_id, hag) << 12, 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -546,7 +542,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE", "program.extract_bits("
-                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id) << 12,"
+                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag) << 12,"
                                          "16, 0)")
     instructions.append(instr)
 
@@ -557,7 +553,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE", "program.extract_bits("
-                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id) << 12,"
+                                         "cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag) << 12,"
                                          "16, 16)")
     instructions.append(instr)
     return instructions
@@ -586,6 +582,8 @@ def inner_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", f"op.loop_id % (cdlt.op_id_counters['loop']//2)")
     instructions.append(instr)
 
+    # offset_str = f"operand.get_offset(cdlt, 2, op.loop_id)//{sa_constraints} if {sa_loop_cond} else operand.get_offset(cdlt, 2, op.loop_id)"
+    offset_str = f"operand.get_offset(cdlt, 2, op.loop_id, hag)"
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     macro_instr.add_iterable('operand', f'cdlt.operands')
     macro_instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
@@ -594,7 +592,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     macro_instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     macro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("STRIDE",
-                                     "program.extract_bits(operand.get_offset(cdlt, 2, op.loop_id), 16, 0)")
+                                     f"program.extract_bits({offset_str}, 16, 0)")
 
     micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     micro_instr.add_iterable('operand', f'cdlt.operands')
@@ -604,7 +602,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     micro_instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     micro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("STRIDE",
-                                     "program.extract_bits(operand.get_offset(cdlt, 2, op.loop_id), 16, 16)")
+                                     "program.extract_bits(operand.get_offset(cdlt, 2, op.loop_id, hag), 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -615,7 +613,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE",
-                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id), 16, 0)")
+                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag), 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -625,7 +623,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE",
-                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id), 16, 16)")
+                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag), 16, 16)")
     instructions.append(instr)
     return instructions
 

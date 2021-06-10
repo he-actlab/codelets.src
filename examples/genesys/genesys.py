@@ -34,43 +34,51 @@ def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
 
     with ComputeNode("Genesys") as hag:
+        VMEM_PARTITIONS = [cfg['VMEM_DEPTH'], cfg['SIMD_WIDTH'], cfg['ACC_WIDTH']]
+        IMM_PARTITIONS = [cfg['IMM_DEPTH'], cfg['ACC_WIDTH']]
+        INSTR_PARTITIONS = [cfg['INSTR_DEPTH'], cfg['INSTR_WIDTH']]
+
         vmem1 = StorageNode("VMEM1", access_type='RAM', banks=cfg['SIMD_WIDTH'],
+                            buffering_scheme="double",
                             width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
-                            latency=1, input_ports=2, output_ports=2)
+                            partitions=VMEM_PARTITIONS, latency=1, input_ports=2, output_ports=2)
 
         vmem2 = StorageNode("VMEM2", access_type='RAM', banks=cfg['SIMD_WIDTH'],
-                            width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
-                            latency=1, input_ports=2, output_ports=2)
+                            buffering_scheme="double", width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
+                            partitions=VMEM_PARTITIONS, latency=1, input_ports=2, output_ports=2)
 
         imm = StorageNode("IMM", access_type='RAM', banks=cfg['SIMD_WIDTH'],
-                          width=cfg['ACC_WIDTH'], depth=cfg['IMM_DEPTH'],
+                          width=cfg['ACC_WIDTH'], depth=cfg['IMM_DEPTH'], partitions=IMM_PARTITIONS,
                           latency=1, input_ports=2, output_ports=2)
 
         # TODO: Does this need to be added?
         instr_mem = StorageNode("INSTR_MEM", access_type='RAM', width=cfg['INSTR_WIDTH'],
-                                banks=cfg['INSTR_BANKS'], depth=cfg['INSTR_DEPTH'],
+                                banks=cfg['INSTR_BANKS'], depth=cfg['INSTR_DEPTH'], partitions=INSTR_PARTITIONS,
                                 latency=1, input_ports=2, output_ports=2)
-
-        dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'],
-                           width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'],
+        DRAM_PARTITIONS = [cfg['DRAM_DEPTH'], cfg['DRAM_BANKS'], cfg['DRAM_WIDTH']]
+        dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'], addressable_dim=2,
+                           width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'], partitions=DRAM_PARTITIONS,
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
 
         with ComputeNode("systolic_array") as systolic_array:
             pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])
             # TODO: Need to formalize the storage node sizes by # elements, width, and datatype
-            ibuf = StorageNode("IBUF",
-                               access_type='RAM', banks=cfg['ARRAY_N'],
-                               width=cfg['DATA_WIDTH'], depth=cfg['IBUF_DEPTH'],
+            IBUF_PARTITIONS = [cfg['IBUF_DEPTH'], cfg['ARRAY_N'], cfg['DATA_WIDTH']]
+            WBUF_PARTITIONS = [cfg['WBUF_DEPTH'], cfg['ARRAY_N'], cfg['ARRAY_M'], cfg['DATA_WIDTH']]
+            OBUF_PARTITIONS = [cfg['OBUF_DEPTH'], cfg['ARRAY_M'], cfg['ACC_WIDTH']]
+            BBUF_PARTITIONS = [cfg['BBUF_DEPTH'], cfg['ARRAY_M'], cfg['ACC_WIDTH']]
+            ibuf = StorageNode("IBUF", access_type='RAM', banks=cfg['ARRAY_N'], buffering_scheme="double",
+                               width=cfg['DATA_WIDTH'], depth=cfg['IBUF_DEPTH'], partitions=IBUF_PARTITIONS,
                                latency=1, input_ports=2, output_ports=2)
-            wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N'] * cfg['ARRAY_M'],
-                               width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
+            wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N'] * cfg['ARRAY_M'], addressable_dim=1,
+                               buffering_scheme="double", width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
+                               partitions=WBUF_PARTITIONS, latency=1, input_ports=2, output_ports=2)
+            bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="double",
+                               width=cfg['ACC_WIDTH'], depth=cfg['BBUF_DEPTH'], partitions=BBUF_PARTITIONS,
                                latency=1, input_ports=2, output_ports=2)
-            bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'],
-                               width=cfg['DATA_WIDTH'], depth=cfg['BBUF_DEPTH'],
-                               latency=1, input_ports=2, output_ports=2)
-            obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'],
-                               width=cfg['DATA_WIDTH'], depth=cfg['OBUF_DEPTH'],
+            obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="double",
+                               width=cfg['ACC_WIDTH'], depth=cfg['OBUF_DEPTH'], partitions=OBUF_PARTITIONS,
                                latency=1, input_ports=2, output_ports=2)
             # TODO: BW for DRAM is 64bits/cycle
             # Channel bandwidth = axi bandwidth
@@ -252,10 +260,10 @@ def compile_genesys(model_name,
     if print_config:
         print(f"Compiling model with the following config:\n")
         sizes_cfg = def_cfg.copy()
-        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
-        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
-        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
-        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").total_capacity
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").total_capacity
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").total_capacity
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").total_capacity
         pprint(sizes_cfg)
     mode = "training" if train else "inference"
     # Codelet compilation starts here
@@ -350,10 +358,10 @@ def compile_genesys_layer(layer_file,
     if print_config:
         print(f"Compiling model with the following config:\n")
         sizes_cfg = def_cfg.copy()
-        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
-        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
-        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
-        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").total_capacity
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").total_capacity
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").total_capacity
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").total_capacity
         pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
@@ -457,10 +465,10 @@ def compile_extracted_genesys_layer(model_name,
     if print_config:
         print(f"Compiling model with the following config:\n")
         sizes_cfg = def_cfg.copy()
-        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").size
-        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").size
-        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").size
-        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").size
+        sizes_cfg['IBUF_SIZE'] = genesys.get_subgraph_node("IBUF").total_capacity
+        sizes_cfg['WBUF_SIZE'] = genesys.get_subgraph_node("WBUF").total_capacity
+        sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").total_capacity
+        sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").total_capacity
         pprint(sizes_cfg)
     mode = "training" if train else "inference"
     # Codelet compilation starts here

@@ -63,8 +63,8 @@ def test_extracted_layer(source_model, layer_name):
     # "resnet18_conv",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
-    "lenet_gemm",
-    # "lenet_conv",
+    # "lenet_gemm",
+    "lenet_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -74,8 +74,8 @@ def test_genesys_layers(layer_name):
     store_json_output = False
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
-    offsets = [0, 2048, 4096]
-    reloc_offsets = {ns: offsets[i] for i, ns in enumerate(RelocationTable.MEM_LAYOUT)}
+    # offsets = [0, 2048, 4096]
+    # reloc_offsets = {ns: offsets[i] for i, ns in enumerate(RelocationTable.MEM_LAYOUT)}
 
     # This function returns
     program = compile_genesys_layer(layer_name,
@@ -92,11 +92,13 @@ def test_genesys_layers(layer_name):
                             do_hoist_stage=True,
                             do_tile_stage=True,
                             print_config=False,
-                                    relocation_offsets=reloc_offsets
+                                    # relocation_offsets=reloc_offsets
                               )
     # print(program.emit("decimal"))
-    # print(program.emit("string_final"))
     print(program.emit("operations_idx"))
+    print(program.emit("string_final"))
+
+    # pprint.pprint(program.emit("json_no_ops"))
     # validate_program(program, print_difference=True)
 
 def test_reference_creation():
