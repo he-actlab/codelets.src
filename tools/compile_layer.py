@@ -7,7 +7,7 @@ from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
-                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]
+                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm", "lenetbn_conv"]
 ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet"]
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 

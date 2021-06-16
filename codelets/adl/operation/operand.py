@@ -383,32 +383,73 @@ class Operand:
                                    f"in operand {self.name}")
         src_node = hag.get_subgraph_node(target_movement.src_node)
         dst_node = hag.get_subgraph_node(target_movement.dst_node)
-        if src_node.node_type == "compute":
-            assert dst_node.node_type == "storage"
-            width = dst_node.banks
-            target_node = dst_node
-        elif dst_node.node_type == "compute":
-            assert src_node.node_type == "storage"
-            width = src_node.banks
-            target_node = src_node
-        else:
-            assert dst_node.node_type == "storage" and src_node.node_type == "storage"
-            if cdlt.get_tile_level(dst_node.name) == level:
-                width = dst_node.banks
-                target_node = dst_node
-            else:
-                assert cdlt.get_tile_level(src_node.name) == level
-                width = src_node.banks
-                target_node = src_node
-
-        if target_node.name == "WBUF":
+        if src_node.name == "WBUF":
             loop_str = f"loop{loop_id}"
             loop_name = cdlt.loop_param_map[loop_str]
+            width = src_node.banks
             if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
                     or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
                 width = np.sqrt(width)
+        elif src_node.node_type == "storage":
+            width = src_node.banks
+        elif dst_node.node_type == "storage":
+            width = dst_node.banks
+        else:
+            width = 1
+        # if src_node.node_type == "compute":
+        #     assert dst_node.node_type == "storage"
+        #     width = dst_node.banks
+        #     target_node = dst_node
+        # elif dst_node.node_type == "compute":
+        #     assert src_node.node_type == "storage"
+        #     width = src_node.banks
+        #     target_node = src_node
+        # else:
+        #     assert dst_node.node_type == "storage" and src_node.node_type == "storage"
+        # if cdlt.get_tile_level(dst_node.name) == level:
+        #     width = dst_node.banks
+        #     target_node = dst_node
+        # else:
+        #     assert cdlt.get_tile_level(src_node.name) == level
+        #     width = src_node.banks
+        #     target_node = src_node
+
+        # if target_node.name == "WBUF":
+        #     loop_str = f"loop{loop_id}"
+        #     loop_name = cdlt.loop_param_map[loop_str]
+            # if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
+            #         or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
+            #     width = np.sqrt(width)
 
         return np.ceil(offset_val.stride/width).astype(np.int64)
+
+    def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):
+        target_movement = None
+        all_movements = []
+        for dm in self.data_moves:
+
+            if dm.src_node == src and cdlt.get_tile_level(dm.dst_node) == dst_level:
+                target_movement = dm
+                all_movements.append(dm)
+                # break
+        if target_movement is None:
+            raise RuntimeError(f"Unable to find data movement for {src}, level {dst_level}")
+        offset_val = None
+        for o in target_movement.domain_offsets():
+            if o.loop_id == loop_id:
+                offset_val = o
+                break
+
+        if offset_val is None:
+            return 0
+
+        if target_movement.dst_node == "WBUF":
+            print(all_movements)
+            print(target_movement.domain_offsets())
+            print(offset_val)
+            print()
+        return np.ceil(offset_val.stride).astype(np.int64)
+
 
     def compute_tile(self, compute_op, operand_type):
         if operand_type == "source":
