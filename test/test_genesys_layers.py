@@ -64,7 +64,7 @@ def test_extracted_layer(source_model, layer_name):
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
-    "lenet_conv",
+    "lenetbn_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -96,7 +96,7 @@ def test_genesys_layers(layer_name):
                               )
     # print(program.emit("decimal"))
     print(program.emit("operations_idx"))
-    print(program.emit("string_final"))
+    # print(program.emit("string_final"))
 
     # pprint.pprint(program.emit("json_no_ops"))
     # validate_program(program, print_difference=True)
