@@ -1,5 +1,6 @@
-from examples.genesys.genesys_qmodels import QLayer
+from examples.genesys.genesys_qmodels import QLayer, shuffle_weights
 import torch
+import numpy as np
 
 def test_maxpool2D():
     input_var = torch.randint(10, (1, 1, 8, 8)) * 30
@@ -47,5 +48,13 @@ def test_conv2D_8bit_turncate_output():
     model.weight.data.fill_(1)
     output = model(input_var)
     model.eval()
+
+def test_shuffle_weights():
+    weights = np.random.randint(low=0, high=64, size=(1,1,128,128), dtype=np.int8)
+    print(weights)
+    print(shuffle_weights(weights))
+
+
+
 
 

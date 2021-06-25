@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from typing import Union, List
+from . import GENESYS_CFG
+import numpy as np
 
 
 class QLayer(nn.Module):
@@ -54,3 +56,23 @@ class QLayer(nn.Module):
     @property
     def weight(self):
         return self.layer.weight
+
+
+def shuffle_weights(weights):
+    # Assumption weights are in (KH, KW, OC, IC) format
+    w_dim = weights.shape
+    # The result is organized as (KH, KW, IC, OC)
+    result = np.zeros(w_dim, dtype=weights.dtype)
+    tile_m = GENESYS_CFG['ARRAY_M']
+    tile_n = GENESYS_CFG['ARRAY_N']
+    for kh in range(w_dim[0]):
+        for kw in range(w_dim[1]):
+            for mm in range(0, w_dim[2], tile_m):
+                for nn in range(0, w_dim[3], tile_n):
+                    for m in range(tile_m):
+                        for n in range(tile_n):
+                            # Reverse the innermost tile because last column is filled first in systolic array
+                            result[kh][kw][mm + m][nn + tile_n - n - 1] = weights[kh][kw][mm + m][nn + n]
+    return result
+
+
