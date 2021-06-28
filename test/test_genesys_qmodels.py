@@ -1,4 +1,4 @@
-from examples.genesys.genesys_qmodels import QLayer, shuffle_weights
+from examples.genesys.genesys_qmodels import QLayer, shuffle_weights, dram_layout, gen_conv_testcase
 import torch
 import numpy as np
 
@@ -53,6 +53,23 @@ def test_shuffle_weights():
     weights = np.random.randint(low=0, high=64, size=(1,1,128,128), dtype=np.int8)
     print(weights)
     print(shuffle_weights(weights))
+
+def test_dram_layout():
+    weights = np.random.randint(low=-3, high=3, size=(1,1,8,8), dtype=np.int8)
+    weights[0][0][0][0] = 2
+    weights[0][0][0][1] = -3
+    weights[0][0][0][2] = 2
+    weights[0][0][0][3] = 0
+    print(weights)
+    concat_dram_weights = dram_layout(weights)
+    print(concat_dram_weights)
+    # (2 << 24) + (253 << 16) + (2 << 8) + 0
+    # -3 is represented as 253 in 2s complement
+    assert concat_dram_weights[0] == 50135552
+
+def test_gen_conv_testcase():
+    gen_conv_testcase((4,4,8,8), (1,1,64,64))
+
 
 
 

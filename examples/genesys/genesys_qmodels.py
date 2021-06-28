@@ -59,9 +59,8 @@ class QLayer(nn.Module):
 
 
 def shuffle_weights(weights):
-    # Assumption weights are in (KH, KW, OC, IC) format
+    # Layout of weights is in (KH, KW, OC, IC) format
     w_dim = weights.shape
-    # The result is organized as (KH, KW, IC, OC)
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
@@ -71,8 +70,51 @@ def shuffle_weights(weights):
                 for nn in range(0, w_dim[3], tile_n):
                     for m in range(tile_m):
                         for n in range(tile_n):
-                            # Reverse the innermost tile because last column is filled first in systolic array
-                            result[kh][kw][mm + m][nn + tile_n - n - 1] = weights[kh][kw][mm + m][nn + n]
+                            # Reverse order within a tile because systolic array is filled from last column first.
+                            result[kh][kw][mm + tile_m - m - 1][nn + n] = weights[kh][kw][mm + m][nn + n]
     return result
+
+def dram_layout(weights):
+    dram_weights = []
+    assert weights.dtype == np.int8 or weights.dtype == np.uint8
+    flat_weights = weights.flatten()
+    flat_weights = flat_weights.astype(np.uint8)
+    n = flat_weights.shape[0]
+    assert n >= 4
+    for i in range(0, n-4, 4):
+        concat_weights = (flat_weights[i] << 24) + \
+                         (flat_weights[i + 1] << 16) + \
+                         (flat_weights[i + 2] << 8) + \
+                         (flat_weights[i + 3])
+        dram_weights.append(concat_weights)
+    concat_weights = flat_weights[i] << 24
+    if i + 1 < n:
+        concat_weights += flat_weights[i + 1] << 16
+    if i + 2 < n:
+        concat_weights += flat_weights[i + 2] << 8
+    if i + 3 < n:
+        concat_weights += flat_weights[i + 3]
+    dram_weights.append(concat_weights)
+    dram_weights = [str(x) for x in dram_weights]
+    return dram_weights
+
+def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = False):
+    input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
+    weights = np.random.randint(low=0, high=127, size=weight_dim, dtype=np.int8)
+    with open('input.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(input)))
+    with open('weights.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(shuffle_weights(weights))))
+    # Assume weights is (KH, KW, OC, IC) layout
+    #model = QLayer('Conv2d', method='truncate', in_channels=1, out_channels=weight_dim[2], kernel_size=weight_dim[0], stride=stride,
+                   padding=padding, bias=bias)
+
+    #model.weight.data.fill_(1)
+    #output = model(input_var)
+    #model.eval()
+
+
+
+
 
 
