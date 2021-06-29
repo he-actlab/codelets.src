@@ -68,7 +68,7 @@ def test_dram_layout():
     assert concat_dram_weights[0] == 50135552
 
 def test_gen_conv_testcase():
-    gen_conv_testcase((4,4,8,8), (1,1,64,64))
+    gen_conv_testcase((1, 128, 128, 64), (1, 1, 64, 64))
 
 
 

@@ -82,36 +82,44 @@ def dram_layout(weights):
     n = flat_weights.shape[0]
     assert n >= 4
     for i in range(0, n-4, 4):
-        concat_weights = (flat_weights[i] << 24) + \
-                         (flat_weights[i + 1] << 16) + \
-                         (flat_weights[i + 2] << 8) + \
-                         (flat_weights[i + 3])
+        concat_weights = (flat_weights[i]) + \
+                         (flat_weights[i + 1] << 8) + \
+                         (flat_weights[i + 2] << 16) + \
+                         (flat_weights[i + 3] << 24)
         dram_weights.append(concat_weights)
-    concat_weights = flat_weights[i] << 24
+    concat_weights = flat_weights[i]
     if i + 1 < n:
-        concat_weights += flat_weights[i + 1] << 16
+        concat_weights += flat_weights[i + 1] << 8
     if i + 2 < n:
-        concat_weights += flat_weights[i + 2] << 8
+        concat_weights += flat_weights[i + 2] << 16
     if i + 3 < n:
-        concat_weights += flat_weights[i + 3]
+        concat_weights += flat_weights[i + 3] << 24
     dram_weights.append(concat_weights)
     dram_weights = [str(x) for x in dram_weights]
     return dram_weights
 
 def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = False):
+    # Input is (N, H, W, C)
     input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
+    # Weights is (KH, KW, OC, IC) layout
     weights = np.random.randint(low=0, high=127, size=weight_dim, dtype=np.int8)
     with open('input.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
     with open('weights.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
-    # Assume weights is (KH, KW, OC, IC) layout
-    #model = QLayer('Conv2d', method='truncate', in_channels=1, out_channels=weight_dim[2], kernel_size=weight_dim[0], stride=stride,
+    model = QLayer('Conv2d', in_channels=weight_dim[3], out_channels=weight_dim[2], kernel_size=weight_dim[0], stride=stride,
                    padding=padding, bias=bias)
-
-    #model.weight.data.fill_(1)
-    #output = model(input_var)
-    #model.eval()
+    input_tensor = torch.from_numpy(input)
+    input_tensor = input_tensor.float()
+    model.weight.data = torch.from_numpy(weights)
+    model.weight.data = model.weight.data.float()
+    # Reshape as Conv2D layer in pytorch needs input as (N,C,H,W)
+    input_tensor = input_tensor.permute(0, 3, 1, 2)
+    # Reshape as Conv2D layer in pytorch needs weight as (OC,IC,KH,KW)
+    model.weight.data = model.weight.data.permute(2, 3, 0, 1)
+    output = model(input_tensor)
+    model.eval()
+    print(output)
 
 
 
