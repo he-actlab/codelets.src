@@ -120,6 +120,16 @@ def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = Fal
     output = model(input_tensor)
     model.eval()
     print(output)
+    # Output from pytorch is (N, OC, H, W)
+    # Reshape output as Genesys will generate output as (N, H, W, OC)
+    output = output.permute(0, 2, 3, 1).numpy()
+    output = output.flatten().tolist()
+    output = [str(x) for x in output]
+    # Write outputs to file
+    with open('output.txt', 'w') as f:
+        f.write('\n'.join(output))
+
+
 
 
 
