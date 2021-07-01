@@ -128,7 +128,7 @@ test/compilation_output
 tools/compilation_output
 benchmarks/compilation_output
 benchmarks/layers/srdfg
-benchmarks/models/srdfg
+#benchmarks/models/srdfg
 
 codelets/templates_ssa
 test/test_template_ssa.py
