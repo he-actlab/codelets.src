@@ -60,11 +60,11 @@ def test_extracted_layer(source_model, layer_name):
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
-    # "resnet18_conv",
+    "resnet18_conv",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
-    "lenetbn_conv",
+    # "lenetbn_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
