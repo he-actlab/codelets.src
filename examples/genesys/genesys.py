@@ -56,10 +56,12 @@ def define_genesys(cfg):
                                 banks=cfg['INSTR_BANKS'], depth=cfg['INSTR_DEPTH'], partitions=INSTR_PARTITIONS,
                                 latency=1, input_ports=2, output_ports=2)
         DRAM_PARTITIONS = [cfg['DRAM_DEPTH'], cfg['DRAM_BANKS'], cfg['DRAM_WIDTH']]
+
         dram = StorageNode("DRAM", access_type='RAM', banks=cfg['DRAM_BANKS'], addressable_dim=2,
                            width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'], partitions=DRAM_PARTITIONS,
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
+
 
         with ComputeNode("systolic_array") as systolic_array:
             pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])

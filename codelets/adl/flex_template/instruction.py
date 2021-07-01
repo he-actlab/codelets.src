@@ -13,6 +13,7 @@ class Instruction(object):
     STR_FN_ARGS = "program, hag, relocation_table, cdlt, op{OTHERS}"
     DEFAULT_FN_ARGS = ["program", "hag", "relocation_table", "cdlt", "op", "template"]
     SELF_ARG = ["instruction"]
+    DEFAULT_FORMAT = ""
     # TODO: Add test for
     def __init__(self, opname, opcode, opcode_width, fields,
                  target=None,
