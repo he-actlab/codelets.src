@@ -17,7 +17,7 @@ LOOPS_PER_LEVEL = 7
 SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES
 
 BASE_ADDR_STR = "program.extract_bits(relocation_table.get_base_by_name({OPERAND_NAME}), {NUM_BITS}, {POS})"
-
+ASIC_CONFIG = False
 
 def placeholder_alu_template(op_name, hag):
 
@@ -325,8 +325,12 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
     # TODO: Change to LOW/HIGH request
     req_size_str = f"int(op.data_transfer_sizes[-1] * op.operand.dtype.bytes() / " \
                    f"hag.get_subgraph_node('{buffer_name}').banks)"
-    req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0)"
-    req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16)"
+    if ASIC_CONFIG:
+        req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0)"
+        req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
+    else:
+        req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0)"
+        req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16)"
 
     # req_size_str = f"int(op.data_transfer_sizes[-1])"
     # req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0)"
@@ -373,9 +377,12 @@ def buffer_dram_template(buffer_name, hag: ArchitectureNode):
     # req_size_str = f"int(np.ceil(hag.get_subgraph_edge('{buffer_name}', 'DRAM').bandwidth / " \
     #                f"(op.operand.dtype.bits() * hag.get_subgraph_node('{buffer_name}').banks)))"
     req_size_str = f"int(op.data_transfer_sizes[-1] * op.operand.dtype.bytes()/hag.get_subgraph_node('{buffer_name}').banks)"
-
-    req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0) << 12"
-    req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16) << 12"
+    if ASIC_CONFIG:
+        req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0) "
+        req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
+    else:
+        req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0) << 12"
+        req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16) << 12"
 
     # req_size_str = f"int(op.data_transfer_sizes[-1])"
     #
@@ -521,8 +528,10 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_by_name("LOOP_TYPE", "OUTER")
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instructions.append(instr)
-
-    stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
+    if ASIC_CONFIG:
+        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+    else:
+        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
     # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
 
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -546,7 +555,11 @@ def outer_sa_loops(hag: ArchitectureNode):
                                      f"program.extract_bits({stride_str}, 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
-    out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
+    if ASIC_CONFIG:
+        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+    else:
+        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
+
     # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)"
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     instr.add_condition(loop_cond_str)

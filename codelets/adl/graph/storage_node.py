@@ -4,7 +4,7 @@ import numpy as np
 
 
 class StorageNode(ArchitectureNode):
-    ACCESS_TYPES = ["FIFO", "RAM"]
+    ACCESS_TYPES = ["FIFO", "RAM", "REGISTER"]
     BUFF_SCHEMES = {"single": 1,
                     "double": 2,
                     "quadruple": 4}
