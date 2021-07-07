@@ -141,12 +141,11 @@ def conv2d(hag: ArchitectureNode):
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
-    cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
+    cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements} and {obuf_index_size}*4 % 4096 == 0")
     cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
     cdlt.add_compilation_param("OH_hint2", f"size == 1")
     cdlt.add_compilation_param("OW_hint2", f"size == 1")
-
     cdlt.add_compilation_param("KH_hint2", f"size == 1")
     cdlt.add_compilation_param("KW_hint2", f"size == 1")
     cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
@@ -221,6 +220,8 @@ def conv2d_bias(hag: ArchitectureNode):
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
     # cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}")
+    cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements} and {obuf_index_size}*4 % 4096 == 0")
+
     cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     cdlt.add_compilation_param("N_hint2", f"size == 1")
     # cdlt.add_compilation_param("OH_hint2", f"size == 1")

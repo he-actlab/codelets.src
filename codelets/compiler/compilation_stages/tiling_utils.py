@@ -163,7 +163,13 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     parent_perms = deque()
     prev_perm = None
     parent_perms.append(prev_perm)
+    # TODO:
 
+    # Add a data structure to accumulate results, possibly tied with a heuristic (called tiles)
+    # Stopping condition: is_valid ==> stop
+    # stopping condition: False
+    # selection metric/function: lambda tiles: min(tiles
+    # x_splits: min(prod(x)) key = splits, value = product of splits
     while level < tile_info.levels and level > 0:
 
         prev_level = level - 1
@@ -175,6 +181,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
         for p in perms:
             level_counter[level] += 1
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
+
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
