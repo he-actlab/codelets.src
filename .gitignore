@@ -12,6 +12,8 @@ prof
 *.pb
 *.onnx
 *.png
+*.jpg
+*.jpeg
 *.pb
 *.dot
 # Byte-compiled / optimized / DLL files
