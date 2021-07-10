@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
 from torch import Tensor
+import torch.nn.functional as F
 from typing import Union, List
 from . import GENESYS_CFG
+from .genesys_model_utils import get_resnet18, get_resnet50
 import numpy as np
 
 
@@ -58,20 +60,32 @@ class QLayer(nn.Module):
         return self.layer.weight
 
 
-def shuffle_weights(weights):
+def shuffle_weights(weights, layer_type="conv"):
     # Layout of weights is in (KH, KW, OC, IC) format
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
-    for kh in range(w_dim[0]):
-        for kw in range(w_dim[1]):
-            for mm in range(0, w_dim[2], tile_m):
-                for nn in range(0, w_dim[3], tile_n):
-                    for m in range(tile_m):
-                        for n in range(tile_n):
-                            # Reverse order within a tile because systolic array is filled from last column first.
-                            result[kh][kw][mm + tile_m - m - 1][nn + n] = weights[kh][kw][mm + m][nn + n]
+    if layer_type == "conv":
+        for kh in range(w_dim[0]):
+            for kw in range(w_dim[1]):
+                for mm in range(0, w_dim[2], tile_m):
+                    for nn in range(0, w_dim[3], tile_n):
+                        for m in range(tile_m):
+                            for n in range(tile_n):
+                                # Reverse order within a tile because systolic array is filled from last column first.
+                                result[kh][kw][mm + tile_m - m - 1][nn + n] = weights[kh][kw][mm + m][nn + n]
+                                # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+    else:
+        assert layer_type == "linear"
+
+        for mm in range(0, w_dim[1], tile_m):
+            for nn in range(0, w_dim[0], tile_n):
+                for m in range(tile_m):
+                    for n in range(tile_n):
+                        # Reverse order within a tile because systolic array is filled from last column first.
+                        result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
+                                # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     return result
 
 def dram_layout(weights):
@@ -129,9 +143,101 @@ def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = Fal
     with open('output.txt', 'w') as f:
         f.write('\n'.join(output))
 
+def pad_conv(layer_data):
+    x = layer_data['input']
+    out = layer_data['output']
+    wgt = layer_data['params']['weight']
+    b = layer_data['params']['bias']
+    if x.shape[-1] % GENESYS_CFG['ARRAY_M'] != 0:
+        ic_init = x.shape[-1]
+        ic_pad = (GENESYS_CFG['ARRAY_M'] - ic_init) % GENESYS_CFG['ARRAY_M']
+        assert (ic_pad + ic_init) % GENESYS_CFG['ARRAY_M'] == 0
+        padding = (0, ic_pad)
+        x_pad = ((0, 0), (0, 0), (0, 0), padding)
+
+        x = np.pad(x, x_pad, "constant")
+        assert wgt.shape[-1] == ic_init
+        wgt = np.pad(wgt, x_pad, "constant")
+
+    if out.shape[-1] % GENESYS_CFG['ARRAY_N'] != 0:
+        oc_init = out.shape[-1]
+        oc_pad = (GENESYS_CFG['ARRAY_N'] - oc_init) % GENESYS_CFG['ARRAY_N']
+        assert (oc_pad + oc_init) % GENESYS_CFG['ARRAY_N'] == 0
+        padding = (0, oc_pad)
+        out_pad = ((0, 0), (0, 0), (0, 0), padding)
+        out = np.pad(out, out_pad, "constant")
+        assert wgt.shape[-2] == oc_init
+        wgt_pad = ((0, 0), (0, 0), padding, (0, 0))
+        wgt = np.pad(wgt, wgt_pad, "constant")
+        assert b.shape[0] == oc_init
+        b = np.pad(b, padding, "constant")
+    return x, wgt, b, out
+
+def pad_gemm(layer_data):
+    x = layer_data['input']
+    out = layer_data['output']
+    wgt = layer_data['params']['weight']
+    b = layer_data['params']['bias']
+    if x.shape[-1] % GENESYS_CFG['ARRAY_M'] != 0:
+        ic_init = x.shape[-1]
+        ic_pad = (GENESYS_CFG['ARRAY_M'] - ic_init) % GENESYS_CFG['ARRAY_M']
+        assert (ic_pad + ic_init) % GENESYS_CFG['ARRAY_M'] == 0
+        padding = (0, ic_pad)
+        x_pad = ((0, 0), padding)
+
+        x = np.pad(x, x_pad, "constant")
+        assert wgt.shape[0] == ic_init
+        wgt_pad = (padding, (0, 0))
+        wgt = np.pad(wgt, wgt_pad, "constant")
+
+    if out.shape[-1] % GENESYS_CFG['ARRAY_N'] != 0:
+        oc_init = out.shape[-1]
+        oc_pad = (GENESYS_CFG['ARRAY_N'] - oc_init) % GENESYS_CFG['ARRAY_N']
+        assert (oc_pad + oc_init) % GENESYS_CFG['ARRAY_N'] == 0
+        padding = (0, oc_pad)
+        out_pad = ((0, 0), padding)
+        out = np.pad(out, out_pad, "constant")
+        assert wgt.shape[-2] == oc_init
+        wgt_pad = ((0, 0), padding)
+        wgt = np.pad(wgt, wgt_pad, "constant")
+        assert b.shape[0] == oc_init
+        b = np.pad(b, padding, "constant")
+    return x, wgt, b, out
+
+def get_model_values(model_name, layer_name, layer_num):
+
+    if model_name == "resnet18":
+        layer_data, model = get_resnet18(True, layer_name, layer_num)
+    elif model_name == "resnet50":
+        layer_data, model = get_resnet50(True, layer_name, layer_num)
+    else:
+        raise RuntimeError
+
+    if "conv" in layer_name.lower():
+        x, wgt, b, out = pad_conv(layer_data)
+    else:
+        assert "linear" in layer_name.lower()
+        x, wgt, b, out = pad_gemm(layer_data)
+    base_filename = f'{model_name}_{layer_name.lower()}'
+
+    with open(f'{base_filename}_input_i8.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(x)))
+        # f.write('\n'.join([str(i) for i in x.flatten()]))
 
 
+    with open(f'{base_filename}_weights_i8.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
+        # f.write('\n'.join([str(i) for i in wgt.flatten()]))
 
+    out = out.flatten().tolist()
+    out = [str(x) for x in out]
+    with open(f'{base_filename}_output_i32.txt', 'w') as f:
+        f.write('\n'.join(out))
+
+    b = b.flatten().tolist()
+    b = [str(x) for x in b]
+    with open(f'{base_filename}_bias_i32.txt', 'w') as f:
+        f.write('\n'.join(b))
 
 
 
