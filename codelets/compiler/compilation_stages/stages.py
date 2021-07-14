@@ -56,6 +56,7 @@ TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 1, 0]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
+
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
     if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
         cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
@@ -68,6 +69,7 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
+
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     #
     # if template.op_name in ["avg_pool", 'global_avg_pool']:
@@ -77,9 +79,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     #     template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
 
     if template.op_name in ["conv", "conv_bias"]:
-        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.kwargs['pad'])
-        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.kwargs['pad'])
-
+        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
+        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
     if template.op_name in SA_OPS:
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
@@ -109,8 +110,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 updated_dims.append(dim.name)
     return template
 
-def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
 
+def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     reordered_operands = {}
     for idx, i in enumerate(template.inputs):
         if i.shape_list_names in TRANSPOSED_SHAPES:
@@ -127,7 +128,6 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
         elif o.shape_list_names in FLIP_SHAPES:
             o.reorder_shapes(FLIP_SHAPE_PERM)
             reordered_operands[o.name] = FLIP_SHAPE_PERM
-
 
     for o in template.ops:
         if o.op_type == 'transfer':
@@ -147,7 +147,9 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
 
     return template
 
-def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None, codelet_output_map=None) -> 'Codelet':
+
+def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None,
+                      codelet_output_map=None) -> 'Codelet':
     if cdlt.is_noop():
         output_key = node.outputs[0].name
         input_key = node.inputs[0].name
@@ -186,7 +188,9 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
     assert isinstance(shaped_nodes, dict)
     return cdlt
 
-def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None, checkpoint_file=None) -> 'Codelet':
+
+def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None,
+         checkpoint_file=None, stopping_condition=None, selection_metric=None) -> 'Codelet':
     hag = program.hag
 
     cdlt.set_tile_levels()
@@ -205,7 +209,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             else:
                 loop_splits[l] = max_level
     bands = cdlt.extract_bands()
-    cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name)
+    cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
     outer_loop_map = {}
     loop_replacement_map = {}
     for start, end in bands:
@@ -272,9 +276,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                         extra_kwargs["operand"] = op.operand
                         inner_deps.append(op.op_str)
                         inner_op = op.copy(cdlt, loop_level=inner_loop_level,
-                                                    op_id=new_op_id,
-                                                    global_op_id=new_global_id,
-                                                    dependencies=inner_deps, **extra_kwargs)
+                                           op_id=new_op_id,
+                                           global_op_id=new_global_id,
+                                           dependencies=inner_deps, **extra_kwargs)
                         assert id(op.operand) == id(inner_op.operand)
                         op.operand.update_op_accesses(cdlt, op, dep_mapping)
 
@@ -287,21 +291,20 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                 elif op.op_type == 'loop':
 
-
                     extra_kwargs['start'] = 0
                     extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
                     extra_kwargs['stride'] = 1
 
                     inner_op = op.copy(cdlt, loop_level=inner_loop_level,
-                                                    op_id=new_op_id,
-                                                    loop_id=new_op_id,
-                                                    global_op_id=new_global_id,
-                                                    dependencies=inner_deps, **extra_kwargs)
-                    cdlt._domain_loop_map[split+1][inner_op.op_str] = cdlt.domain_loop_map[split + 1][op.op_str]
+                                       op_id=new_op_id,
+                                       loop_id=new_op_id,
+                                       global_op_id=new_global_id,
+                                       dependencies=inner_deps, **extra_kwargs)
+                    cdlt._domain_loop_map[split + 1][inner_op.op_str] = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.start = 0
                     op.stride = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.end = cdlt.domain_loop_map[split][op.op_str]
-                    cdlt._domain_loop_map[split+1].pop(op.op_str)
+                    cdlt._domain_loop_map[split + 1].pop(op.op_str)
 
                     dep_mapping[op.op_str] = inner_op.op_str
                     inner_idx = target_idx + 1
@@ -343,7 +346,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
-
             last_move = o.data_moves[-1]
             dest_name = last_move.dst_node
             level = cdlt.get_tile_level(dest_name)
@@ -395,12 +397,9 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
             idx = max([cdlt.ops.index(cdlt.op_map[dep]) for dep in all_deps])
             loop_level = cdlt.op_map[loop_name].loop_level + 1
 
-
         if (idx + 1) < i and cdlt.ops[idx + 1].loop_level <= loop_level:
             idx += 1
             cdlt.ops.insert(idx, cdlt.ops.pop(i))
             cdlt.ops[idx].loop_level = loop_level
 
     return cdlt
-
-
