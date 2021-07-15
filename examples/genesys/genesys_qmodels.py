@@ -197,7 +197,7 @@ def pad_gemm(layer_data):
         padding = (0, oc_pad)
         out_pad = ((0, 0), padding)
         out = np.pad(out, out_pad, "constant")
-        assert wgt.shape[-2] == oc_init
+        assert wgt.shape[-1] == oc_init
         wgt_pad = ((0, 0), padding)
         wgt = np.pad(wgt, wgt_pad, "constant")
         assert b.shape[0] == oc_init
@@ -221,13 +221,13 @@ def get_model_values(model_name, layer_name, layer_num):
     base_filename = f'{model_name}_{layer_name.lower()}'
 
     with open(f'{base_filename}_input_i8.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(x)))
-        # f.write('\n'.join([str(i) for i in x.flatten()]))
+        # f.write('\n'.join(dram_layout(x)))
+        f.write('\n'.join([str(i) for i in x.flatten()]))
 
 
     with open(f'{base_filename}_weights_i8.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
-        # f.write('\n'.join([str(i) for i in wgt.flatten()]))
+        # f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
+        f.write('\n'.join([str(i) for i in wgt.flatten()]))
 
     out = out.flatten().tolist()
     out = [str(x) for x in out]

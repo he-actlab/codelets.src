@@ -114,7 +114,9 @@ class ArchitectureNode(Node):
         # occupied: [(op_node, primitive, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
         self._occupied = []  # NOTE state in TABLA compiler...
-        self._operation_mappings = {"config": {},
+        self._operation_mappings = {"program": {"start": None, "end": None},
+                                    "codelet": {"start": None, "end": None},
+                                    "config": {},
                                     "transfer": {},
                                     "loop": None,
                                     "compute": {}}
@@ -326,6 +328,16 @@ class ArchitectureNode(Node):
             s_node.set_parent(node)
         self.add_subgraph_node(node)
 
+    def has_op_template(self, op_type, op_subtype):
+        assert op_type in self.operation_mappings
+        return op_subtype in self.operation_mappings[op_type] and self.operation_mappings[op_type][op_subtype] is not None
+
+    def get_program_template(self, subtype: str):
+        return self.operation_mappings['program'][subtype]
+
+    def get_cdlt_op_template(self, subtype: str):
+        return self.operation_mappings['codelet'][subtype]
+
     def get_operation_template(self, op):
 
         if op.op_type == 'transfer':
@@ -409,16 +421,16 @@ class ArchitectureNode(Node):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_start_template(self, target, template, template_fns=None):
-        self.operation_mappings['program_start'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['program']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_end_template(self, target, template, template_fns=None):
-        self.operation_mappings['program_end'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['program']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_start_template(self, target, template, template_fns=None):
-        self.operation_mappings['codelet_start'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['codelet']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_end_template(self, target, template, template_fns=None):
-        self.operation_mappings['codelet_end'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['codelet']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
 

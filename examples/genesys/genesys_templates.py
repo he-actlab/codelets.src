@@ -767,6 +767,11 @@ def program_end(hag: ArchitectureNode):
 
 def codelet_start(hag: ArchitectureNode):
     instructions = []
+    # instr = hag.get_primitive_template("IMM_SIGN_EXT")
+    # instr.set_field_by_name("NS_ID", "IMM")
+    # instr.set_field_value("NS_INDEX_ID", 20)
+    # instr.set_field_value("IMM", 50)
+    # instructions.append(instr)
     return instructions
 
 def codelet_end(hag: ArchitectureNode):

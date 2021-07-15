@@ -259,8 +259,33 @@ class CodeletProgram(object):
 
     def emit(self, output_type):
         codelet_strings = []
+
+        if self.hag.has_op_template("program", "start"):
+            start_instrs = self.hag.get_program_template("start")
+            for ft in start_instrs.instructions:
+                codelet_strings += ft.emit(output_type)
+
         for c in self.codelets:
+
+            # Emit codelet start
+            if self.hag.has_op_template("codelet", "start"):
+                cdlt_start = self.hag.get_cdlt_op_template("start")
+                for ft in cdlt_start.instructions:
+                    codelet_strings += ft.emit(output_type)
+
             codelet_strings.append(c.emit(output_type))
+
+            # Emit codelet end
+            if self.hag.has_op_template("codelet", "end"):
+                cdlt_end = self.hag.get_cdlt_op_template("end")
+                for ft in cdlt_end.instructions:
+                    codelet_strings += ft.emit(output_type)
+
+        if self.hag.has_op_template("program", "end"):
+            end_instrs = self.hag.get_program_template("end")
+            for ft in end_instrs.instructions:
+                codelet_strings += ft.emit(output_type)
+
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(codelet_strings)
         else:
@@ -272,6 +297,18 @@ class CodeletProgram(object):
         self.set_instruction_templates(cdlt)
         self.relocatables.add_data_relocation(node, cdlt)
         self.instantiate_instructions(cdlt)
+
+        if self.hag.has_op_template("codelet", "start"):
+            cdlt_start = self.hag.get_cdlt_op_template("start")
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_start.instructions:
+                ft.evaluate(*args)
+
+        if self.hag.has_op_template("codelet", "end"):
+            cdlt_end = self.hag.get_cdlt_op_template("end")
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_end.instructions:
+                ft.evaluate(*args)
 
     def evaluate_lazy_instruction_templates(self, cdlt):
         for o in cdlt.ops:
@@ -521,6 +558,13 @@ class CodeletProgram(object):
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:
             print(f"\nFinalizing instruction templates")
+
+        if self.hag.has_op_template("program", "start"):
+            start_instrs = self.hag.get_program_template("start")
+            args = (self, self.hag, -1, -1)
+            for ft in start_instrs.instructions:
+                ft.evaluate(*args)
+
         for n in node_sequence:
             cdlt = codelets[n.name]
             if codelets[n.name].is_noop():
@@ -530,6 +574,13 @@ class CodeletProgram(object):
             if verbose:
                 print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
             self.instantiate_instructions_templates(n, codelets[n.name])
+
+        # Generate program end, if it exists
+        if self.hag.has_op_template("program", "end"):
+            end_instrs = self.hag.get_program_template("end")
+            args = (self, self.hag, -1, -1)
+            for ft in end_instrs.instructions:
+                ft.evaluate(*args)
 
     def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
         if verbose:

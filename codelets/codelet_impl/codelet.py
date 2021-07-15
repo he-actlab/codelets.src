@@ -412,7 +412,7 @@ class Codelet(object):
             out_str = ", ".join([f"{o.name}{o.shape_list}" for o in self.outputs])
             operand_str = f"inputs={input_str}\n" \
                           f"outputs={out_str}\n"
-            op_str = f"CODELET:\t{self.op_name}{self.instance_id}\n"
+            op_str = f"// CODELET:\t{self.op_name}{self.instance_id}\n"
             op_str += operand_str
             for i, o in enumerate(self.ops):
                 ostr = f"{i}" + f"\t" * (o.loop_level + 1)

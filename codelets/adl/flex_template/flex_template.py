@@ -4,7 +4,7 @@ from .instruction import Instruction
 from codelets.adl.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
-
+NUM_OP_FN_ARGS = 6
 @dataclass
 class FlexTemplate:
     base_instructions: List[Instruction]
@@ -233,6 +233,8 @@ class FlexTemplate:
             # fn_args = fn_args + tuple(iter_args.values())
             fn_args = fn_args + tuple(iter_args.values()) + tuple(self.current_sideeffects().values())
             num_tabs = self.flex_tabs.evaluate_fn(*fn_args, force_evaluate=True)
+        elif len(fn_args) != NUM_OP_FN_ARGS:
+            num_tabs = 0
         else:
             num_tabs = fn_args[-2].loop_level
 
@@ -307,9 +309,15 @@ class FlexTemplate:
                             )
 
     def create_fn_args(self, program, hag, cdlt_id, op_id):
-        cdlt = program.get_codelet(cdlt_id)
-        op = cdlt.get_op(op_id)
-        args = [program, hag, program.relocatables, cdlt, op, self]
+        args = [program, hag, program.relocatables]
+        if cdlt_id >= 0:
+            cdlt = program.get_codelet(cdlt_id)
+            args.append(cdlt)
+            if op_id >= 0:
+                op = cdlt.get_op(op_id)
+                args.append(op)
+
+        args.append(self)
         return tuple(args)
 
     def emit(self, output_type="string_final"):
