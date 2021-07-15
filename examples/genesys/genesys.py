@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass, template_pad_pass
+    add_simd_typecast, template_layout_pass, template_pad_pass, TilingInfo
 import inspect
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
@@ -61,7 +61,6 @@ def define_genesys(cfg):
                            width=cfg['DRAM_WIDTH'], depth=cfg['DRAM_DEPTH'], partitions=DRAM_PARTITIONS,
                            latency=1, input_ports=2, output_ports=2,
                            on_chip=False)
-
 
         with ComputeNode("systolic_array") as systolic_array:
             pe_array = ComputeNode("pe_array", dimensions=[cfg['ARRAY_N'], cfg['ARRAY_M']])
@@ -187,6 +186,7 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
         out_cfg = GENESYS_CFG
     return out_cfg
 
+
 def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
@@ -202,6 +202,7 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
 
     return graph
 
+
 def get_transformed_srdfg(model_name,
                           train=False,
                           batch_size=1,
@@ -215,6 +216,7 @@ def get_transformed_srdfg(model_name,
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
     graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
     return graph
+
 
 def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
     dtypes = dtypes or GENESYS_DTYPES
@@ -317,6 +319,23 @@ def compile_genesys(model_name,
     return program
 
 
+def stopping_condition(tile_info: TilingInfo, cdlt, permutation, level):
+    return tile_info.validate_splits(cdlt, permutation, level) is not None
+
+
+def selection_metric(tile_info: TilingInfo, search_space, level, permutation):
+    return {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
+            enumerate(permutation)}
+
+
+# Number of tiles as tiling heuristc
+def n_tiles_heuristic(permutation):
+    n_tiles = 1
+    for i in range(len(permutation)):
+        n_tiles * permutation[i]
+    return n_tiles
+
+
 def compile_genesys_layer(layer_file,
                           update_cfg_dtypes=False,
                           tiling_path=None,
@@ -374,7 +393,8 @@ def compile_genesys_layer(layer_file,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn}
+    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': stopping_condition,
+                   'selection_metric': selection_metric, 'heuristic_fn': n_tiles_heuristic}
     if store_tiling and store_checkpoint:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
 
@@ -445,7 +465,6 @@ def compile_extracted_genesys_layer(model_name,
         def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
     else:
         def_cfg = GENESYS_CFG
-
 
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for extracting layer for compilation")

@@ -3,3 +3,10 @@ numpy
 networkx
 graphviz
 jsonschema
+pytest
+dill
+torch
+pytools
+indexed
+onnx
+tqdm

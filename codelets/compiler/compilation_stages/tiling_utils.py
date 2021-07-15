@@ -7,14 +7,14 @@ if TYPE_CHECKING:
     from codelets.adl import ArchitectureNode
     from codelets.codelet_impl import Codelet
 
-
 from . import TilingInfo
-from codelets.compiler.transformations import factors, factors_rand_sort,\
+from codelets.compiler.transformations import factors, factors_rand_sort, \
     factors_reversed, level_factors
 
 FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed,
                  'level': level_factors
                  }
+
 
 # @memoize
 def get_sizes_from_splits(loops, shapes, splits):
@@ -24,6 +24,7 @@ def get_sizes_from_splits(loops, shapes, splits):
         out_shapes.append(shapes[i] // splits[i])
 
     return tuple(out_shapes)
+
 
 # TODO: THis needs to return a list of functions with the same function signature
 def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: TilingInfo):
@@ -68,6 +69,7 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: Ti
 
     return tile_info
 
+
 def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn, level):
     out_shapes = {}
     out_factors = {}
@@ -76,7 +78,6 @@ def get_level_tiling(cdlt, loop_dependencies, shapes, splits, factor_fn, level):
         fixed_dims = cdlt.compilation_params['fixed_tile_dims']
     else:
         fixed_dims = []
-
 
     for l in loop_dependencies:
         out_shapes[l] = shapes[l] // splits[l]
@@ -98,9 +99,8 @@ def find_valid_splits(cdlt, p, lvl,
                       tile_constraints):
     valid_splits = p
 
-    perm_map = {l: p[i]*accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
+    perm_map = {l: p[i] * accumulated_splits[l] for i, l in enumerate(loop_dependencies)}
     size_map = {}
-
 
     for level_access in level_accesses[lvl]:
 
@@ -118,7 +118,6 @@ def find_valid_splits(cdlt, p, lvl,
             else:
                 size_map[k] = v
 
-
         dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bits()
         constraint_sat = tile_constraints.evaluate_constraint(key, size, dtype_size)
 
@@ -128,7 +127,12 @@ def find_valid_splits(cdlt, p, lvl,
     return valid_splits
 
 
-def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name):
+def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name, stopping_condition, selection_metric,
+                       heuristic_fn):
+    if stopping_condition is None:
+        RuntimeError("Stopping condition for codelet tiling is not specified")
+    if selection_metric is None:
+        RuntimeError("Selection metric for codelet tiling is not specified")
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level
     level_accesses = defaultdict(list)
@@ -170,30 +174,28 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
     # stopping condition: False
     # selection metric/function: lambda tiles: min(tiles
     # x_splits: min(prod(x)) key = splits, value = product of splits
-    while level < tile_info.levels and level > 0:
+    while tile_info.levels > level > 0:
 
         prev_level = level - 1
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
         assert perms is not None
         valid_splits = None
         fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
-
+        search_space = {}
         for p in perms:
             level_counter[level] += 1
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
-
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
-            valid_splits = tile_info.validate_splits(cdlt, p, level)
-
-            if valid_splits:
+            search_space[p] = heuristic_fn(p)
+            stop_search = stopping_condition(tile_info, cdlt, p, level)
+            if stop_search:
                 prev_perm = p
-                valid_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
-                                enumerate(valid_splits)}
+                valid_splits = selection_metric(tile_info, search_space, level, p)
                 break
 
-        if not valid_splits:
+        if not stop_search:
             prev_perm = parent_perms.pop()
             perm_stack.pop()
             prev_splits = tile_info.move_up_tile_level(prev_level)
@@ -212,7 +214,6 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
                            f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n")
     # Lastly, update operands
     for o in cdlt.operands:
-
         for idx, a in enumerate(o.data_moves):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
@@ -223,7 +224,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name)
 
             a.set_offset_map(cdlt, tile_info.shapes)
 
-    # TODO: Store all information int he codelet
+    # TODO: Store all information in the codelet
     cdlt._domain_tiling = {}
     cdlt._domain_loop_map = {}
     for l, dim_splits in tile_info.selected_splits.items():
