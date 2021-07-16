@@ -1,13 +1,18 @@
 import numpy as np
 from collections import namedtuple
 from typing import Callable, List, Dict, Optional, Union
+from types import FunctionType
 from . import Field
+import inspect
 from codelets.adl.flex_param import FlexParam
 
 CodeletOperand = namedtuple('Operand', ['field_name', 'supported_dtypes'])
 
 
-
+def default_str_format(opname, fields, tabs):
+    fields = ', '.join([f.emit("string_final") for f in fields])
+    instr_str = tabs * "\t" + f"{opname} {fields}"
+    return instr_str
 
 class Instruction(object):
     STR_FN_ARGS = "program, hag, relocation_table, cdlt, op{OTHERS}"
@@ -19,7 +24,21 @@ class Instruction(object):
                  target=None,
                  field_values=None,
                  latency=1,
+                 num_output_supported=True,
+                 str_output_supported=True,
+                 format_str_fn=None,
                  **kwargs):
+        self._str_output_supported = str_output_supported
+        self._num_output_supported = num_output_supported
+
+        if format_str_fn is not None:
+            assert isinstance(format_str_fn, FunctionType)
+            args = inspect.getfullargspec(format_str_fn)[0]
+            assert len(args) == 3 and args == ['opname', 'fields', 'tabs']
+            self._format_str_fn = format_str_fn
+        else:
+            self._format_str_fn = default_str_format
+
         self._opname = opname
         self._opcode = opcode
         self._opcode_width = opcode_width
@@ -61,6 +80,10 @@ class Instruction(object):
     def instr_length(self):
         return self._instr_length
 
+    @property
+    def format_str_fn(self):
+        return self._format_str_fn
+
     def bin(self) -> str:
         return np.binary_repr(self.opcode, self.opcode_width)
 
@@ -70,6 +93,14 @@ class Instruction(object):
     def set_tabs(self, tabs: int):
         assert self.tabs is None and tabs >= 0
         self._tabs = tabs
+
+    @property
+    def num_output_supported(self) -> bool:
+        return self._num_output_supported
+
+    @property
+    def str_output_supported(self) -> bool:
+        return self._str_output_supported
 
     @property
     def latency(self) -> Union[int, Callable]:
@@ -187,7 +218,7 @@ class Instruction(object):
         field.set_param_fn(flex_param)
         field.lazy_eval = lazy_eval
 
-    def set_field_flex_param_str(self, field_name: str, param_fn: str):
+    def set_field_flex_param_str(self, field_name: str, param_fn: str, lazy_eval=False):
         if field_name not in self.field_names:
             raise ValueError(f"{field_name} is not a field for this capability:\n"
                              f"Fields: {self.fields}")
@@ -198,6 +229,8 @@ class Instruction(object):
                              f"New param fn: {param_fn}")
         flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param, eval_type="string")
+        field.lazy_eval = lazy_eval
+
 
 
     def evaluate_fields(self, fn_args: tuple, iter_args: dict):
@@ -216,6 +249,7 @@ class Instruction(object):
     def emit(self, output_type):
         instruction = []
         if output_type in ["binary", "decimal"]:
+            assert self.num_output_supported
             instruction.append(self.bin())
             for f in self.fields:
                 f_bin = f.emit(output_type)
@@ -225,8 +259,6 @@ class Instruction(object):
             else:
                 return "".join(instruction)
         else:
+            assert self.str_output_supported
             assert self.tabs is not None
-            start = f"{self.opname} "
-            for f in self.fields:
-                instruction.append(f.emit(output_type))
-            return self.tabs*"\t" + start + ", ".join(instruction)
+            return self.format_str_fn(self.opname, self.fields, self.tabs)

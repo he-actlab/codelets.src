@@ -179,6 +179,23 @@ class FlexTemplate:
             base_instr = self.get_base_instr_by_index(instr_name)
         base_instr.set_field_flex_param(field_name, param_fn_str, lazy_eval=lazy_eval)
 
+    def set_field_flex_param_str(self, field_name, param_fn_str, instr_name=None, lazy_eval=False):
+
+        if len(self.base_instructions) > 1 and instr_name is None:
+            raise RuntimeError(f"Instruction name is a required parameter for setting flex params in "
+                               f"FlexTemplates with more than one base Instruction.\n"
+                               f"Field name: {field_name}\n"
+                               f"param func: {param_fn_str}\n"
+                               f"Base instructions: {self.base_instr_str()}")
+        elif instr_name is None:
+            base_instr = self.base_instructions[0]
+
+        elif isinstance(instr_name, str):
+            base_instr = self.get_base_instr_by_name(instr_name)
+        else:
+            assert isinstance(instr_name, int)
+            base_instr = self.get_base_instr_by_index(instr_name)
+        base_instr.set_field_flex_param_str(field_name, param_fn_str, lazy_eval=lazy_eval)
 
     def set_field_value(self, field_name, value, value_str=None, instr_name=None):
         if len(self.base_instructions) > 1 and instr_name is None:

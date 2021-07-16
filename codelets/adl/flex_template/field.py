@@ -27,6 +27,7 @@ class Field:
     param_fn: FlexParam = field(default=None, init=False)
     param_fn_type: str = field(default="int")
     lazy_eval: bool = field(default=False)
+    required: bool = field(default=False)
 
 
     @property
@@ -76,7 +77,7 @@ class Field:
         if isinstance(result, str) and result in self.value_names:
             self.value = self.value_names[result]
             self.value_str = result
-        elif not isinstance(result, Integral):
+        elif not isinstance(result, Integral) and self.param_fn_type == "int":
             raise RuntimeError(f"Non-integer result value which is not found in value names:\n"
                                f"Value: {result}, Type: {type(result)}\n"
                                f"Possible string values: {list(self.value_names.keys())}"
@@ -103,10 +104,12 @@ class Field:
             return f"{bin_rep}"
 
     def copy(self):
+
         field = Field(self.field_name, self.bitwidth, self.field_id, self.value, self.value_names.copy(),
                      self.value_str)
 
         flex_param = None if not self.param_fn else self.param_fn.copy()
         field.param_fn = flex_param
+        field.param_fn_type = self.param_fn_type
         field.lazy_eval = self.lazy_eval
         return field
