@@ -84,6 +84,12 @@ class Instruction(object):
     def format_str_fn(self):
         return self._format_str_fn
 
+    def set_format_str_fn(self, format_str_fn):
+        assert isinstance(format_str_fn, FunctionType)
+        args = inspect.getfullargspec(format_str_fn)[0]
+        assert len(args) == 3 and args == ['opname', 'fields', 'tabs']
+        self._format_str_fn = format_str_fn
+
     def bin(self) -> str:
         return np.binary_repr(self.opcode, self.opcode_width)
 
@@ -119,7 +125,9 @@ class Instruction(object):
         instr = Instruction(self.opname, self.opcode, self.opcode_width, fields,
                             target=self.target,
                             field_values=self.field_values,
-                            latency=self.latency)
+                            latency=self.latency,
+                            format_str_fn=self.format_str_fn
+                            )
         return instr
 
     def __str__(self):

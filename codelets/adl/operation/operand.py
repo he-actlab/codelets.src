@@ -369,10 +369,13 @@ class Operand:
                                f"{self.name}")
 
         offset_val = None
+        other_offsets = []
         for o in target_movement.domain_offsets():
             if o.loop_id == loop_id:
                 offset_val = o
-                break
+                # break
+            elif o.loop_id > loop_id:
+                other_offsets.append(o)
 
         if offset_val is None:
             if zero_not_found:
@@ -390,38 +393,12 @@ class Operand:
             if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
                     or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
                 width = np.sqrt(width)
-        elif src_node.node_type == "storage":
-            width = src_node.banks
-        elif dst_node.node_type == "storage":
-            width = dst_node.banks
+
         else:
             width = 1
-        # if src_node.node_type == "compute":
-        #     assert dst_node.node_type == "storage"
-        #     width = dst_node.banks
-        #     target_node = dst_node
-        # elif dst_node.node_type == "compute":
-        #     assert src_node.node_type == "storage"
-        #     width = src_node.banks
-        #     target_node = src_node
-        # else:
-        #     assert dst_node.node_type == "storage" and src_node.node_type == "storage"
-        # if cdlt.get_tile_level(dst_node.name) == level:
-        #     width = dst_node.banks
-        #     target_node = dst_node
-        # else:
-        #     assert cdlt.get_tile_level(src_node.name) == level
-        #     width = src_node.banks
-        #     target_node = src_node
+        stride_val = np.prod([cdlt.op_map[f"{o.loop_name}"].stride for o in other_offsets])*(offset_val.stride)
 
-        # if target_node.name == "WBUF":
-        #     loop_str = f"loop{loop_id}"
-        #     loop_name = cdlt.loop_param_map[loop_str]
-            # if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
-            #         or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
-            #     width = np.sqrt(width)
-
-        return np.ceil(offset_val.stride/width).astype(np.int64)
+        return np.ceil(stride_val/width).astype(np.int64)
 
     def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):
         target_movement = None
