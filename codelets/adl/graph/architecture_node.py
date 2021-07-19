@@ -533,18 +533,19 @@ class ArchitectureNode(Node):
 
         self._primitives[primitive.name] = primitive
 
-    def get_primitive_template(self, name) -> 'FlexTemplate':
+    def get_primitive_template(self, name, template_type="instruction") -> 'FlexTemplate':
 
         if name in self.primitives:
-            return FlexTemplate(self.primitives[name].instruction_copy())
+            assert template_type in ["program", "codelet", "instruction"]
+            return FlexTemplate(self.primitives[name].instruction_copy(), template_type=template_type)
         elif self.parent_graph == self:
             for n in self.parent_ctx_nodes:
                 if n.has_primitive(name):
-                    return n.get_primitive_template(name)
+                    return n.get_primitive_template(name, template_type=template_type)
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_primitive(name):
-                    return n.get_primitive_template(name)
+                    return n.get_primitive_template(name, template_type=template_type)
         raise KeyError(f"Primitive {name} not found!")
 
     def get_primitives(self) -> List['Instruction']:

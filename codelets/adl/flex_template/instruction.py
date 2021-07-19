@@ -14,9 +14,16 @@ def default_str_format(opname, fields, tabs):
     instr_str = tabs * "\t" + f"{opname} {fields}"
     return instr_str
 
+
 class Instruction(object):
     STR_FN_ARGS = "program, hag, relocation_table, cdlt, op{OTHERS}"
     DEFAULT_FN_ARGS = ["program", "hag", "relocation_table", "cdlt", "op", "template"]
+    PROGRAM_FN_ARGS = ["program", "hag", "relocation_table", "template"]
+    CDLT_FN_ARGS = ["program", "hag", "relocation_table", "cdlt", "template"]
+    INSTR_TYPE_ARGS = {"instruction": DEFAULT_FN_ARGS,
+                       "program": PROGRAM_FN_ARGS,
+                       "codelet": CDLT_FN_ARGS}
+
     SELF_ARG = ["instruction"]
     DEFAULT_FORMAT = ""
     # TODO: Add test for
@@ -27,9 +34,11 @@ class Instruction(object):
                  num_output_supported=True,
                  str_output_supported=True,
                  format_str_fn=None,
+                 instr_type="instruction",
                  **kwargs):
         self._str_output_supported = str_output_supported
         self._num_output_supported = num_output_supported
+        self._instr_type = instr_type
 
         if format_str_fn is not None:
             assert isinstance(format_str_fn, FunctionType)
@@ -67,6 +76,10 @@ class Instruction(object):
     @property
     def tabs(self):
         return self._tabs
+
+    @property
+    def instr_type(self):
+        return self._instr_type
 
     @property
     def opcode_width(self) -> int:
@@ -213,7 +226,7 @@ class Instruction(object):
         if value_str:
             self.field_map[name] = value_str
 
-    def set_field_flex_param(self, field_name: str, param_fn: str, lazy_eval=False):
+    def set_field_flex_param(self, field_name: str, param_fn: str, instr_type: str, lazy_eval=False):
         if field_name not in self.field_names:
             raise ValueError(f"{field_name} is not a field for instruction  {self.name}:\n"
                              f"Fields: {self.fields}")
@@ -222,11 +235,11 @@ class Instruction(object):
             raise ValueError(f"Param function for {field_name} is already set:\n"
                              f"Set param fn: {field.param_fn}\n"
                              f"New param fn: {param_fn}")
-        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
+        flex_param = FlexParam(self.name, Instruction.INSTR_TYPE_ARGS[instr_type] + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param)
         field.lazy_eval = lazy_eval
 
-    def set_field_flex_param_str(self, field_name: str, param_fn: str, lazy_eval=False):
+    def set_field_flex_param_str(self, field_name: str, param_fn: str, instr_type: str, lazy_eval=False):
         if field_name not in self.field_names:
             raise ValueError(f"{field_name} is not a field for this capability:\n"
                              f"Fields: {self.fields}")
@@ -235,7 +248,8 @@ class Instruction(object):
             raise ValueError(f"Param function for {field_name} is already set:\n"
                              f"Set param fn: {field.param_fn}\n"
                              f"New param fn: {param_fn}")
-        flex_param = FlexParam(self.name, Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG, param_fn)
+
+        flex_param = FlexParam(self.name, Instruction.INSTR_TYPE_ARGS[instr_type] + Instruction.SELF_ARG, param_fn)
         field.set_param_fn(flex_param, eval_type="string")
         field.lazy_eval = lazy_eval
 
