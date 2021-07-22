@@ -82,15 +82,15 @@ def shuffle_weights(weights, layer_type="conv"):
                                 # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     else:
         assert layer_type == "linear"
-
         for mm in range(0, w_dim[1], tile_m):
             for nn in range(0, w_dim[0], tile_n):
                 for m in range(tile_m):
                     for n in range(tile_n):
                         # Reverse order within a tile because systolic array is filled from last column first.
                         result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
-                                # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+                        # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     return result
+
 
 def dram_layout(weights):
     dram_weights = []
@@ -99,7 +99,7 @@ def dram_layout(weights):
     flat_weights = flat_weights.astype(np.uint8)
     n = flat_weights.shape[0]
     assert n >= 4
-    for i in range(0, n-4, 4):
+    for i in range(0, n - 4, 4):
         concat_weights = (flat_weights[i]) + \
                          (flat_weights[i + 1] << 8) + \
                          (flat_weights[i + 2] << 16) + \
@@ -116,7 +116,9 @@ def dram_layout(weights):
     dram_weights = [str(x) for x in dram_weights]
     return dram_weights
 
-def gen_conv_testcase(input_dim, weight_dim, base_path=".", stride = 1, padding = 0, bias = False):
+
+
+def gen_conv_testcase(input_dim, weight_dim, stride=1, padding=0, base_path=".", bias=False):
     # Input is (N, H, W, C)
     input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
     # Weights is (KH, KW, OC, IC) layout
@@ -125,7 +127,9 @@ def gen_conv_testcase(input_dim, weight_dim, base_path=".", stride = 1, padding 
         f.write('\n'.join(dram_layout(input)))
     with open(f'{base_path}/weights.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
-    model = QLayer('Conv2d', in_channels=weight_dim[3], out_channels=weight_dim[2], kernel_size=weight_dim[0], stride=stride,
+
+    model = QLayer('Conv2d', in_channels=weight_dim[3], out_channels=weight_dim[2], kernel_size=weight_dim[0],
+                   stride=stride,
                    padding=padding, bias=bias)
     input_tensor = torch.from_numpy(input)
     input_tensor = input_tensor.float()
@@ -145,6 +149,33 @@ def gen_conv_testcase(input_dim, weight_dim, base_path=".", stride = 1, padding 
     # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:
         f.write('\n'.join(output))
+
+
+def gen_fc_layer_testcase(input_dim, output_dim, bias=False):
+    # Input is (N, *, H), output is (N, *, W)
+    input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
+    # Weights is of dimension (H, W)
+    weights = np.random.randint(low=0, high=127, size=(input_dim[-1], output_dim[-1]), dtype=np.int8)
+    with open('input.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(input)))
+    with open('weights.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(shuffle_weights(weights, layer_type='linear'))))
+    model = QLayer('Linear', in_features=input_dim[-1], out_features=output_dim[-1], bias=bias)
+    input_tensor = torch.from_numpy(input)
+    input_tensor = input_tensor.float()
+    # Pytorch layer weights are stored in transposed format.
+    model.weight.data = torch.from_numpy(np.transpose(weights))
+    model.weight.data = model.weight.data.float()
+    output = model(input_tensor)
+    model.eval()
+    print(output)
+    output = output.numpy()
+    output = output.flatten().tolist()
+    output = [str(x) for x in output]
+    # Write outputs to file
+    with open('output.txt', 'w') as f:
+        f.write('\n'.join(output))
+
 
 def pad_conv(layer_data):
     x = layer_data['input']
@@ -175,6 +206,7 @@ def pad_conv(layer_data):
         assert b.shape[0] == oc_init
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
+
 
 def pad_gemm(layer_data):
     x = layer_data['input']
@@ -254,8 +286,8 @@ def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc"):
     #     with open(f'{base_path}/bias.txt', 'w') as f:
     #         f.write('\n'.join(bias))
 
-def get_model_values(model_name, layer_name, layer_num):
 
+def get_model_values(model_name, layer_name, layer_num):
     if model_name == "resnet18":
         layer_data, model = get_resnet18(True, layer_name, layer_num)
     elif model_name == "resnet50":
@@ -274,7 +306,6 @@ def get_model_values(model_name, layer_name, layer_num):
         # f.write('\n'.join(dram_layout(x)))
         f.write('\n'.join([str(i) for i in x.flatten()]))
 
-
     with open(f'{base_filename}_weights_i8.txt', 'w') as f:
         # f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
         f.write('\n'.join([str(i) for i in wgt.flatten()]))
@@ -288,7 +319,3 @@ def get_model_values(model_name, layer_name, layer_num):
     b = [str(x) for x in b]
     with open(f'{base_filename}_bias_i32.txt', 'w') as f:
         f.write('\n'.join(b))
-
-
-
-
