@@ -1,4 +1,4 @@
-from examples.genesys.genesys_qmodels import QLayer, shuffle_weights, dram_layout, gen_conv_testcase, get_model_values
+from examples.genesys.genesys_qmodels import QLayer, shuffle_weights, dram_layout, gen_conv_testcase, get_model_values, gen_fc_layer_testcase
 import torch
 import numpy as np
 
@@ -69,6 +69,10 @@ def test_dram_layout():
 
 def test_gen_conv_testcase():
     gen_conv_testcase((1, 128, 128, 64), (1, 1, 64, 64))
+
+def test_gen_fc_layer_testcase():
+    # 10 samples, with 128 input features, and 64 output features
+    gen_fc_layer_testcase((10,128), (10, 64), bias = False)
 
 def test_resnet_layer_extraction():
     get_model_values("resnet18", "Conv2D", 0)
