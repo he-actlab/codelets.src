@@ -528,10 +528,16 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_by_name("LOOP_TYPE", "OUTER")
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instructions.append(instr)
+    denom_str = f"hag.get_subgraph_edge('DRAM', operand.get_ld_storage_location(cdlt, 1)).bandwidth"
     if ASIC_CONFIG:
-        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+        # Product of stride of inner loops * stride * operand.dtype_size / bandwidth DRAM-BUF 256 (word/line size)
+        # Operand MxN, N=1024, stride, N=1, M = N, 16 tiles --> stride=64
+        # (offset in dim N)*stride/ bandwidth DRAM-BUF 256 (word/line size)
+        # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits() // {denom_str}"
     else:
-        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
+        # Product of iteration of inner loops * stride * operand.dtype_size / 8
+        stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//{denom_str}) << 12"
     # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
 
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -556,7 +562,9 @@ def outer_sa_loops(hag: ArchitectureNode):
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
     if ASIC_CONFIG:
-        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+        denom_str = f"hag.get_subgraph_edge('DRAM', cdlt.outputs[0].get_ld_storage_location(cdlt, 1)).bandwidth"
+        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits() // {denom_str}"
+        # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
     else:
         out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
 
@@ -767,9 +775,9 @@ def program_end(hag: ArchitectureNode):
 
 def codelet_start(hag: ArchitectureNode):
     instructions = []
-    # instr = hag.get_primitive_template("IMM_SIGN_EXT")
+    # instr = hag.get_primitive_template("IMM_SIGN_EXT", template_type="codelet")
     # instr.set_field_by_name("NS_ID", "IMM")
-    # instr.set_field_value("NS_INDEX_ID", 20)
+    # instr.set_field_flex_param("NS_INDEX_ID", "1 + 5")
     # instr.set_field_value("IMM", 50)
     # instructions.append(instr)
     return instructions

@@ -71,8 +71,8 @@ def test_gen_conv_testcase():
     gen_conv_testcase((1, 128, 128, 64), (1, 1, 64, 64))
 
 def test_resnet_layer_extraction():
-    get_model_values("resnet18", "Conv2D", 0)
-    # get_model_values("resnet18", "Linear", 0)
+    # get_model_values("resnet18", "Conv2D", 0)
+    get_model_values("resnet18", "Linear", 0)
 
 
 

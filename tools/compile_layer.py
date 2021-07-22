@@ -3,12 +3,13 @@ import os
 from pathlib import Path
 import json
 from codelets.compiler.program import CodeletProgram
+from examples.genesys.genesys_qmodels import generate_random_values
 from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
-                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm", "lenetbn_conv"]
-ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet"]
+                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm", "lenet_bn_conv", "custom_conv_conv"]
+ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv"]
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 
 
@@ -39,6 +40,11 @@ def create_dirs(fpath):
     else:
         print(f"Directory {base_path} already exists.")
     return base_path
+
+def store_values(program, base_path):
+    cdlt = program.codelets[0]
+    generate_random_values(cdlt, cdlt.op_name, base_path=base_path)
+
 
 def store_outputs(name, batch_size=1,
                              verbose=False,
@@ -99,6 +105,7 @@ def store_outputs(name, batch_size=1,
                                   )
     else:
         raise RuntimeError(f"Invalid layer name for compilation : {name}")
+
     arch_cfg = get_arch(None, None, update_cfg_dtypes)
     print(f"Configuration for program:")
     pprint.pprint(arch_cfg)
@@ -108,12 +115,14 @@ def store_outputs(name, batch_size=1,
             pprint.pprint(program.emit(emit_to_stdout))
         else:
             print(program.emit(emit_to_stdout))
-    store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg)
+
+    base_path = store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg)
     store_compilation_output(program, "operations_idx", extension="txt")
     store_compilation_output(program, "json", extension="json")
     store_compilation_output(program, "string_final", extension="txt")
     store_compilation_output(program, "decimal", extension="txt")
     store_compilation_output(program, "binary", extension="txt")
+    store_values(program, base_path)
 
 def store_compilation_output(program: CodeletProgram, output_type, extension="txt", arch_cfg=None):
     out_path = create_dirs(program.name)
@@ -126,6 +135,7 @@ def store_compilation_output(program: CodeletProgram, output_type, extension="tx
         result = json.dumps(result, indent=2)
     with open(f"{out_path}/{program.name}_{output_type}.{extension}", "w") as outfile:
         outfile.write(result)
+    return out_path
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')

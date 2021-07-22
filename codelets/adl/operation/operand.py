@@ -7,7 +7,6 @@ import numpy as np
 
 from pytools import memoize, memoize_method
 from collections import defaultdict
-import numpy as np
 from . import pairwise
 import polymath as pm
 from numbers import Integral
@@ -396,8 +395,11 @@ class Operand:
 
         else:
             width = 1
-        stride_val = np.prod([cdlt.op_map[f"{o.loop_name}"].stride for o in other_offsets])*(offset_val.stride)
 
+        stride_val = np.prod([cdlt.op_map[f"{o.loop_name}"].stride for o in other_offsets])*(offset_val.stride)
+        # if loop_id <= 1 and dst_node.name == "WBUF":
+        #     print(f"Loop id: {loop_id}, Stride val: {stride_val}, init stride: {offset_val.stride}, Src: {src_node.name}, Dst: {dst_node.name}")
+        #     print(f"Width: {width}, Loop stride: {cdlt.op_map[f'loop{loop_id}'].stride}, Dtype bits: {self.dtype.bits()}\n")
         return np.ceil(stride_val/width).astype(np.int64)
 
     def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):

@@ -59,6 +59,10 @@ class QLayer(nn.Module):
     def weight(self):
         return self.layer.weight
 
+    @property
+    def bias(self):
+        return self.layer.bias
+
 
 def shuffle_weights(weights, layer_type="conv"):
     # Layout of weights is in (KH, KW, OC, IC) format
@@ -112,14 +116,14 @@ def dram_layout(weights):
     dram_weights = [str(x) for x in dram_weights]
     return dram_weights
 
-def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = False):
+def gen_conv_testcase(input_dim, weight_dim, base_path=".", stride = 1, padding = 0, bias = False):
     # Input is (N, H, W, C)
     input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
     # Weights is (KH, KW, OC, IC) layout
     weights = np.random.randint(low=0, high=127, size=weight_dim, dtype=np.int8)
-    with open('input.txt', 'w') as f:
+    with open(f'{base_path}/input.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
-    with open('weights.txt', 'w') as f:
+    with open(f'{base_path}/weights.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
     model = QLayer('Conv2d', in_channels=weight_dim[3], out_channels=weight_dim[2], kernel_size=weight_dim[0], stride=stride,
                    padding=padding, bias=bias)
@@ -133,14 +137,13 @@ def gen_conv_testcase(input_dim, weight_dim, stride = 1, padding = 0, bias = Fal
     model.weight.data = model.weight.data.permute(2, 3, 0, 1)
     output = model(input_tensor)
     model.eval()
-    print(output)
     # Output from pytorch is (N, OC, H, W)
     # Reshape output as Genesys will generate output as (N, H, W, OC)
     output = output.permute(0, 2, 3, 1).numpy()
     output = output.flatten().tolist()
     output = [str(x) for x in output]
     # Write outputs to file
-    with open('output.txt', 'w') as f:
+    with open(f'{base_path}/output.txt', 'w') as f:
         f.write('\n'.join(output))
 
 def pad_conv(layer_data):
@@ -203,6 +206,53 @@ def pad_gemm(layer_data):
         assert b.shape[0] == oc_init
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
+
+def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc"):
+    input_dims = cdlt.inputs[0].shape
+    weight_dims = cdlt.inputs[1].shape
+    stride = cdlt.required_params['stride'].value
+    pad = cdlt.required_params['pad'].value
+
+    input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
+    weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
+    assert "conv" in layer_name
+
+    with open(f'{base_path}/input.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(input)))
+    with open(f'{base_path}/weights.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(shuffle_weights(weights))))
+    if format.lower() == "nhwc" and "conv" in layer_name:
+        input = input.transpose(0, 3, 1, 2)
+        weights = weights.transpose(2, 3, 0, 1)
+
+    model = QLayer('Conv2d', in_channels=weight_dims[3], out_channels=weight_dims[2], kernel_size=weight_dims[0],
+                   stride=stride,
+                   padding=0,
+                   bias=False)
+
+    input_tensor = torch.from_numpy(input)
+    input_tensor = input_tensor.float()
+    model.weight.data = torch.from_numpy(weights)
+    model.weight.data = model.weight.data.float()
+    model.eval()
+    output = model(input_tensor)
+    # Output from pytorch is (N, OC, H, W)
+    # Reshape output as Genesys will generate output as (N, H, W, OC)
+    output = output.permute(0, 2, 3, 1).numpy()
+    output = output.flatten().tolist()
+    output = [str(x) for x in output]
+
+    # Write outputs to file
+    with open(f'{base_path}/output.txt', 'w') as f:
+        f.write('\n'.join(output))
+
+    # if len(cdlt.inputs) == 3:
+    #     bias = model.bias.detach().numpy()
+    #     print(bias.dtype)
+    #     bias = bias.flatten().tolist()
+    #     bias = [str(x) for x in bias]
+    #     with open(f'{base_path}/bias.txt', 'w') as f:
+    #         f.write('\n'.join(bias))
 
 def get_model_values(model_name, layer_name, layer_num):
 

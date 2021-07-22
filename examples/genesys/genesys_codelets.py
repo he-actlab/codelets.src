@@ -112,6 +112,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad)
         # OS ->
 
         with cdlt.loop(OC) as oc:
@@ -190,6 +191,8 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+
 
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
