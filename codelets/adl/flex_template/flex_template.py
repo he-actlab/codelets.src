@@ -100,7 +100,7 @@ class FlexTemplate:
         self.instructions.append(instruction)
 
     def add_condition(self, condition_str: str):
-        base_args = self.get_flex_arg_names(include_instruction=True)
+        base_args = self.get_flex_arg_names(include_instruction=self.template_type == "instruction")
         self.conditional = FlexParam("conditional", base_args, condition_str)
 
     def set_print_tabs(self, tab_val: Union[str, int]):
@@ -272,7 +272,11 @@ class FlexTemplate:
         if iter_idx >= len(self.iterables):
             for bi in self.base_instructions:
                 instruction = bi.instruction_copy()
-                condition = self.evaluate_conditional(fn_args + (instruction,), iter_args)
+                if self.template_type == "instruction":
+                    cond_args = fn_args + (instruction,)
+                else:
+                    cond_args = fn_args
+                condition = self.evaluate_conditional(cond_args, iter_args)
 
                 if condition:
                     field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
