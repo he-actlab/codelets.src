@@ -329,8 +329,8 @@ def dram_buffer_template(buffer_name, hag: ComputeNode):
         req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0)"
         req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
     else:
-        req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0)"
-        req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16)"
+        req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0)"
+        req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
 
     # req_size_str = f"int(op.data_transfer_sizes[-1])"
     # req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0)"
@@ -381,8 +381,8 @@ def buffer_dram_template(buffer_name, hag: ArchitectureNode):
         req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0) "
         req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
     else:
-        req_size_str_low = f"program.extract_bits({req_size_str} << 12, 16, 0) << 12"
-        req_size_str_high = f"program.extract_bits({req_size_str} << 12, 16, 16) << 12"
+        req_size_str_low = f"program.extract_bits({req_size_str}, 16, 0) "
+        req_size_str_high = f"program.extract_bits({req_size_str}, 16, 16)"
 
     # req_size_str = f"int(op.data_transfer_sizes[-1])"
     #
@@ -534,10 +534,10 @@ def outer_sa_loops(hag: ArchitectureNode):
         # Operand MxN, N=1024, stride, N=1, M = N, 16 tiles --> stride=64
         # (offset in dim N)*stride/ bandwidth DRAM-BUF 256 (word/line size)
         # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
-        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits() // {denom_str}"
+        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//{denom_str}"
     else:
         # Product of iteration of inner loops * stride * operand.dtype_size / 8
-        stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//{denom_str}) << 12"
+        stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//8) "
     # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
 
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -566,7 +566,7 @@ def outer_sa_loops(hag: ArchitectureNode):
         out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits() // {denom_str}"
         # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
     else:
-        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride << 12"
+        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
 
     # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)"
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -617,7 +617,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     instructions.append(instr)
 
     # offset_str = f"operand.get_offset(cdlt, 2, op.loop_id)//{sa_constraints} if {sa_loop_cond} else operand.get_offset(cdlt, 2, op.loop_id)"
-    offset_str = f"operand.get_offset(cdlt, 2, op.loop_id, hag) * op.stride"
+    offset_str = f"operand.get_offset(cdlt, 2, op.loop_id, hag, outer_loop=False) * op.stride"
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     macro_instr.add_iterable('operand', f'cdlt.operands')
     macro_instr.add_condition(f'cdlt.is_direct_loop_dep(op, "pe_array")')
@@ -636,7 +636,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     micro_instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     micro_instr.set_field_flex_param("BUFFER", f"operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("STRIDE",
-                                     "program.extract_bits(operand.get_offset(cdlt, 2, op.loop_id, hag), 16, 16)")
+                                     "program.extract_bits(operand.get_offset(cdlt, 2, op.loop_id, hag, outer_loop=False), 16, 16)")
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -647,7 +647,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE",
-                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag), 16, 0)")
+                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag, outer_loop=False), 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -657,7 +657,7 @@ def inner_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("LOOP_ID", inner_loop_id_str)
     instr.set_field_flex_param("BUFFER", f"cdlt.outputs[0].get_ld_storage_location(cdlt, 1)")
     instr.set_field_flex_param("STRIDE",
-                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag), 16, 16)")
+                               "program.extract_bits(cdlt.outputs[0].get_offset(cdlt, 2, op.loop_id, hag, outer_loop=False), 16, 16)")
     instructions.append(instr)
     return instructions
 

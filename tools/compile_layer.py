@@ -43,7 +43,7 @@ def create_dirs(fpath):
 
 def store_values(program, base_path):
     cdlt = program.codelets[0]
-    generate_random_values(cdlt, cdlt.op_name, base_path=base_path)
+    generate_random_values(cdlt, cdlt.op_name, base_path=base_path, use_random=False)
 
 
 def store_outputs(name, batch_size=1,

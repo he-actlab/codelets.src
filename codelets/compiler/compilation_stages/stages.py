@@ -54,6 +54,7 @@ TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
 TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 1, 0]
+# FLIP_SHAPE_PERM = [2, 3, 0, 1]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
 
 

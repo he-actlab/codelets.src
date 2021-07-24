@@ -7,6 +7,7 @@ from . import GENESYS_CFG
 from .genesys_model_utils import get_resnet18, get_resnet50
 import numpy as np
 
+FLIP_SHAPE_PERM = [2, 3, 1, 0]
 
 class QLayer(nn.Module):
     def __init__(self, layer: str, input_width: Union[int, List] = None, output_width: Union[int, List] = None,
@@ -65,21 +66,28 @@ class QLayer(nn.Module):
 
 
 def shuffle_weights(weights, layer_type="conv"):
-    # Layout of weights is in (KH, KW, OC, IC) format
+    # Layout of weights is in (KH, KW, IC, OC) format
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
     if layer_type == "conv":
+        coord_map = {}
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
-                for mm in range(0, w_dim[2], tile_m):
-                    for nn in range(0, w_dim[3], tile_n):
-                        for m in range(tile_m):
-                            for n in range(tile_n):
+                for ic in range(0, w_dim[3], tile_n):  # IC
+                    for oc in range(0, w_dim[2], tile_m): # OC
+                        for n in range(tile_n):  # Rows
+                            for m in range(tile_m): # Columns
                                 # Reverse order within a tile because systolic array is filled from last column first.
-                                result[kh][kw][mm + tile_m - m - 1][nn + n] = weights[kh][kw][mm + m][nn + n]
-                                # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+
+                                src_coord = kh, kw, ic + n, oc + m
+                                dst_coord = kh, kw, ic + tile_n - m - 1, oc + n
+                                assert src_coord not in coord_map
+                                coord_map[src_coord] = dst_coord
+
+                                result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
+
     else:
         assert layer_type == "linear"
         for mm in range(0, w_dim[1], tile_m):
@@ -127,6 +135,7 @@ def gen_conv_testcase(input_dim, weight_dim, stride=1, padding=0, base_path=".",
         f.write('\n'.join(dram_layout(input)))
     with open(f'{base_path}/weights.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
+
 
     model = QLayer('Conv2d', in_channels=weight_dim[3], out_channels=weight_dim[2], kernel_size=weight_dim[0],
                    stride=stride,
@@ -239,25 +248,50 @@ def pad_gemm(layer_data):
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
 
-def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc"):
+def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_random=True):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     stride = cdlt.required_params['stride'].value
     pad = cdlt.required_params['pad'].value
+    if use_random:
+        input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
+        weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
+    else:
 
-    input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
-    weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
+        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+        for i in range(np.prod(input_dims)):
+            input[i] = i % 127
+        input = input.reshape(input_dims)
+
+        weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
+        for j in range(np.prod(weight_dims)):
+            weights[j] = j % 127
+        weights = weights.reshape(weight_dims)
+
     assert "conv" in layer_name
 
-    with open(f'{base_path}/input.txt', 'w') as f:
+    with open(f'{base_path}/input_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
-    with open(f'{base_path}/weights.txt', 'w') as f:
+
+    with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
+
+
+    with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in shuffle_weights(weights).flatten().tolist()]))
+
+    with open(f'{base_path}/input_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
+
+    with open(f'{base_path}/weights_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
+
     if format.lower() == "nhwc" and "conv" in layer_name:
         input = input.transpose(0, 3, 1, 2)
-        weights = weights.transpose(2, 3, 0, 1)
 
-    model = QLayer('Conv2d', in_channels=weight_dims[3], out_channels=weight_dims[2], kernel_size=weight_dims[0],
+        weights = weights.transpose(*tuple(FLIP_SHAPE_PERM))
+
+    model = QLayer('Conv2d', in_channels=weight_dims[2], out_channels=weight_dims[3], kernel_size=weight_dims[0],
                    stride=stride,
                    padding=0,
                    bias=False)

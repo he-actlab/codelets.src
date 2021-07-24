@@ -182,6 +182,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
         valid_splits = None
         fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
         search_space = {}
+        stop_search = False
         for p in perms:
             level_counter[level] += 1
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
