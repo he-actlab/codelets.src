@@ -682,6 +682,9 @@ def loop_template(hag: ArchitectureNode):
 
     return instructions
 
+def loop_end_template(hag: ArchitectureNode):
+    instructions = []
+    return instructions
 
 def dram_simd_template(mem_name, hag: ArchitectureNode):
     instructions = []
@@ -840,6 +843,7 @@ GENESYS_TEMPLATES = {
         ("VMEM2", "DRAM"): partial(simd_dram_template, "VMEM2"),
     },
     "loop": loop_template,
+    "loop_end": loop_end_template,
     "compute": {
         ("pe_array", "MVMUL"): sa_mvmul_template,
         **{("SIMD", op_name): partial(simd_alu_template, op_name) for op_name in SIMD_OP_NAMES},

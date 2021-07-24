@@ -2,14 +2,15 @@ from typing import List, Union, Dict, Tuple, Any
 
 
 from codelets.adl.flex_param import FlexParam
-from codelets.adl.operation import Operation, Loop, Transfer, Compute, Configure, Operand, Datatype
+from codelets.adl.operation import Operation, Loop, Transfer, Compute, Configure, Operand, Datatype, LoopEnd
 from types import LambdaType
 from pytools import memoize_method
 from collections import defaultdict
 from copy import deepcopy
 from contextlib import contextmanager
-
 import polymath as pm
+
+USE_LOOP_END = Loop.USE_LOOP_END
 
 class Codelet(object):
     codelet_instance_id = 0
@@ -270,39 +271,6 @@ class Codelet(object):
                 max_level = l.loop_level
         return max_level
 
-    def extract_bands_(self):
-        bands = []
-
-        idx = -1
-        loop_level = -1
-        for i, o in enumerate(self.ops):
-            if o.op_type == "loop":
-                idx = i + 1
-                loop_level = o.loop_level
-                break
-
-        if idx < 0:
-            return bands
-
-        while idx < len(self.ops):
-
-            op = self.ops[idx]
-            if op.op_type != 'loop':
-                idx += 1
-                continue
-            start_band_idx = idx - 1
-            loop_level = op.loop_level
-
-            while op.loop_level >= loop_level:
-                idx += 1
-                if len(self.ops) <= idx:
-                    break
-                loop_level = op.loop_level
-                op = self.ops[idx]
-
-            bands.append((start_band_idx, idx - 1))
-
-        return bands
 
     def execute(self, program, operand_mappings):
         pass
@@ -324,11 +292,16 @@ class Codelet(object):
                     found_band = False
             elif o.loop_level == prev_loop_level:
                 prev_loop_level = -1
-                bands.append((start_idx, i-1))
+                if USE_LOOP_END:
+                    assert o.op_type == "loop_end"
+                    bands.append((start_idx, i))
+                else:
+                    bands.append((start_idx, i-1))
                 found_band = False
 
         if found_band:
             assert start_idx >= 0
+            # TODO: Update the end index here
             bands.append((start_idx, len(self.ops) - 1))
         return bands
 
@@ -615,6 +588,11 @@ class Codelet(object):
         self.add_op(loop_op)
         return loop_op
 
+    def end_loop(self, loop_name, **kwargs):
+        end_loop_op = LoopEnd(loop_name, add_codelet=False, **kwargs)
+        self.add_op(end_loop_op)
+        return end_loop_op
+
     def set_domain_tile(self, tile_level: str, domain_key: str, split_factor: int):
 
         if tile_level not in self.domain_tiling:
@@ -674,10 +652,18 @@ class Codelet(object):
         loop = self.op_map[loop_name]
         op_idx = self.ops.index(loop) + 1
         target_level = loop.loop_level + 1
-        while op_idx < len(self.ops) and self.ops[op_idx].loop_level >= target_level:
-            if self.ops[op_idx].loop_level == target_level:
-                op_names.append(self.ops[op_idx].op_str)
-            op_idx += 1
+        if not USE_LOOP_END:
+            while op_idx < len(self.ops) and self.ops[op_idx].loop_level >= target_level:
+                if self.ops[op_idx].loop_level == target_level:
+                    op_names.append(self.ops[op_idx].op_str)
+                op_idx += 1
+        else:
+            while op_idx < len(self.ops):
+                if self.ops[op_idx].op_type == "loop_end" and self.ops[op_idx].loop_name == loop_name:
+                    break
+                if self.ops[op_idx].loop_level == target_level:
+                    op_names.append(self.ops[op_idx].op_str)
+                op_idx += 1
         return op_names
 
     def get_combined_loop_scope(self, loop_name: str):
@@ -713,17 +699,22 @@ class Codelet(object):
         else:
             return max(loop_levels)
 
+    def get_loop_end(self, start_loop_name):
+        for o in self.ops:
+            if o.op_type == "loop_end" and o.loop_name == start_loop_name:
+                return o
+        raise RuntimeError(f"Unable to find end loop op for {start_loop_name}")
+
     def get_max_loop_dep(self, op: Operation):
         all_deps = op.dependencies
         if op.loop_level == 0:
             return None
         max_loop_level = -1
-
         scopes = self.get_operation_scopes()
 
         max_level_name = scopes[op.op_str]
-        for dep in all_deps:
 
+        for dep in all_deps:
             dep_idx = self.ops.index(self.op_map[dep])
             if self.ops[dep_idx].op_type == "loop" and self.ops[dep_idx].loop_level > max_loop_level:
                 max_loop_level = self.ops[dep_idx].loop_level

@@ -136,6 +136,7 @@ def define_genesys(cfg):
 
         # Loop
         hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
+        hag.add_loop_end_template("systolic_array", GENESYS_TEMPLATES['loop_end'](hag))
 
         # Program start and end
         hag.add_program_start_template("Genesys", GENESYS_TEMPLATES['program']['start'](hag))
@@ -286,7 +287,9 @@ def compile_genesys(model_name,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn}
+    # tile_kwargs = {'factor_fn_name': factor_fn}
+    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': stopping_condition,
+                   'selection_metric': selection_metric, 'heuristic_fn': n_tiles_heuristic}
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
@@ -508,7 +511,8 @@ def compile_extracted_genesys_layer(model_name,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn}
+    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': stopping_condition,
+                   'selection_metric': selection_metric, 'heuristic_fn': n_tiles_heuristic}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     if relocation_offsets:

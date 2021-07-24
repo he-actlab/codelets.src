@@ -2,7 +2,7 @@ from types import FunctionType
 from codelets.graph import Node, Graph
 from .graph_algorithms import compute_node_levels, get_shortest_paths
 from . import ArchitectureGraph
-from typing import List, Dict, Union, TYPE_CHECKING
+from typing import List, Dict, Union, TYPE_CHECKING, Any
 # from pygraphviz import AGraph
 from collections import namedtuple, deque
 from dataclasses import dataclass, field
@@ -119,6 +119,7 @@ class ArchitectureNode(Node):
                                     "config": {},
                                     "transfer": {},
                                     "loop": None,
+                                    "loop_end": None,
                                     "compute": {}}
         self._util_fns = UtilFuncs()
         if self.parent_graph is not None:
@@ -228,7 +229,7 @@ class ArchitectureNode(Node):
         return self._node_levels
 
     @property
-    def operation_mappings(self):
+    def operation_mappings(self) -> Dict[str, Any]:
         return self._operation_mappings
 
     @operation_mappings.setter
@@ -359,6 +360,12 @@ class ArchitectureNode(Node):
                 template = self.operation_mappings['loop'].instructions
             else:
                 template = [self.operation_mappings['loop'].instructions]
+        elif op.op_type == 'loop_end':
+            # TODO: Check why this is showing up as a warning
+            if isinstance(self.operation_mappings['loop_end'].instructions, list):
+                template = self.operation_mappings['loop_end'].instructions
+            else:
+                template = [self.operation_mappings['loop_end'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
 
@@ -419,6 +426,9 @@ class ArchitectureNode(Node):
 
     def add_loop_template(self, target, template, template_fns=None):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
+
+    def add_loop_end_template(self, target, template, template_fns=None):
+        self.operation_mappings['loop_end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_start_template(self, target, template, template_fns=None):
         self.operation_mappings['program']['start'] = OpTemplate(instructions=template, functions=template_fns)

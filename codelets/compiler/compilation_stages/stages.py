@@ -4,6 +4,7 @@ from codelets.templates.operand_template import IndexOperandTemplate, OperandTem
 from codelets.templates.operation_template import OperationTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
+from codelets.codelet_impl.codelet import USE_LOOP_END
 from codelets.compiler.program import CodeletProgram
 from collections import defaultdict
 
@@ -198,7 +199,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     heuristic_fn = heuristic_fn or default_tile_heuristic
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
-
     for i, o in enumerate(cdlt.operands):
         if len(o.dependencies) == 0 and len(o.data_path) == 0:
             continue
@@ -222,7 +222,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
         dep_mapping = {}
         for split in range(splits):
             op_band = cdlt.ops[start: end + 1]
-
             offset = (end - start)
             num_splits = 0
             for op in op_band:
@@ -236,8 +235,10 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 inner_deps = [dep_mapping[dp] for dp in op.dependencies]
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
-
-                if op.op_type == 'transfer':
+                if op.op_type == "loop_end":
+                    cdlt.insert_op(op, target_idx + num_splits - 1)
+                    continue
+                elif op.op_type == 'transfer':
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         outgoing = False
@@ -246,7 +247,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                         if cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                             offset += 1
                             outgoing = True
-                            cdlt.insert_op(op, target_idx)
+                            cdlt.insert_op(op, target_idx + num_splits - 1)
                         op.operand.update_transfer_access(op, outgoing=outgoing)
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
@@ -301,6 +302,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                                        loop_id=new_op_id,
                                        global_op_id=new_global_id,
                                        dependencies=inner_deps, **extra_kwargs)
+
+
+
                     cdlt._domain_loop_map[split + 1][inner_op.op_str] = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.start = 0
                     op.stride = cdlt.domain_loop_map[split + 1][op.op_str]
@@ -309,6 +313,18 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                     dep_mapping[op.op_str] = inner_op.op_str
                     inner_idx = target_idx + 1
+
+                    # We need to create the end loop for the new inner loop, then move the original end loop to
+                    # the correct ending indx
+                    if USE_LOOP_END:
+                        loop_end = cdlt.get_loop_end(op.op_str)
+                        new_loop_end_id, new_global_loop_end_id = cdlt.get_new_op_ids(loop_end)
+                        inner_op_end = loop_end.copy(cdlt, loop_name=inner_op.op_str, loop_level=inner_loop_level,
+                                                     op_id=new_loop_end_id, new_global_loop_end_id=new_global_loop_end_id)
+                        cdlt.insert_op(inner_op_end, inner_idx)
+
+                    ## end updates to end loop block
+
                     num_splits += 1
                     cdlt.loop_param_map[inner_op.op_str] = cdlt.loop_param_map[op.op_str]
 
@@ -330,7 +346,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                     inner_idx = target_idx
                     num_splits += 1
-
                 cdlt.insert_op(inner_op, inner_idx)
                 if op.op_type == "loop" and outer_loop_map[cdlt.loop_param_map[op.op_str]] != op.op_str:
                     old_op = cdlt.ops.pop(cdlt.ops.index(op))
@@ -382,7 +397,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
 def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
     for o in cdlt.ops:
-        if o.op_type == "loop":
+        if o.op_type == "loop" or o.op_type == "loop_end":
             continue
         i = cdlt.ops.index(o)
         all_deps = o.dependencies
@@ -398,7 +413,7 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
             idx = max([cdlt.ops.index(cdlt.op_map[dep]) for dep in all_deps])
             loop_level = cdlt.op_map[loop_name].loop_level + 1
 
-        if (idx + 1) < i and cdlt.ops[idx + 1].loop_level <= loop_level:
+        if (idx + (loop_level - o.loop_level) + 1) < i and cdlt.ops[idx + 1].loop_level <= loop_level:
             idx += 1
             cdlt.ops.insert(idx, cdlt.ops.pop(i))
             cdlt.ops[idx].loop_level = loop_level
