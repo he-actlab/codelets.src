@@ -528,6 +528,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_by_name("LOOP_TYPE", "OUTER")
     instr.set_field_flex_param("LOOP_ID", "op.loop_id")
     instructions.append(instr)
+
     denom_str = f"hag.get_subgraph_edge('DRAM', operand.get_ld_storage_location(cdlt, 1)).bandwidth"
     if ASIC_CONFIG:
         # Product of stride of inner loops * stride * operand.dtype_size / bandwidth DRAM-BUF 256 (word/line size)
@@ -563,10 +564,11 @@ def outer_sa_loops(hag: ArchitectureNode):
     instructions.append(macro_instr)
     if ASIC_CONFIG:
         denom_str = f"hag.get_subgraph_edge('DRAM', cdlt.outputs[0].get_ld_storage_location(cdlt, 1)).bandwidth"
+
         out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits() // {denom_str}"
         # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
     else:
-        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
+        out_stride_str = f"(cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits()//8) "
 
     # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)"
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")

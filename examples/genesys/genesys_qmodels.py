@@ -7,7 +7,10 @@ from . import GENESYS_CFG
 from .genesys_model_utils import get_resnet18, get_resnet50
 import numpy as np
 
-FLIP_SHAPE_PERM = [2, 3, 1, 0]
+WEIGHTS_CL_TO_CF = [3, 2, 0, 1]
+WEIGHTS_CF_TO_CL = [2, 3, 1, 0]
+# FLIP_SHAPE_PERM = [2, 3, 1, 0]
+# FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
 class QLayer(nn.Module):
     def __init__(self, layer: str, input_width: Union[int, List] = None, output_width: Union[int, List] = None,
@@ -100,19 +103,25 @@ def shuffle_weights(weights, layer_type="conv"):
     return result
 
 
-def dram_layout(weights):
+def dram_layout(weights, print_debug=False):
     dram_weights = []
     assert weights.dtype == np.int8 or weights.dtype == np.uint8
     flat_weights = weights.flatten()
     flat_weights = flat_weights.astype(np.uint8)
     n = flat_weights.shape[0]
     assert n >= 4
-    for i in range(0, n - 4, 4):
+    i = 0
+    nums = [i]
+    while i < (n-4):
         concat_weights = (flat_weights[i]) + \
                          (flat_weights[i + 1] << 8) + \
                          (flat_weights[i + 2] << 16) + \
                          (flat_weights[i + 3] << 24)
         dram_weights.append(concat_weights)
+
+        i += 4
+        nums.append(i)
+
     concat_weights = flat_weights[i]
     if i + 1 < n:
         concat_weights += flat_weights[i + 1] << 8
@@ -185,6 +194,69 @@ def gen_fc_layer_testcase(input_dim, output_dim, bias=False):
     with open('output.txt', 'w') as f:
         f.write('\n'.join(output))
 
+def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
+    # First figure out what the size of the output should be
+    N, C, H, W = x_shape
+    assert (H + 2 * padding - field_height) % stride == 0
+    assert (W + 2 * padding - field_height) % stride == 0
+    out_height = np.int32((H + 2 * padding - field_height) / stride + 1)
+    out_width = np.int32((W + 2 * padding - field_width) / stride + 1)
+
+    i0 = np.repeat(np.arange(field_height), field_width)
+    i0 = np.tile(i0, C)
+    i1 = stride * np.repeat(np.arange(out_height), out_width)
+    j0 = np.tile(np.arange(field_width), field_height * C)
+    j1 = stride * np.tile(np.arange(out_width), out_height)
+    i = i0.reshape(-1, 1) + i1.reshape(1, -1)
+    j = j0.reshape(-1, 1) + j1.reshape(1, -1)
+
+    k = np.repeat(np.arange(C), field_height * field_width).reshape(-1, 1)
+
+    return (k, i, j)
+
+
+def im2col_indices(x, field_height, field_width, padding=1, stride=1):
+    """ An implementation of im2col based on some fancy indexing """
+    # Zero-pad the input
+    p = padding
+    x_padded = np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
+
+    k, i, j = get_im2col_indices(x.shape, field_height, field_width, padding,
+                                 stride)
+
+    cols = x_padded[:, k, i, j]
+    C = x.shape[1]
+    cols = cols.transpose(1, 2, 0).reshape(field_height * field_width * C, -1)
+    return cols
+
+def conv_forward_im2col(x, w, b, conv_param):
+    """
+    A fast implementation of the forward pass for a convolutional layer
+    based on im2col and col2im.
+    """
+    N, C, H, W = x.shape
+    num_filters, _, filter_height, filter_width = w.shape
+    stride, pad = conv_param['stride'], conv_param['pad']
+
+    # Check dimensions
+
+    assert (W + 2 * pad - filter_width) % stride == 0, 'width does not work'
+    assert (H + 2 * pad - filter_height) % stride == 0, 'height does not work'
+
+    # Create output
+    out_height = (H + 2 * pad - filter_height) // stride + 1
+    out_width = (W + 2 * pad - filter_width) // stride + 1
+    out = np.zeros((N, num_filters, out_height, out_width), dtype=x.dtype)
+
+    # x_cols = im2col_indices(x, w.shape[2], w.shape[3], pad, stride)
+    x_cols = im2col_indices(x, w.shape[2], w.shape[3], pad, stride)
+    res = w.reshape((w.shape[0], -1)).dot(x_cols) + b.reshape(-1, 1)
+
+    out = res.reshape(w.shape[0], out.shape[2], out.shape[3], x.shape[0])
+    out = out.transpose(3, 0, 1, 2)
+
+    cache = (x, w, b, conv_param, x_cols)
+    return out, cache
 
 def pad_conv(layer_data):
     x = layer_data['input']
@@ -247,8 +319,107 @@ def pad_gemm(layer_data):
         assert b.shape[0] == oc_init
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
+def conv_forward_naive(x, w, b, conv_param):
+    """
+    A naive implementation of the forward pass for a convolutional layer.
+    The input consists of N data points, each with C channels, height H and
+    width W. We convolve each input with F different filters, where each filter
+    spans all C channels and has height HH and width HH.
+    Input:
+    - x: Input data of shape (N, C, H, W)
+    - w: Filter weights of shape (F, C, HH, WW)
+    - b: Biases, of shape (F,)
+    - conv_param: A dictionary with the following keys:
+      - 'stride': The number of pixels between adjacent receptive fields in the
+        horizontal and vertical directions.
+      - 'pad': The number of pixels that will be used to zero-pad the input.
+    Returns a tuple of:
+    - out: Output data, of shape (N, F, H', W') where H' and W' are given by
+      H' = 1 + (H + 2 * pad - HH) / stride
+      W' = 1 + (W + 2 * pad - WW) / stride
+    - cache: (x, w, b, conv_param)
+    """
+    out = None
 
-def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_random=True):
+    stride = conv_param['stride']
+    pad = conv_param['pad']
+
+    N, C, H, W = x.shape
+    F, C_filter, HH, WW = w.shape
+    assert C == C_filter, 'Number of channels are not equal between input and filter'
+    ###########################################################################
+    # TODO: Implement the convolutional forward pass.                         #
+    # Hint: you can use the function np.pad for padding.                      #
+    ###########################################################################
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), 'constant')
+
+    H_new = int(1 + (H + 2*pad - HH) / stride)
+    W_new = int(1 + (W + 2*pad - WW) / stride)
+
+    out = np.zeros((N, F, H_new, W_new), dtype=x.dtype)
+
+    last_row = H + 2*pad - HH + 1
+    last_col = W + 2*pad - WW + 1
+
+    for f in range(F):
+        i_out = 0
+        for i in range(0, last_row, stride):
+            j_out = 0
+            for j in range(0, last_col, stride):
+                x_current = x_pad[:, :, i:(i+HH), j:(j+WW)]
+                out[:, f, i_out, j_out] = np.dot(x_current.reshape((N, -1)), w[f].flatten()) + b[f]
+                j_out += 1
+            i_out += 1
+    ###########################################################################
+    #                             END OF YOUR CODE                            #
+    ###########################################################################
+    cache = (x, w, b, conv_param)
+    return out, cache
+
+def manual_conv(inputs, weights, cdlt, layout="nhwc"):
+    if layout == "nhwc":
+        N, IH, IW, IC = inputs.shape
+        KH, KW, IC_, OC = weights.shape
+        # KH, KW, OC, IC_ = weights.shape
+        N_, OH, OW, OC_ = cdlt.outputs[0].shape
+        out_shape = cdlt.outputs[0].shape
+    else:
+        N, IC, IH, IW = inputs.shape
+        OC, IC_, KH, KW,  = weights.shape
+        N_, OH, OW, OC_ = cdlt.outputs[0].shape
+        out_shape = (N_, OC_, OH, OW)
+    assert N_ == N
+    assert IC == IC_
+    assert OC == OC_
+    outputs = np.zeros(out_shape, dtype=np.int32)
+    inputs = inputs.astype(np.int32)
+    weights = weights.astype(np.int32)
+    stride = cdlt.required_params['stride'].value
+    if layout == "nhwc":
+        for oc in range(OC):
+            for n in range(N):
+                for ic in range(IC):
+                    for kh in range(KH):
+                        for kw in range(KW):
+                            for y in range(OH):
+                                for x in range(OW):
+                                    outputs[n, y, x, oc] += inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc]
+                                    # outputs[n, y, x, oc] += inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, oc, ic]
+    else:
+        for oc in range(OC):
+            for n in range(N):
+                for ic in range(IC):
+                    for kh in range(KH):
+                        for kw in range(KW):
+                            for y in range(OH):
+                                for x in range(OW):
+                                    outputs[n, oc, y, x] += inputs[n, ic, kh + y * stride, kw + x * stride] * weights[
+                                        oc, ic, kh, kw]
+        outputs = outputs.transpose(0, 2, 3, 1)
+
+    return outputs
+
+def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     stride = cdlt.required_params['stride'].value
@@ -256,55 +427,65 @@ def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_r
     if use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
-    else:
-
+    elif fixed_values is not None:
+        assert "input" in fixed_values and "weights" in fixed_values
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
         for i in range(np.prod(input_dims)):
-            input[i] = i % 127
+            input[i] = fixed_values['input']
         input = input.reshape(input_dims)
 
         weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
         for j in range(np.prod(weight_dims)):
-            weights[j] = j % 127
+            weights[j] = fixed_values['weights']
         weights = weights.reshape(weight_dims)
+    else:
+
+        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+        for i in range(np.prod(input_dims)):
+            input[i] = i % 128
+        input = input.reshape(input_dims)
+        cf_weight_dims = [weight_dims[i] for i in WEIGHTS_CL_TO_CF]
+        # weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
+        weights = np.zeros(cf_weight_dims, dtype=np.int8).reshape(-1)
+        for j in range(np.prod(weight_dims)):
+            weights[j] = j % 128
+        # weights = weights.reshape(weight_dims)
+        weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
 
     assert "conv" in layer_name
 
     with open(f'{base_path}/input_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
 
+    with open(f'{base_path}/input_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
+
     with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(shuffle_weights(weights))))
-
 
     with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in shuffle_weights(weights).flatten().tolist()]))
 
-    with open(f'{base_path}/input_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
-
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
 
+
+
+    # test_output = manual_conv(input, weights, cdlt, layout="nhwc")
     if format.lower() == "nhwc" and "conv" in layer_name:
         input = input.transpose(0, 3, 1, 2)
+        # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
+        weights = weights.transpose(*tuple(WEIGHTS_CL_TO_CF))
 
-        weights = weights.transpose(*tuple(FLIP_SHAPE_PERM))
+    # test_output = manual_conv(input, weights, cdlt, layout="nchw")
 
-    model = QLayer('Conv2d', in_channels=weight_dims[2], out_channels=weight_dims[3], kernel_size=weight_dims[0],
-                   stride=stride,
-                   padding=0,
-                   bias=False)
+    conv_param = {'stride': stride, 'pad': 0}
+    b = np.zeros(weights.shape[0], dtype=np.int32)
+    # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    output = output.transpose(0, 2, 3, 1)
 
-    input_tensor = torch.from_numpy(input)
-    input_tensor = input_tensor.float()
-    model.weight.data = torch.from_numpy(weights)
-    model.weight.data = model.weight.data.float()
-    model.eval()
-    output = model(input_tensor)
-    # Output from pytorch is (N, OC, H, W)
-    # Reshape output as Genesys will generate output as (N, H, W, OC)
-    output = output.permute(0, 2, 3, 1).numpy()
+    # np.testing.assert_allclose(output, test_output)
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 

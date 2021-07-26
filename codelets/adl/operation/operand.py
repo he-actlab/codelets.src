@@ -418,12 +418,12 @@ class Operand:
         else:
             stride_val = (offset_val.stride)
 
-        if loop_id == 8 and src_node.name == "IBUF":
-
-            print(f"Loop id: {loop_id}, Stride val: {stride_val}, init stride: {offset_val.stride}, Src: {src_node.name}, Dst: {dst_node.name}")
-            print(f"Width: {width}, Loop stride: {cdlt.op_map[f'loop{loop_id}'].stride}, Dtype bits: {self.dtype.bits()}\n"
-                  f"Tiling: {self.tiling}, "
-                  f"{other_sizes}\n")
+        # if loop_id == 8 and src_node.name == "IBUF":
+        #
+        #     print(f"Loop id: {loop_id}, Stride val: {stride_val}, init stride: {offset_val.stride}, Src: {src_node.name}, Dst: {dst_node.name}")
+        #     print(f"Width: {width}, Loop stride: {cdlt.op_map[f'loop{loop_id}'].stride}, Dtype bits: {self.dtype.bits()}\n"
+        #           f"Tiling: {self.tiling}, "
+        #           f"{other_sizes}\n")
         return np.ceil(stride_val/width).astype(np.int64)
 
     def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):
