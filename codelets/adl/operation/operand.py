@@ -7,7 +7,6 @@ import numpy as np
 
 from pytools import memoize, memoize_method
 from collections import defaultdict
-import numpy as np
 from . import pairwise
 import polymath as pm
 from numbers import Integral
@@ -269,7 +268,7 @@ class Operand:
     supported_dtypes: Union[List[Datatype]]
     shape_list: List[str]
     shape_symbols: Dict = field(default_factory=dict)
-    tiling: Dict[str, List[int]] = field(default_factory=dict)
+    tiling: Dict[str, Dict[str,int]] = field(default_factory=dict)
     data_path: List[str] = field(default_factory=list)
     dtype: Datatype = field(default=None)
     node_name: str = field(default=None)
@@ -346,7 +345,7 @@ class Operand:
 
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
-    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True):
+    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=True):
         if movement_type == 'up':
             prev_level = level - 1
         else:
@@ -367,12 +366,21 @@ class Operand:
         if target_movement is None:
             raise RuntimeError(f"Could not find data movement for level {level} in operand "
                                f"{self.name}")
+        if cdlt.get_tile_level(target_movement.src_node) > cdlt.get_tile_level(target_movement.dst_node):
+            node_key = target_movement.src_node
+        else:
+            node_key = target_movement.dst_node
 
         offset_val = None
+        other_offsets = []
         for o in target_movement.domain_offsets():
             if o.loop_id == loop_id:
                 offset_val = o
-                break
+                # break
+            # TODO: Check to make sure other loops are nested
+            elif o.loop_id > loop_id:
+                other_offsets.append(o)
+
 
         if offset_val is None:
             if zero_not_found:
@@ -381,6 +389,15 @@ class Operand:
                 raise RuntimeError(f"Could not find offset movement {level} from "
                                    f"{target_movement.src_node}->{target_movement.dst_node} "
                                    f"in operand {self.name}")
+        other_sizes = [1]
+        acc_dims = [offset_val.dim]
+
+        for o in target_movement.domain_offsets():
+            if o.loop_id > loop_id and o.dim not in acc_dims:
+                other_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
+                acc_dims.append(o.dim)
+
+
         src_node = hag.get_subgraph_node(target_movement.src_node)
         dst_node = hag.get_subgraph_node(target_movement.dst_node)
         if src_node.name == "WBUF":
@@ -390,38 +407,24 @@ class Operand:
             if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
                     or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
                 width = np.sqrt(width)
-        elif src_node.node_type == "storage":
-            width = src_node.banks
-        elif dst_node.node_type == "storage":
+        elif src_node.node_type == "compute":
             width = dst_node.banks
+        elif dst_node.node_type == "compute":
+            width = src_node.banks
         else:
             width = 1
-        # if src_node.node_type == "compute":
-        #     assert dst_node.node_type == "storage"
-        #     width = dst_node.banks
-        #     target_node = dst_node
-        # elif dst_node.node_type == "compute":
-        #     assert src_node.node_type == "storage"
-        #     width = src_node.banks
-        #     target_node = src_node
-        # else:
-        #     assert dst_node.node_type == "storage" and src_node.node_type == "storage"
-        # if cdlt.get_tile_level(dst_node.name) == level:
-        #     width = dst_node.banks
-        #     target_node = dst_node
-        # else:
-        #     assert cdlt.get_tile_level(src_node.name) == level
-        #     width = src_node.banks
-        #     target_node = src_node
+        if outer_loop:
+            stride_val = np.prod(other_sizes)*(offset_val.stride)
+        else:
+            stride_val = (offset_val.stride)
 
-        # if target_node.name == "WBUF":
-        #     loop_str = f"loop{loop_id}"
-        #     loop_name = cdlt.loop_param_map[loop_str]
-            # if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
-            #         or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
-            #     width = np.sqrt(width)
-
-        return np.ceil(offset_val.stride/width).astype(np.int64)
+        # if loop_id == 8 and src_node.name == "IBUF":
+        #
+        #     print(f"Loop id: {loop_id}, Stride val: {stride_val}, init stride: {offset_val.stride}, Src: {src_node.name}, Dst: {dst_node.name}")
+        #     print(f"Width: {width}, Loop stride: {cdlt.op_map[f'loop{loop_id}'].stride}, Dtype bits: {self.dtype.bits()}\n"
+        #           f"Tiling: {self.tiling}, "
+        #           f"{other_sizes}\n")
+        return np.ceil(stride_val/width).astype(np.int64)
 
     def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):
         target_movement = None

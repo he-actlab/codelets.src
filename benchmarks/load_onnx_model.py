@@ -120,10 +120,10 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'bertsquad-10'
+    model_name = 'custom_conv'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
-    # convert_model_to_polymath(model_path)
-    # store_unique_model_layers(model_name, store_as_polymath=True)
-    print_unique_model_layers(model_name, store_as_polymath=True)
+    convert_model_to_polymath(model_path)
+    store_unique_model_layers(model_name, store_as_polymath=True)
+    # print_unique_model_layers(model_name, store_as_polymath=True)
     # store_target_model_layer(model_name, "BatchNormalization", store_name="batchnormalization", store_as_polymath=True)

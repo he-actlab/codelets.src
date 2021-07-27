@@ -136,6 +136,15 @@ def define_genesys(cfg):
 
         # Loop
         hag.add_loop_template("systolic_array", GENESYS_TEMPLATES['loop'](hag))
+        hag.add_loop_end_template("systolic_array", GENESYS_TEMPLATES['loop_end'](hag))
+
+        # Program start and end
+        hag.add_program_start_template("Genesys", GENESYS_TEMPLATES['program']['start'](hag))
+        hag.add_program_end_template("Genesys", GENESYS_TEMPLATES['program']['end'](hag))
+
+        # Codelet start and end
+        hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
+        hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
         for op_name, cdlt in GENESYS_CODELETS.items():
             cdlt_instance = cdlt(hag)

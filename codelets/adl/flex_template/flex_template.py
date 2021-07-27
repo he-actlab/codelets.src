@@ -4,7 +4,7 @@ from .instruction import Instruction
 from codelets.adl.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
-
+NUM_OP_FN_ARGS = 6
 @dataclass
 class FlexTemplate:
     base_instructions: List[Instruction]
@@ -17,10 +17,13 @@ class FlexTemplate:
     num_instructions: int = field(init=False, default=1)
     flex_tabs: FlexParam = field(default=None)
     arg_names: List[str] = field(default_factory=lambda: Instruction.DEFAULT_FN_ARGS.copy())
+    template_type: str = field(default="instruction")
 
     def __post_init__(self):
         if isinstance(self.base_instructions, Instruction):
             self.base_instructions = [self.base_instructions]
+        assert self.template_type in Instruction.INSTR_TYPE_ARGS
+        self.arg_names = Instruction.INSTR_TYPE_ARGS[self.template_type].copy()
 
     def add_side_effect_param(self, name: str,  scope: str, init_val: Union[str, int], side_effect_str):
         if scope not in ['codelet', 'program', 'operation']:
@@ -32,7 +35,8 @@ class FlexTemplate:
         self.side_effects.append(new_side_effect)
         assert name not in self.get_flex_arg_names()
         self.side_effect_args.append(f"{name}")
-        self.arg_names = Instruction.DEFAULT_FN_ARGS + self.iter_args + self.side_effect_args
+        assert self.template_type in Instruction.INSTR_TYPE_ARGS
+        self.arg_names = Instruction.INSTR_TYPE_ARGS[self.template_type].copy() + self.iter_args + self.side_effect_args
 
         if self.conditional is not None:
             self.conditional.reset_fn_args(self.arg_names)
@@ -44,6 +48,7 @@ class FlexTemplate:
 
     def get_flex_arg_names(self, include_instruction=False):
         if include_instruction:
+            assert self.template_type not in ["program", "codelet"]
             args = Instruction.DEFAULT_FN_ARGS + Instruction.SELF_ARG + self.iter_args + self.side_effect_args
             return args
         else:
@@ -95,7 +100,7 @@ class FlexTemplate:
         self.instructions.append(instruction)
 
     def add_condition(self, condition_str: str):
-        base_args = self.get_flex_arg_names(include_instruction=True)
+        base_args = self.get_flex_arg_names(include_instruction=self.template_type == "instruction")
         self.conditional = FlexParam("conditional", base_args, condition_str)
 
     def set_print_tabs(self, tab_val: Union[str, int]):
@@ -109,11 +114,12 @@ class FlexTemplate:
             self.flex_tabs.value = tab_val
 
     def add_iterable(self, arg_name: str, iterable: str):
-        iterable_param = FlexParam(arg_name, Instruction.DEFAULT_FN_ARGS, iterable)
+
+        iterable_param = FlexParam(arg_name, Instruction.INSTR_TYPE_ARGS[self.template_type], iterable)
         self.iter_args.append(arg_name)
         self.iterables.append(iterable_param)
 
-        self.arg_names = Instruction.DEFAULT_FN_ARGS + self.iter_args + self.side_effect_args
+        self.arg_names = Instruction.INSTR_TYPE_ARGS[self.template_type] + self.iter_args + self.side_effect_args
 
         if self.conditional is not None:
             self.conditional.reset_fn_args(self.arg_names)
@@ -177,8 +183,25 @@ class FlexTemplate:
         else:
             assert isinstance(instr_name, int)
             base_instr = self.get_base_instr_by_index(instr_name)
-        base_instr.set_field_flex_param(field_name, param_fn_str, lazy_eval=lazy_eval)
+        base_instr.set_field_flex_param(field_name, param_fn_str, self.template_type, lazy_eval=lazy_eval)
 
+    def set_field_flex_param_str(self, field_name, param_fn_str, instr_name=None, lazy_eval=False):
+
+        if len(self.base_instructions) > 1 and instr_name is None:
+            raise RuntimeError(f"Instruction name is a required parameter for setting flex params in "
+                               f"FlexTemplates with more than one base Instruction.\n"
+                               f"Field name: {field_name}\n"
+                               f"param func: {param_fn_str}\n"
+                               f"Base instructions: {self.base_instr_str()}")
+        elif instr_name is None:
+            base_instr = self.base_instructions[0]
+
+        elif isinstance(instr_name, str):
+            base_instr = self.get_base_instr_by_name(instr_name)
+        else:
+            assert isinstance(instr_name, int)
+            base_instr = self.get_base_instr_by_index(instr_name)
+        base_instr.set_field_flex_param_str(field_name, param_fn_str, self.template_type, lazy_eval=lazy_eval)
 
     def set_field_value(self, field_name, value, value_str=None, instr_name=None):
         if len(self.base_instructions) > 1 and instr_name is None:
@@ -233,6 +256,8 @@ class FlexTemplate:
             # fn_args = fn_args + tuple(iter_args.values())
             fn_args = fn_args + tuple(iter_args.values()) + tuple(self.current_sideeffects().values())
             num_tabs = self.flex_tabs.evaluate_fn(*fn_args, force_evaluate=True)
+        elif len(fn_args) != NUM_OP_FN_ARGS:
+            num_tabs = 0
         else:
             num_tabs = fn_args[-2].loop_level
 
@@ -247,7 +272,11 @@ class FlexTemplate:
         if iter_idx >= len(self.iterables):
             for bi in self.base_instructions:
                 instruction = bi.instruction_copy()
-                condition = self.evaluate_conditional(fn_args + (instruction,), iter_args)
+                if self.template_type == "instruction":
+                    cond_args = fn_args + (instruction,)
+                else:
+                    cond_args = fn_args
+                condition = self.evaluate_conditional(cond_args, iter_args)
 
                 if condition:
                     field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
@@ -303,13 +332,21 @@ class FlexTemplate:
                             iter_args=self.iter_args.copy(),
                             iterables=self.iterables.copy(),
                             conditional=None if not self.conditional else self.conditional.copy(),
-                            flex_tabs=None if not self.flex_tabs else self.flex_tabs.copy()
+                            flex_tabs=None if not self.flex_tabs else self.flex_tabs.copy(),
+                            template_type=self.template_type
                             )
 
     def create_fn_args(self, program, hag, cdlt_id, op_id):
-        cdlt = program.get_codelet(cdlt_id)
-        op = cdlt.get_op(op_id)
-        args = [program, hag, program.relocatables, cdlt, op, self]
+        # program, hag, cdlt_id, op_idx
+        args = [program, hag, program.relocatables]
+        if cdlt_id >= 0:
+            cdlt = program.get_codelet(cdlt_id)
+            args.append(cdlt)
+            if op_id >= 0:
+                op = cdlt.get_op(op_id)
+                args.append(op)
+
+        args.append(self)
         return tuple(args)
 
     def emit(self, output_type="string_final"):

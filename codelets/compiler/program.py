@@ -2,6 +2,7 @@ import json
 from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
 from time import time
+from codelets.adl.flex_param import FlexParam
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
@@ -257,14 +258,192 @@ class CodeletProgram(object):
 
         return cdlt
 
-    def emit(self, output_type):
+    def emit_compute_op(self, op, output_type):
+
+        if output_type == "operations":
+            source_names = [s.name for s in op.sources]
+            dst_names = [d.name for d in op.dests]
+            op_str = f"{op.op_str}: {op.target}-{op.op_name}({source_names})->{dst_names}"
+        else:
+            assert output_type == "json"
+            sources = [s.name for s in op.sources]
+            dests = [d.name for d in op.dests]
+            op_str = {"op_type": op.op_type,
+                      "op_id": op.global_op_id,
+                      "operation_name": op.op_name,
+                      "target": op.target,
+                      "sources": sources,
+                      "destinations": dests
+                      }
+        return op_str
+
+    def emit_config_op(self, op, output_type):
+        if output_type == "operations":
+            op_str = f"{op.op_str}: {op.start_or_finish}-{op.target}"
+        else:
+            assert output_type == "json"
+            op_str = {"op_type": op.op_type,
+                      "op_id": op.global_op_id,
+                      "start_or_finish": op.start_or_finish,
+                      "target": op.target}
+        return op_str
+
+    def emit_transfer_op(self, op, output_type):
+        if output_type == "operations":
+            op_str = f"{op.op_str}: OPERAND: {op.operand.name}[{'->'.join(op.path)}], SIZES: {op.sizes}"
+        else:
+            assert output_type == "json"
+            transfer_info = {}
+            for move in op.operand.data_moves:
+                text_key = f"{move.src_node}->{move.dst_node}"
+                transfer_info[text_key] = {}
+                transfer_info[text_key]['size'] = move.size()
+                transfer_info[text_key]['offset'] = [str(o) for o in move.domain_offsets()]
+
+            op_str = {"op_type": op.op_type,
+                      "op_id": op.global_op_id,
+                      "operand": op.operand.name,
+                      "transfer_path": op.path,
+                      "transfers": transfer_info}
+        return op_str
+
+    def emit_loop_op(self, op, output_type):
+        if output_type == "operations":
+            op_str = f"{op.op_str}[{op.loop_level}]: START={op.start}; STOP={op.end}; STRIDE={op.stride}; OFFSET:{op.offset}"
+        else:
+            assert output_type == "json"
+            op_str = {"op_type": op.op_type,
+                      "op_id": op.global_op_id,
+                      "start": op.start,
+                      "end": op.end,
+                      "offset": op.offset,
+                      "stride": op.stride
+                      }
+        return op_str
+
+    def emit_operation(self, op: Operation, output_type):
+        if output_type not in ["json", "operations"]:
+            op_str = []
+            for ft in op.instructions:
+                ft_out = ft.emit(output_type)
+                if len(ft_out) == 0:
+                    continue
+                op_str += ft_out
+        elif op.op_type == "compute":
+            op_str = self.emit_compute_op(op, output_type)
+        elif op.op_type == "transfer":
+            op_str = self.emit_transfer_op(op, output_type)
+        elif op.op_type == "config":
+            op_str = self.emit_config_op(op, output_type)
+        else:
+            assert op.op_type == "loop"
+            op_str = self.emit_loop_op(op, output_type)
+        return op_str
+
+    def emit_single_codelet(self, cdlt, output_type):
+
+        if output_type in ["operations", "operations_idx"]:
+            input_str = ", ".join([f"{i.name}{i.shape_list}" for i in cdlt.inputs])
+            out_str = ", ".join([f"{o.name}{o.shape_list}" for o in cdlt.outputs])
+            operand_str = f"inputs={input_str}\n" \
+                          f"outputs={out_str}\n"
+            op_str = f"// CODELET:\t{cdlt.op_name}{cdlt.instance_id}\n"
+            op_str += operand_str
+
+            for i, o in enumerate(cdlt.ops):
+                ostr = f"\t" * (o.loop_level + 1)
+                if output_type == "operations_idx":
+                    ostr = f"{i}" + f"{ostr}"
+                ostr += f"{o.emit('operations')}\n"
+                op_str += ostr
+        elif output_type == "json":
+            op_params = {}
+            operand_dim_map = cdlt.operand_dim_mapping()
+            for k, v in cdlt.required_params.items():
+                if k not in operand_dim_map:
+                    assert isinstance(v, FlexParam)
+                    op_params[k] = v.value
+
+            op_str = {}
+            loop_order = cdlt.get_loop_order()
+            op_str['operation'] = cdlt.op_name
+            op_str['instance_id'] = cdlt.instance_id
+            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['operation_parameters'] = op_params
+            op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
+            op_str['outputs'] = [o.emit(output_type) for o in cdlt.outputs]
+            op_str['operation_sequence'] = [op.emit(output_type) for op in cdlt.ops]
+        elif output_type == "json_no_ops":
+            op_params = {}
+            operand_dim_map = cdlt.operand_dim_mapping()
+
+            loop_order = cdlt.get_loop_order()
+
+            for k, v in cdlt.required_params.items():
+                if k not in operand_dim_map:
+                    assert isinstance(v, FlexParam)
+                    op_params[k] = v.value
+
+            op_str = {}
+            op_str['operation'] = cdlt.op_name
+            op_str['instance_id'] = cdlt.instance_id
+            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['operation_parameters'] = op_params
+            op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
+            op_str['outputs'] = [o.emit("json") for o in cdlt.outputs]
+
+        elif output_type not in ["decimal", "binary"]:
+            op_str = f"CODELET:\t{cdlt.op_name}{cdlt.instance_id}\n"
+            for o in cdlt.ops:
+                instr_list = self.emit_operation(o, output_type)
+                if len(instr_list) > 0:
+                    instr_list = f"\n".join(instr_list) + "\n"
+                    op_str += instr_list
+        else:
+            op_str = []
+            for o in cdlt.ops:
+                instr_list = self.emit_operation(o, output_type)
+                op_str += instr_list
+            op_str = "\n".join(op_str)
+        return op_str
+
+    def emit_codelets(self, output_type):
         codelet_strings = []
         for c in self.codelets:
-            codelet_strings.append(c.emit(output_type))
+
+            # Emit codelet start
+            if self.hag.has_op_template("codelet", "start"):
+                cdlt_start = self.hag.get_cdlt_op_template("start")
+                for ft in cdlt_start.instructions:
+                    codelet_strings += ft.emit(output_type)
+            codelet_strings.append(self.emit_single_codelet(c, output_type))
+
+            # Emit codelet end
+            if self.hag.has_op_template("codelet", "end"):
+                cdlt_end = self.hag.get_cdlt_op_template("end")
+                for ft in cdlt_end.instructions:
+                    codelet_strings += ft.emit(output_type)
+        return codelet_strings
+
+    def emit(self, output_type: str):
+        program_strings = []
+
+        if self.hag.has_op_template("program", "start"):
+            start_instrs = self.hag.get_program_template("start")
+            for ft in start_instrs.instructions:
+                program_strings += ft.emit(output_type)
+
+        program_strings += self.emit_codelets(output_type)
+
+        if self.hag.has_op_template("program", "end"):
+            end_instrs = self.hag.get_program_template("end")
+            for ft in end_instrs.instructions:
+                program_strings += ft.emit(output_type)
+
         if output_type not in ["json", "json_no_ops"]:
-            return "\n".join(codelet_strings)
+            return "\n".join(program_strings)
         else:
-            res = {"mode": self.program_mode, "program": codelet_strings}
+            res = {"mode": self.program_mode, "program": program_strings}
             res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
             return res
 
@@ -272,6 +451,18 @@ class CodeletProgram(object):
         self.set_instruction_templates(cdlt)
         self.relocatables.add_data_relocation(node, cdlt)
         self.instantiate_instructions(cdlt)
+
+        if self.hag.has_op_template("codelet", "start"):
+            cdlt_start = self.hag.get_cdlt_op_template("start")
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_start.instructions:
+                ft.evaluate(*args)
+
+        if self.hag.has_op_template("codelet", "end"):
+            cdlt_end = self.hag.get_cdlt_op_template("end")
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_end.instructions:
+                ft.evaluate(*args)
 
     def evaluate_lazy_instruction_templates(self, cdlt):
         for o in cdlt.ops:
@@ -521,6 +712,13 @@ class CodeletProgram(object):
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:
             print(f"\nFinalizing instruction templates")
+
+        if self.hag.has_op_template("program", "start"):
+            start_instrs = self.hag.get_program_template("start")
+            args = (self, self.hag, -1, -1)
+            for ft in start_instrs.instructions:
+                ft.evaluate(*args)
+
         for n in node_sequence:
             cdlt = codelets[n.name]
             if codelets[n.name].is_noop():
@@ -530,6 +728,13 @@ class CodeletProgram(object):
             if verbose:
                 print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
             self.instantiate_instructions_templates(n, codelets[n.name])
+
+        # Generate program end, if it exists
+        if self.hag.has_op_template("program", "end"):
+            end_instrs = self.hag.get_program_template("end")
+            args = (self, self.hag, -1, -1)
+            for ft in end_instrs.instructions:
+                ft.evaluate(*args)
 
     def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
         if verbose:

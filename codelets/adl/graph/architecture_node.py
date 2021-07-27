@@ -2,7 +2,7 @@ from types import FunctionType
 from codelets.graph import Node, Graph
 from .graph_algorithms import compute_node_levels, get_shortest_paths
 from . import ArchitectureGraph
-from typing import List, Dict, Union, TYPE_CHECKING
+from typing import List, Dict, Union, TYPE_CHECKING, Any
 # from pygraphviz import AGraph
 from collections import namedtuple, deque
 from dataclasses import dataclass, field
@@ -114,9 +114,12 @@ class ArchitectureNode(Node):
         # occupied: [(op_node, primitive, begin_cycle, end_cycle)]
         # later consider changing to custom Heap because this needs to be accessed very frequently
         self._occupied = []  # NOTE state in TABLA compiler...
-        self._operation_mappings = {"config": {},
+        self._operation_mappings = {"program": {"start": None, "end": None},
+                                    "codelet": {"start": None, "end": None},
+                                    "config": {},
                                     "transfer": {},
                                     "loop": None,
+                                    "loop_end": None,
                                     "compute": {}}
         self._util_fns = UtilFuncs()
         if self.parent_graph is not None:
@@ -226,7 +229,7 @@ class ArchitectureNode(Node):
         return self._node_levels
 
     @property
-    def operation_mappings(self):
+    def operation_mappings(self) -> Dict[str, Any]:
         return self._operation_mappings
 
     @operation_mappings.setter
@@ -326,6 +329,16 @@ class ArchitectureNode(Node):
             s_node.set_parent(node)
         self.add_subgraph_node(node)
 
+    def has_op_template(self, op_type, op_subtype):
+        assert op_type in self.operation_mappings
+        return op_subtype in self.operation_mappings[op_type] and self.operation_mappings[op_type][op_subtype] is not None
+
+    def get_program_template(self, subtype: str):
+        return self.operation_mappings['program'][subtype]
+
+    def get_cdlt_op_template(self, subtype: str):
+        return self.operation_mappings['codelet'][subtype]
+
     def get_operation_template(self, op):
 
         if op.op_type == 'transfer':
@@ -347,6 +360,12 @@ class ArchitectureNode(Node):
                 template = self.operation_mappings['loop'].instructions
             else:
                 template = [self.operation_mappings['loop'].instructions]
+        elif op.op_type == 'loop_end':
+            # TODO: Check why this is showing up as a warning
+            if isinstance(self.operation_mappings['loop_end'].instructions, list):
+                template = self.operation_mappings['loop_end'].instructions
+            else:
+                template = [self.operation_mappings['loop_end'].instructions]
         else:
             raise TypeError(f"Invalid type for getting operation template: {type(op)}")
 
@@ -408,17 +427,20 @@ class ArchitectureNode(Node):
     def add_loop_template(self, target, template, template_fns=None):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
+    def add_loop_end_template(self, target, template, template_fns=None):
+        self.operation_mappings['loop_end'] = OpTemplate(instructions=template, functions=template_fns)
+
     def add_program_start_template(self, target, template, template_fns=None):
-        self.operation_mappings['program_start'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['program']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_end_template(self, target, template, template_fns=None):
-        self.operation_mappings['program_end'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['program']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_start_template(self, target, template, template_fns=None):
-        self.operation_mappings['codelet_start'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['codelet']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_end_template(self, target, template, template_fns=None):
-        self.operation_mappings['codelet_end'] = OpTemplate(instructions=template, functions=template_fns)
+        self.operation_mappings['codelet']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
 
@@ -521,18 +543,19 @@ class ArchitectureNode(Node):
 
         self._primitives[primitive.name] = primitive
 
-    def get_primitive_template(self, name) -> 'FlexTemplate':
+    def get_primitive_template(self, name, template_type="instruction") -> 'FlexTemplate':
 
         if name in self.primitives:
-            return FlexTemplate(self.primitives[name].instruction_copy())
+            assert template_type in ["program", "codelet", "instruction"]
+            return FlexTemplate(self.primitives[name].instruction_copy(), template_type=template_type)
         elif self.parent_graph == self:
             for n in self.parent_ctx_nodes:
                 if n.has_primitive(name):
-                    return n.get_primitive_template(name)
+                    return n.get_primitive_template(name, template_type=template_type)
         else:
             for n in self.get_subgraph_nodes():
                 if n.has_primitive(name):
-                    return n.get_primitive_template(name)
+                    return n.get_primitive_template(name, template_type=template_type)
         raise KeyError(f"Primitive {name} not found!")
 
     def get_primitives(self) -> List['Instruction']:

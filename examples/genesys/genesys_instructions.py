@@ -32,6 +32,7 @@ ITER_CFG_OPS = (6, ITER_CFG_NAMES, "ITER_CONFIG")
 SIMD_LOOP_OPS = (7, SIMD_LOOP_NAMES, "LOOP")
 PERM_OPS = (8, PERM_OP_NAMES, "PERMUTATION")
 
+
 # LOOP INSTR
 def loop_cfg_instr():
     cfg = Field("LOOP_CFG", 6)

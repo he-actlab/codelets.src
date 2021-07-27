@@ -56,15 +56,16 @@ def test_extracted_layer(source_model, layer_name):
     # print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
-    # "resnet18_gemm",
+    "resnet18_gemm",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
-    "resnet18_conv",
+    # "resnet18_conv",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
-    # "lenetbn_conv",
+    # "lenet_bn_conv",
+    # "custom_conv_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -95,8 +96,10 @@ def test_genesys_layers(layer_name):
                             tiling_search_algorithm='valid_split'
                                     # relocation_offsets=reloc_offsets
                               )
+    # import inspect
     # print(program.emit("decimal"))
     print(program.emit("operations_idx"))
+    # print(program.emit("string_final"))
     # print(program.emit("string_final"))
 
     # pprint.pprint(program.emit("json_no_ops"))

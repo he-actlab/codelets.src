@@ -12,7 +12,7 @@ class LoopTypes(object):
     SCALED = 2
 
 class Loop(Operation):
-
+    USE_LOOP_END = True
     loop_ids = 0
 
     def __init__(self, start,
@@ -93,6 +93,8 @@ class Loop(Operation):
 
     def exit_loop_body(self):
         Operation.loop_ctxt_level -= 1
+        if Loop.USE_LOOP_END:
+            Operation.current_codelet.end_loop(self.op_str)
         Operation.loop_stack.pop()
         Operation.loop_ctx_dependencies.pop()
 
@@ -333,4 +335,57 @@ class Loop(Operation):
             new_idx = old_idx.subs(old_idx, obj_idx)
             obj.param_symbols[obj.op_str] = new_idx
 
+        return obj
+
+
+class LoopEnd(Operation):
+
+    loop_ids = 0
+
+    def __init__(self, loop_name,
+                 loop_op_params=None,
+                 add_codelet=True,
+                 **kwargs
+                 ):
+        self._loop_name = loop_name
+        req_params = {}
+        if loop_op_params:
+            req_params.update({l: None for l in loop_op_params})
+
+        super(LoopEnd, self).__init__("loop_end", req_params,
+                                   add_codelet=add_codelet,
+                                   **kwargs)
+
+    @property
+    def loop_name(self):
+        return self._loop_name
+
+    def evaluate_parameters(self, node, hag, cdlt):
+        pass
+
+    def op_type_params(self):
+        op_params = [f"END: {self.loop_name}"]
+        return op_params
+
+    def emit(self, output_type):
+        # TODO: Add template
+        if output_type == "operations":
+            op_str = f"{self.loop_name}: END"
+        elif output_type == "json":
+            op_str = {"op_type": self.op_type,
+                      "op_id": self.global_op_id,
+                      "loop_name": self.loop_name,
+                      }
+        else:
+            op_str = []
+            for ft in self.instructions:
+                ft_out = ft.emit(output_type)
+                if len(ft_out) == 0:
+                    continue
+                op_str += ft_out
+        return op_str
+
+    def copy(self, cdlt, loop_name=None, **kwargs):
+        obj = super(LoopEnd, self).copy(cdlt, **kwargs)
+        obj._loop_name = loop_name or copy(self._loop_name)
         return obj
