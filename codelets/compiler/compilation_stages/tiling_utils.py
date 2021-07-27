@@ -167,6 +167,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
     parent_perms = deque()
     prev_perm = None
     parent_perms.append(prev_perm)
+    invalid_permutations = {}
     # TODO:
 
     # Add a data structure to accumulate results, possibly tied with a heuristic (called tiles)
@@ -175,34 +176,50 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
     # selection metric/function: lambda tiles: min(tiles
     # x_splits: min(prod(x)) key = splits, value = product of splits
     while tile_info.levels > level > 0:
-
         prev_level = level - 1
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
         assert perms is not None
         valid_splits = None
         fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
         search_space = {}
+        stop_search = False
+        last_valid_permutation = None
+        selected_splits = None
+        selected_permutation = None
         for p in perms:
+            if p in invalid_permutations:
+                continue
             level_counter[level] += 1
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
+            valid_splits = tile_info.validate_splits(cdlt, p, level)
+            if valid_splits is None:
+                continue
+            last_valid_permutation = p
             search_space[p] = heuristic_fn(p)
-            stop_search = stopping_condition(tile_info, cdlt, p, level)
+            stop_search = stopping_condition(search_space)
             if stop_search:
-                prev_perm = p
-                valid_splits = selection_metric(tile_info, search_space, level, p)
+                selected_permutation = selection_metric(search_space, p)
                 break
-
+        # Explored all permutations
         if not stop_search:
+            selected_permutation = selection_metric(search_space, last_valid_permutation)
+        # If no split available, move up a level and restart search.
+        # Else store current permutation and move down a level.
+        if selected_permutation is None:
             prev_perm = parent_perms.pop()
+            # Add prev permutation to list of permutations which are known to be invalid
+            invalid_permutations[prev_perm] = 1
             perm_stack.pop()
             prev_splits = tile_info.move_up_tile_level(prev_level)
             level -= 1
         else:
-            parent_perms.append(prev_perm)
-            new_perms = tile_info.move_down_tile_level(cdlt, level, valid_splits)
+            selected_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
+                               enumerate(selected_permutation)}
+            parent_perms.append(selected_permutation)
+            new_perms = tile_info.move_down_tile_level(cdlt, level, selected_splits)
             perm_stack.append(new_perms)
             level += 1
 

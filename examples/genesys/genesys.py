@@ -278,7 +278,8 @@ def compile_genesys(model_name,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn}
+    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
+                   'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
@@ -319,20 +320,37 @@ def compile_genesys(model_name,
     return program
 
 
-def stopping_condition(tile_info: TilingInfo, cdlt, permutation, level):
-    return tile_info.validate_splits(cdlt, permutation, level) is not None
+def valid_split_stopping_condition(search_space):
+    return True
 
 
-def selection_metric(tile_info: TilingInfo, search_space, level, permutation):
-    return {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
-            enumerate(permutation)}
+def exhaustive_search_stopping_condition(search_space):
+    return False
+
+
+def current_permutation_selection_metric(search_space, permutation):
+    return permutation
+
+
+def min_tiles_selection_metric(search_space, permutation):
+    # Get valid permutation with minimum number of tiles
+    min_tiles = 100000000
+    min_tiles_permutation = None
+    for perm, tiles in search_space.items():
+        if tiles < min_tiles:
+            min_tiles = tiles
+            min_tiles_permutation = perm
+    if min_tiles_permutation is not None:
+        return min_tiles_permutation
+    else:
+        return None
 
 
 # Number of tiles as tiling heuristc
 def n_tiles_heuristic(permutation):
     n_tiles = 1
     for i in range(len(permutation)):
-        n_tiles * permutation[i]
+        n_tiles = n_tiles * permutation[i]
     return n_tiles
 
 
@@ -355,7 +373,8 @@ def compile_genesys_layer(layer_file,
                           batch_size=1,
                           save_genesys_filename=None,
                           load_genesys_filename=None,
-                          relocation_offsets=None):
+                          relocation_offsets=None,
+                          tiling_search_algorithm='valid_split'):
     LAYER_DIR = f"{benchmark_path}/layers/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -393,8 +412,13 @@ def compile_genesys_layer(layer_file,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': stopping_condition,
-                   'selection_metric': selection_metric, 'heuristic_fn': n_tiles_heuristic}
+    if tiling_search_algorithm == 'min_tiles':
+        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
+                        'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+    else:
+        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
+                        'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+
     if store_tiling and store_checkpoint:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
 
@@ -500,7 +524,8 @@ def compile_extracted_genesys_layer(model_name,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn}
+    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
+                   'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     if relocation_offsets:
