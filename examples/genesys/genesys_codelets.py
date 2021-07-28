@@ -87,6 +87,44 @@ def gemm_no_bias(hag: ArchitectureNode):
     return cdlt
 
 
+def matmul(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul") as cdlt:
+        P = cdlt.dummy_op("P", cdlt.node.outputs[0].shape[1])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        # cdlt.configure("start", "systolic_array")
+        # cdlt.configure("start", "WBUF")
+        # cdlt.configure("start", "IBUF")
+        # cdlt.configure("start", "OBUF")
+
+        with cdlt.loop(P) as p:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(M) as m:
+                    cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
+                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
+                    cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    out.set_write_destination("OBUF")
+                    cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
+                    cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        # cdlt.configure("end", "WBUF")
+        # cdlt.configure("end", "IBUF")
+        # cdlt.configure("end", "OBUF")
+        # cdlt.configure("end", "systolic_array")
+    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
+    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
+    return cdlt
+
 def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     with CodeletTemplate("conv") as cdlt:
@@ -231,7 +269,6 @@ def conv2d_bias(hag: ArchitectureNode):
     if not ASIC_CONFIG:
         if not ASIC_CONFIG:
             sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-            print(sg_edge)
             bandwidth = sg_edge.bandwidth
             cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
                                                       f"{obuf_index_size} <= {obuf_elements} and "
@@ -1245,6 +1282,7 @@ GENESYS_CODELETS = {
     "conv_bias": conv2d_bias,
     "conv": conv2d,
     "gemm": gemm,
+    "matmul": matmul,
     "elem_add": elem_add,
     "elem_tanh": elem_tanh,
     "elem_tanh2d": elem_tanh2d,

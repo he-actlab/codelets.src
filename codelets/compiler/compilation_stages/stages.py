@@ -15,7 +15,7 @@ from .stage_utils import default_tile_heuristic, \
 import polymath as pm
 import json
 
-SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias']
+SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias', 'matmul']
 
 # TODO: Update SIMD_CDLTS for dtypes
 SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization',
@@ -44,10 +44,11 @@ INTERMEDIATE_INPUT_INDICES = {
     "elem_add": [0, 1],
     "cross_entropy_loss": [0, 1],
     "cross_entropy_loss_grad": [0, 1, 2],
-    "gemm": [0]
+    "gemm": [0],
+    "matmul": [0]
 }
 
-SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias"]
+SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias", "matmul"]
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
@@ -209,6 +210,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
             else:
                 loop_splits[l] = max_level
+
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
     outer_loop_map = {}
@@ -312,6 +314,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     cdlt._domain_loop_map[split + 1].pop(op.op_str)
 
                     dep_mapping[op.op_str] = inner_op.op_str
+
                     inner_idx = target_idx + 1
 
                     # We need to create the end loop for the new inner loop, then move the original end loop to

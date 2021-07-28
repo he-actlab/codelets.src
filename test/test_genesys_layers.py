@@ -56,7 +56,8 @@ def test_extracted_layer(source_model, layer_name):
     # print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
-    # "resnet18_gemm",
+    "resnet18_gemm",
+    # "custom_matmul_matmul",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
@@ -65,7 +66,7 @@ def test_extracted_layer(source_model, layer_name):
     # "lenet_averagepool",
     # "lenet_gemm",
     # "lenet_bn_conv",
-    "custom_conv_conv",
+    # "custom_conv_conv",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
@@ -104,6 +105,9 @@ def test_genesys_layers(layer_name):
     #               f"Sizes: {o.sizes}\n"
     #               f"Indices: {o.access_indices}\n")
     # print(program.emit("decimal"))
+    print(program.hag.get_subgraph_node("OBUF").size_bytes)
+    print(program.hag.get_subgraph_node("OBUF").num_elements)
+    print(4*1024)
     print(program.emit("operations_idx"))
     print(program.emit("string_final"))
     # print(program.emit("string_final"))
