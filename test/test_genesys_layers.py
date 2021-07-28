@@ -93,6 +93,7 @@ def test_genesys_layers(layer_name):
                             do_hoist_stage=True,
                             do_tile_stage=True,
                             print_config=False,
+                            tiling_search_algorithm='valid_split'
                                     # relocation_offsets=reloc_offsets
                               )
     # for o in program.codelets[0].ops:
@@ -108,6 +109,44 @@ def test_genesys_layers(layer_name):
     print(program.emit("string_final"))
     # print(program.emit("string_final"))
 
+
+@pytest.mark.parametrize('layer_name',[
+    # "resnet18_gemm",
+    # "resnet18_train_batchnormalization",
+    # "resnet18_relu",
+    # "resnet18_add",
+     "resnet18_conv",
+    # "resnet18_globalaveragepool",
+    # "lenet_averagepool",
+    # "lenet_gemm",
+    # "lenet_bn_conv",
+    # "custom_conv_conv",
+])
+def test_genesys_layers_min_tiles_search(layer_name):
+    batch_size = 1
+    update_cfg_dtypes = False
+    tiling_path = None
+    store_tiling = False
+    store_json_output = False
+    json_output_filename = None
+    BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
+    program = compile_genesys_layer(layer_name,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              store_tiling=store_tiling,
+                              store_checkpoint=False,
+                              store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default',
+                            batch_size=batch_size,
+                            do_hoist_stage=True,
+                            do_tile_stage=True,
+                            print_config=False,
+                            tiling_search_algorithm='min_tiles'
+                              )
+    print(program.emit("operations_idx"))
 
 def test_reference_creation():
     batch_size = 1
