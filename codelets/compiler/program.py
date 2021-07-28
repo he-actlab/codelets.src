@@ -393,7 +393,7 @@ class CodeletProgram(object):
             op_str['outputs'] = [o.emit("json") for o in cdlt.outputs]
 
         elif output_type not in ["decimal", "binary"]:
-            op_str = f"CODELET:\t{cdlt.op_name}{cdlt.instance_id}\n"
+            op_str = f""
             for o in cdlt.ops:
                 instr_list = self.emit_operation(o, output_type)
                 if len(instr_list) > 0:

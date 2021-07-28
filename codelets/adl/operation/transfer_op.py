@@ -76,7 +76,10 @@ class Transfer(Operation):
     @property
     def sizes(self) -> List[List[Union[str, Integral]]]:
         # TODO: Fix the data movement shapes, they are incorrect
-        sizes = [list(v.values()) for k, v in self.operand.tiling.items() if k in self.path]
+        sizes = []
+        for p in self.path:
+            if p in self.operand.tiling:
+                sizes.append(list(self.operand.tiling[p].values()))
         return sizes
 
     @property
@@ -90,6 +93,29 @@ class Transfer(Operation):
     @property
     def access_indices(self):
         return self._access_indices
+
+    def sizes_for_node(self, node: str):
+        assert node in self.path
+        return self.sizes[self.path.index(node)]
+
+    def get_contiguous_strides(self):
+        assert len(self.sizes) == 2
+        if self.sizes[0] == self.sizes[1]:
+            return [np.prod(self.sizes[0])]
+        elif np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
+            xfer_sizes = self.sizes[0]
+            ref_sizes = self.sizes[1]
+        else:
+            xfer_sizes = self.sizes[1]
+            ref_sizes = self.sizes[0]
+        strides = [1]
+        for i, s in enumerate(xfer_sizes):
+            if s == ref_sizes[i]:
+                strides[-1] *= s
+            else:
+                strides.append(s)
+
+        return strides
 
     def get_src_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)
@@ -151,15 +177,18 @@ class Transfer(Operation):
     # TODO: FIx this
     def op_type_params(self):
         op_params = []
+        path_str = " -> ".join(self.path)
+        path_str += "["
         for i, off in enumerate(self.offsets):
             if isinstance(off, List):
                 offset_str = ",".join([o.op_str if isinstance(o, Operation) else f"{o}" for o in off])
             else:
                 assert isinstance(off, Basic)
                 offset_str = f"{off}"
-            op_params.append(f"{self.path[i]}[{offset_str}]")
-
-        return op_params
+            path_str += f"{offset_str}, "
+            # op_params.append(f"{self.path[i]}[{offset_str}]")
+        path_str += "]"
+        return [path_str]
 
     def evaluate_parameters(self, node, hag, cdlt):
         pass

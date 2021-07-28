@@ -466,8 +466,6 @@ class ArchitectureNode(Node):
         key = (src, dst)
         if key in self.edge_map:
             return self.edge_map[key]
-        elif self.parent_graph == self and key in self.parent_ctx_edges:
-            return self.parent_ctx_edges[key]
         else:
             for n, v in self._all_subgraph_nodes.items():
                 if v.has_edge(src, dst):

@@ -102,7 +102,6 @@ def shuffle_weights(weights, layer_type="conv"):
                         # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     return result
 
-
 def dram_layout(weights, print_debug=False):
     dram_weights = []
     assert weights.dtype == np.int8 or weights.dtype == np.uint8
@@ -395,6 +394,7 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
     inputs = inputs.astype(np.int32)
     weights = weights.astype(np.int32)
     stride = cdlt.required_params['stride'].value
+    compilation_info = {i: [] for i in range(IC)}
     if layout == "nhwc":
         for oc in range(OC):
             for n in range(N):
@@ -403,9 +403,24 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
                         for kw in range(KW):
                             for y in range(OH):
                                 for x in range(OW):
-                                    outputs[n, y, x, oc] += inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc]
+
+
+                                    partial_sum = inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc]
+                                    outputs[n, y, x, oc] += partial_sum
+                                    if (n, y, x, oc) == (0,0,0,0):
+                                        all_coords = (oc, n, ic, kh, kw, y, x)
+                                        icoord = (n, kh + y*stride, kw + x*stride, ic)
+                                        icoord_idx = np.ravel_multi_index([n, kh + y*stride, kw + x*stride, ic], inputs.shape)
+                                        wcoord = (kh, kw, ic, oc)
+                                        wcoord_idx = np.ravel_multi_index([kh, kw, ic, oc], weights.shape)
+                                        ocoord = (n, y, x, oc)
+                                        ocoord_idx = np.ravel_multi_index([n, y, x, oc], outputs.shape)
+                                        compilation_info[ic].append(f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+
                                     # outputs[n, y, x, oc] += inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, oc, ic]
+
     else:
+        compilation_info = {}
         for oc in range(OC):
             for n in range(N):
                 for ic in range(IC):
@@ -417,27 +432,56 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
                                         oc, ic, kh, kw]
         outputs = outputs.transpose(0, 2, 3, 1)
 
-    return outputs
+    return outputs, compilation_info
 
 def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
+    out_dims = cdlt.outputs[0].shape
     stride = cdlt.required_params['stride'].value
     pad = cdlt.required_params['pad'].value
     if use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
     elif fixed_values is not None:
-        assert "input" in fixed_values and "weights" in fixed_values
-        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-        for i in range(np.prod(input_dims)):
-            input[i] = fixed_values['input']
-        input = input.reshape(input_dims)
+        if "input" in fixed_values:
+            assert "input" in fixed_values and "weights" in fixed_values
+            input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+            for i in range(np.prod(input_dims)):
+                input[i] = fixed_values['input']
+            input = input.reshape(input_dims)
 
-        weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
-        for j in range(np.prod(weight_dims)):
-            weights[j] = fixed_values['weights']
-        weights = weights.reshape(weight_dims)
+            weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
+            for j in range(np.prod(weight_dims)):
+                weights[j] = fixed_values['weights']
+            weights = weights.reshape(weight_dims)
+        else:
+            assert "folder_path" in fixed_values
+            with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
+                input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
+
+            with open(f'{fixed_values["folder_path"]}/weights_raw.txt', 'r') as f:
+                weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
+            with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
+                test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
+            # fixed_values['outputs'] = test_outputs
+            #
+            # other_test, ic_vals = manual_conv(input, weights, cdlt, layout="nhwc")
+            # with open(f'{base_path}/out_coords.txt', 'w') as f:
+            #     for k, v in ic_vals.items():
+            #         # compilation_info[ic].append(
+            # #         #     f"{all_coords}, {icoord}, {wcoord}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}")
+            #         # all_coords = (oc, n, ic, kh, kw, y, x)
+            # #         # icoord = (n, kh + y * stride, kw + x * stride, ic)
+            # #         # wcoord = (kh, kw, ic, oc)
+            # #         compilation_info[ic].append(
+            # #             f'"{all_coords}", "{(n, y, x, oc)}", "{icoord}", "{wcoord}", "{inputs[icoord]}", "{weights[wcoord]}", {partial_sum}')
+            #
+            #         f.write(f'IC={k}, "(oc, n, ic, kh, kw, y, x)", O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+            #         for l in v:
+            #             f.write("," + l + "\n")
+            # np.testing.assert_allclose(other_test, test_outputs)
+
     else:
 
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
@@ -471,7 +515,6 @@ def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_r
 
 
 
-    # test_output = manual_conv(input, weights, cdlt, layout="nhwc")
     if format.lower() == "nhwc" and "conv" in layer_name:
         input = input.transpose(0, 3, 1, 2)
         # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
@@ -481,9 +524,11 @@ def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_r
 
     conv_param = {'stride': stride, 'pad': 0}
     b = np.zeros(weights.shape[0], dtype=np.int32)
-    # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
-    output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    # output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
     output = output.transpose(0, 2, 3, 1)
+    if fixed_values is not None and "outputs" in fixed_values:
+        np.testing.assert_allclose(output, fixed_values["outputs"])
 
     # np.testing.assert_allclose(output, test_output)
     output = output.flatten().tolist()

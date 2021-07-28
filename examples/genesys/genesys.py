@@ -28,6 +28,9 @@ LOOPS_PER_LEVEL = 7
 INCR_MAP = "{'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3}," \
            "'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7}}"
 LD_ST_MAP = "{'LD': 0, 'ST': 1}"
+LD_STORE_LOOPS = 14
+LD_STORE_OFFSET_MAP = "{'LD': {'IBUF': 0, 'WBUF': 6, 'OBUF': 10, 'BBUF': 14}," \
+           "'ST': {'OBUF': 15, 'WBUF': 19 , 'BBUF': 23, 'IBUF': 24}}"
 
 
 def define_genesys(cfg):
@@ -146,11 +149,15 @@ def define_genesys(cfg):
         hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
         hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
-        for op_name, cdlt in GENESYS_CODELETS.items():
-            cdlt_instance = cdlt(hag)
-            hag.add_codelet(cdlt_instance)
-        hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"],
-                        f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
+    for op_name, cdlt in GENESYS_CODELETS.items():
+        cdlt_instance = cdlt(hag)
+        hag.add_codelet(cdlt_instance)
+    hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"],
+                    f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
+
+    hag.add_util_fn("get_ld_st_loop_id", ["buffer_name", "index", "ld_st"],
+                    f"index + {LD_STORE_LOOPS} + ({LD_STORE_OFFSET_MAP})[ld_st][buffer_name]")
+
     return hag
 
 

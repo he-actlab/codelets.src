@@ -413,45 +413,13 @@ class Operand:
             width = src_node.banks
         else:
             width = 1
+
         if outer_loop:
             stride_val = np.prod(other_sizes)*(offset_val.stride)
         else:
             stride_val = (offset_val.stride)
 
-        # if loop_id == 8 and src_node.name == "IBUF":
-        #
-        #     print(f"Loop id: {loop_id}, Stride val: {stride_val}, init stride: {offset_val.stride}, Src: {src_node.name}, Dst: {dst_node.name}")
-        #     print(f"Width: {width}, Loop stride: {cdlt.op_map[f'loop{loop_id}'].stride}, Dtype bits: {self.dtype.bits()}\n"
-        #           f"Tiling: {self.tiling}, "
-        #           f"{other_sizes}\n")
         return np.ceil(stride_val/width).astype(np.int64)
-
-    def get_offset_(self, cdlt, src, dst_level, loop_id, hag, zero_not_found=True):
-        target_movement = None
-        all_movements = []
-        for dm in self.data_moves:
-
-            if dm.src_node == src and cdlt.get_tile_level(dm.dst_node) == dst_level:
-                target_movement = dm
-                all_movements.append(dm)
-                # break
-        if target_movement is None:
-            raise RuntimeError(f"Unable to find data movement for {src}, level {dst_level}")
-        offset_val = None
-        for o in target_movement.domain_offsets():
-            if o.loop_id == loop_id:
-                offset_val = o
-                break
-
-        if offset_val is None:
-            return 0
-
-        if target_movement.dst_node == "WBUF":
-            print(all_movements)
-            print(target_movement.domain_offsets())
-            print(offset_val)
-            print()
-        return np.ceil(offset_val.stride).astype(np.int64)
 
 
     def compute_tile(self, compute_op, operand_type):
