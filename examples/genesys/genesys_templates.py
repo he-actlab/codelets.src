@@ -335,7 +335,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     all_sizes_str = f"op.sizes_for_node('{buffer_name}')"
 
     ld_st_loop_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', len(op.sizes_for_node('{buffer_name}')) - 1, '{ld_st}')"
-
+    n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
 
     if buffer_name != "WBUF":
         ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"
@@ -343,6 +343,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         stride_size_str = f"(np.prod({all_sizes_str}[dim_info[0]:])//dim_info[1])*op.operand.dtype.bits()//8"
         stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"
         stride_size_high = f"program.extract_bits({stride_size_str}, 16, 16)"
+
         loop_id_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', dim_info[0], '{ld_st}')"
         loop_iter_str = f"dim_info[2] - 1 if dim_info[0] < len(op.operand.shape) - 1 else 0"
         macro_instr = hag.get_primitive_template("SA_LOOP_CFG")
@@ -410,7 +411,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
     instr.set_field_flex_param("LOOP_ID", ld_st_loop_str)
-    instr.set_field_flex_param("REQUEST_SIZE", f"{ld_str_size}")
+    instr.set_field_flex_param("REQUEST_SIZE", f"{ld_str_size}//{n_banks}")
     instr.set_print_tabs(ld_st_tabs)
     instructions.append(instr)
     return instructions

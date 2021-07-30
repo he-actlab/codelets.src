@@ -92,14 +92,19 @@ def shuffle_weights(weights, layer_type="conv"):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert layer_type == "linear"
-        for mm in range(0, w_dim[1], tile_m):
-            for nn in range(0, w_dim[0], tile_n):
-                for m in range(tile_m):
-                    for n in range(tile_n):
+        assert layer_type == "gemm"
+        # Weight shape is IC, OC
+        for ic in range(0, w_dim[0], tile_n):  # IC
+            for oc in range(0, w_dim[1], tile_m):  # OC
+                for n in range(tile_n):  # Rows
+                    for m in range(tile_m):  # Columns
                         # Reverse order within a tile because systolic array is filled from last column first.
-                        result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
-                        # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+
+                        src_coord = ic + n, oc + m
+                        dst_coord = ic + tile_n - m - 1, oc + n
+
+                        result[dst_coord[0]][dst_coord[1]] = weights[src_coord[0]][src_coord[1]]
+
     return result
 
 def dram_layout(weights, print_debug=False):
@@ -318,6 +323,7 @@ def pad_gemm(layer_data):
         assert b.shape[0] == oc_init
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
+
 def conv_forward_naive(x, w, b, conv_param):
     """
     A naive implementation of the forward pass for a convolutional layer.
@@ -434,7 +440,14 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
 
     return outputs, compilation_info
 
-def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
+def generate_random_values(cdlt, layer_name, **kwargs):
+    if "conv" in layer_name:
+        generate_random_values_conv(cdlt, layer_name, **kwargs)
+    else:
+        assert "gemm" in layer_name
+        generate_random_values_gemm(cdlt, layer_name, **kwargs)
+
+def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
@@ -545,6 +558,75 @@ def generate_random_values(cdlt, layer_name, base_path=".", format="nhwc", use_r
     #     bias = [str(x) for x in bias]
     #     with open(f'{base_path}/bias.txt', 'w') as f:
     #         f.write('\n'.join(bias))
+
+
+
+def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
+    input_dims = cdlt.inputs[0].shape
+    weight_dims = cdlt.inputs[1].shape
+    out_dims = cdlt.outputs[0].shape
+    if use_random:
+        input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
+        weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
+    elif fixed_values is not None:
+        if "input" in fixed_values:
+            assert "input" in fixed_values and "weights" in fixed_values
+            input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+            for i in range(np.prod(input_dims)):
+                input[i] = fixed_values['input']
+            input = input.reshape(input_dims)
+
+            weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
+            for j in range(np.prod(weight_dims)):
+                weights[j] = fixed_values['weights']
+            weights = weights.reshape(weight_dims)
+        else:
+            assert "folder_path" in fixed_values
+            with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
+                input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
+
+            with open(f'{fixed_values["folder_path"]}/weights_raw.txt', 'r') as f:
+                weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
+            with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
+                test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
+    else:
+
+        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+        for i in range(np.prod(input_dims)):
+            input[i] = i % 128
+        input = input.reshape(input_dims)
+        weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
+        for j in range(np.prod(weight_dims)):
+            weights[j] = j % 128
+        weights = weights.reshape(weight_dims)
+
+    #
+    with open(f'{base_path}/input_shuffled.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(input)))
+    #
+    with open(f'{base_path}/input_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
+    #
+    with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(shuffle_weights(weights, layer_type="gemm"))))
+    #
+    with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in shuffle_weights(weights, layer_type="gemm").flatten().tolist()]))
+    #
+    with open(f'{base_path}/weights_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
+
+    #
+    # # test_output = manual_conv(input, weights, cdlt, layout="nchw")
+    output = np.dot(np.int32(input), np.int32(weights))
+    #
+    # # np.testing.assert_allclose(output, test_output)
+    output = output.flatten().tolist()
+    output = [str(x) for x in output]
+    #
+    # # Write outputs to file
+    with open(f'{base_path}/output.txt', 'w') as f:
+        f.write('\n'.join(output))
 
 
 def get_model_values(model_name, layer_name, layer_num):

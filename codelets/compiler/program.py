@@ -64,6 +64,7 @@ class CodeletProgram(object):
         self._compilation_pipeline = defaultdict(list)
         self._preproc_stages = defaultdict(list)
         self._template_stages = defaultdict(list)
+        self._instruction_stages = defaultdict(list)
         self._program_mode = program_mode
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
@@ -107,6 +108,10 @@ class CodeletProgram(object):
     @property
     def template_stages(self) -> Dict[int, List[CompilationStage]]:
         return self._template_stages
+
+    @property
+    def instruction_stages(self) -> Dict[int, List[CompilationStage]]:
+        return self._instruction_stages
 
     @property
     def side_effect_params(self):
@@ -188,7 +193,8 @@ class CodeletProgram(object):
                              skip_noops=True,
                              insert_idx=-1,
                              preproc=False,
-                             template=False
+                             template=False,
+                             instruction=False
                              ):
         if not callable(compilation_fn):
             raise TypeError(f"Compilation step must be a callable function:\n"
@@ -215,6 +221,11 @@ class CodeletProgram(object):
                 self._template_stages[level].insert(insert_idx, fn_obj)
             else:
                 self._template_stages[level].append(fn_obj)
+        elif instruction:
+            if insert_idx >= 0:
+                self._instruction_stages[level].insert(insert_idx, fn_obj)
+            else:
+                self._instruction_stages[level].append(fn_obj)
         else:
             if insert_idx >= 0:
                 self._compilation_pipeline[level].insert(insert_idx, fn_obj)
@@ -765,6 +776,30 @@ class CodeletProgram(object):
                 print(f"Evaluating lazy FlexParams for {cdlt.op_name}{cdlt.instance_id}")
             self.evaluate_lazy_instruction_templates(codelets[n.name])
 
+    def run_instruction_stages(self, codelets, verbose=False):
+        if verbose and len(self.instruction_stages.keys()) > 0:
+            print(f"Running instruction stages")
+        finalized_codelets = {}
+
+        stage_start = time()
+        for level, fns in self.instruction_stages.items():
+            for name, cdlt in codelets.items():
+                for fn in fns:
+                    if cdlt.is_noop() and fn.skip_noops:
+                        if verbose:
+                            print(f"Skipping NOOP {cdlt.op_name}")
+                        continue
+                    if verbose:
+                        print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
+                    cdlt = fn.run(self, cdlt)
+
+                finalized_codelets[name] = cdlt
+
+        if verbose:
+            print(f"\nPreprocessing took {time() - stage_start} seconds")
+
+        return codelets
+
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True,
                 **compile_kwargs):
@@ -793,6 +828,8 @@ class CodeletProgram(object):
             self.finalize_instructions(node_sequence, codelets, verbose=verbose)
             self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
             self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
+
+        self.run_instruction_stages(codelets, verbose=verbose)
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")
