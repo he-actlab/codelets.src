@@ -332,7 +332,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     ## FIXE RULES END
 
     # TODO: Change to LOW/HIGH request
-    all_sizes_str = f"op.sizes_for_node('{buffer_name}')"
+    all_sizes_str = f"op.sizes_for_node('DRAM')"
 
     ld_st_loop_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', len(op.sizes_for_node('{buffer_name}')) - 1, '{ld_st}')"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"

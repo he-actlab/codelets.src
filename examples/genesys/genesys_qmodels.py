@@ -69,6 +69,7 @@ class QLayer(nn.Module):
 
 
 def shuffle_weights(weights, layer_type="conv"):
+
     # Layout of weights is in (KH, KW, IC, OC) format
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
@@ -99,10 +100,8 @@ def shuffle_weights(weights, layer_type="conv"):
                 for n in range(tile_n):  # Rows
                     for m in range(tile_m):  # Columns
                         # Reverse order within a tile because systolic array is filled from last column first.
-
                         src_coord = ic + n, oc + m
                         dst_coord = ic + tile_n - m - 1, oc + n
-
                         result[dst_coord[0]][dst_coord[1]] = weights[src_coord[0]][src_coord[1]]
 
     return result
@@ -381,6 +380,32 @@ def conv_forward_naive(x, w, b, conv_param):
     cache = (x, w, b, conv_param)
     return out, cache
 
+def manual_gemm(inputs, weights):
+    M = inputs.shape[0]
+    N = inputs.shape[1]
+    P = weights.shape[1]
+    outputs = np.zeros((M, P), dtype=np.int32)
+    inputs = inputs.astype(np.int32)
+    weights = weights.astype(np.int32)
+    compilation_info = {i: [] for i in range(N)}
+    for p in range(P):
+        for n in range(N):
+            for m in range(M):
+                partial_sum = inputs[m, n] * weights[n, p]
+                outputs[m, p] += partial_sum
+
+                if (m, p) == (0, 512):
+                    all_coords = (m, n, p)
+                    icoord = (m, n)
+                    icoord_idx = np.ravel_multi_index([m, n], inputs.shape)
+                    wcoord = (n, p)
+                    wcoord_idx = np.ravel_multi_index([n, p], weights.shape)
+                    ocoord = (m, p)
+                    ocoord_idx = np.ravel_multi_index([m, p], outputs.shape)
+                    compilation_info[n].append(
+                        f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+    return outputs, compilation_info
+
 def manual_conv(inputs, weights, cdlt, layout="nhwc"):
     if layout == "nhwc":
         N, IH, IW, IC = inputs.shape
@@ -446,6 +471,7 @@ def generate_random_values(cdlt, layer_name, **kwargs):
     else:
         assert "gemm" in layer_name
         generate_random_values_gemm(cdlt, layer_name, **kwargs)
+
 
 def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
     input_dims = cdlt.inputs[0].shape
@@ -581,6 +607,7 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
                 weights[j] = fixed_values['weights']
             weights = weights.reshape(weight_dims)
         else:
+            print(f"Here")
             assert "folder_path" in fixed_values
             with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
                 input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
@@ -589,6 +616,16 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
                 weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
             with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
                 test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
+            other_test, ic_vals = manual_gemm(input, weights)
+
+            with open(f'{base_path}/out_coords.txt', 'w') as f:
+                for k, v in ic_vals.items():
+                    # f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+
+                    # f.write(f'IC={k}, "(m, n, p)", O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+                    for l in v:
+                        f.write(f"IC={k}, " + "," + l + "\n")
+            np.testing.assert_allclose(other_test, test_outputs)
     else:
 
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)

@@ -120,7 +120,7 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'custom_conv'
+    model_name = 'custom_matmul'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     convert_model_to_polymath(model_path)

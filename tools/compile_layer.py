@@ -43,13 +43,14 @@ def create_dirs(fpath):
 
 def store_values(program, base_path):
     cdlt = program.codelets[0]
-    project_path = f"custom_conv_fixed_shuffling"
-    # fixed_values = {"folder_path": f"{CWD}/compilation_output/{project_path}"}
+    # project_path = f"custom_conv_fixed_shuffling"
+    project_path = f"resnet18_gemm_shiyufix"
+    fixed_values = {"folder_path": f"{CWD}/compilation_output/{project_path}"}
     # fixed_values = {"input": 1, "weights": 2}
-    fixed_values = None
+    # fixed_values = None
     generate_random_values(cdlt, cdlt.op_name,
                            base_path=base_path,
-                           use_random=True,
+                           use_random=False,
                            fixed_values=fixed_values)
 
 
