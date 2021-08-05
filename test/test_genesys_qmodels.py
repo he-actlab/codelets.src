@@ -71,8 +71,8 @@ def test_gen_conv_testcase():
     gen_conv_testcase((1, 128, 128, 64), (1, 1, 64, 64))
 
 def test_gen_fc_layer_testcase():
-    # 10 samples, with 128 input features, and 64 output features
-    gen_fc_layer_testcase((10,128), (10, 64), bias = False)
+    np.random.seed(10)
+    gen_fc_layer_testcase((1,512), (1, 1024), big_tile_size=64, bias = False)
 
 def test_resnet_layer_extraction():
     # get_model_values("resnet18", "Conv2D", 0)

@@ -93,17 +93,31 @@ def shuffle_weights(weights, layer_type="conv"):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert layer_type == "gemm"
-        # Weight shape is IC, OC
-        for ic in range(0, w_dim[0], tile_n):  # IC
-            for oc in range(0, w_dim[1], tile_m):  # OC
-                for n in range(tile_n):  # Rows
-                    for m in range(tile_m):  # Columns
+        assert layer_type == "linear"
+       # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
+        for mm in range(0, w_dim[1], tile_m):
+            for nn in range(0, w_dim[0], tile_n):
+                for m in range(tile_m):
+                    for n in range(tile_n):
                         # Reverse order within a tile because systolic array is filled from last column first.
-                        src_coord = ic + n, oc + m
-                        dst_coord = ic + tile_n - m - 1, oc + n
-                        result[dst_coord[0]][dst_coord[1]] = weights[src_coord[0]][src_coord[1]]
+                        # Adjacent values in memory are filled in systolic array column.
+                        # So, if systolic array size is 32x32, weight at (0, 0) should be in (31,0) in memory
+                        # weight at (1, 0) should be in (31,1) in memory and so on.
+                        result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
+                        # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+    return result
 
+def tiled_flatten(weights, big_tile_size):
+    result = list()
+    w_dim = weights.shape
+    tile_m = GENESYS_CFG['ARRAY_M']
+    tile_n = GENESYS_CFG['ARRAY_N']
+    for big_tile in range(0, w_dim[1], big_tile_size):
+        for nn in range(0, w_dim[0], tile_n):
+            for mm in range(0, big_tile_size, tile_m):
+                for m in range(tile_m):
+                    for n in range(tile_n):
+                        result.append(weights[nn + n][big_tile + mm + m])
     return result
 
 def dram_layout(weights, print_debug=False):
@@ -172,15 +186,29 @@ def gen_conv_testcase(input_dim, weight_dim, stride=1, padding=0, base_path=".",
         f.write('\n'.join(output))
 
 
-def gen_fc_layer_testcase(input_dim, output_dim, bias=False):
+def gen_fc_layer_testcase(input_dim, output_dim, big_tile_size=1, bias=False):
     # Input is (N, *, H), output is (N, *, W)
     input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
     # Weights is of dimension (H, W)
     weights = np.random.randint(low=0, high=127, size=(input_dim[-1], output_dim[-1]), dtype=np.int8)
+    bias_values = np.zeros(output_dim[-1])
+    if bias:
+        bias_values = np.random.randint(low=0, high=127, size=output_dim[-1], dtype=np.int8)
+        with open('bias.txt', 'w') as f:
+            f.write('\n'.join(dram_layout(bias_values)))
     with open('input.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
+    with open('weights_nondram.txt', 'w') as f:
+        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        weights_nondram = [str(x) for x in weights_nondram]
+        f.write('\n'.join(weights_nondram))
+    with open('weights_raw.txt', 'w') as f:
+        weights_raw = weights.flatten().tolist()
+        weights_raw = [str(x) for x in weights_raw]
+        f.write('\n'.join(weights_raw))
     with open('weights.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(shuffle_weights(weights, layer_type='linear'))))
+        final_weights = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        f.write('\n'.join(dram_layout(np.array(final_weights, dtype=np.int8))))
     model = QLayer('Linear', in_features=input_dim[-1], out_features=output_dim[-1], bias=bias)
     input_tensor = torch.from_numpy(input)
     input_tensor = input_tensor.float()
@@ -196,6 +224,38 @@ def gen_fc_layer_testcase(input_dim, output_dim, bias=False):
     # Write outputs to file
     with open('output.txt', 'w') as f:
         f.write('\n'.join(output))
+
+
+def gen_fc_layer_testcase_numpy(input_dim, output_dim, big_tile_size=1, bias=False):
+    # Input is (N, *, H), output is (N, *, W)
+    input = np.random.randint(low=0, high=127, size=input_dim, dtype=np.int8)
+    # Weights is of dimension (H, W)
+    weights = np.random.randint(low=0, high=127, size=(input_dim[-1], output_dim[-1]), dtype=np.int8)
+    bias_values = np.zeros(output_dim[-1])
+    if bias:
+        bias_values = np.random.randint(low=0, high=127, size=output_dim[-1], dtype=np.int8)
+        with open('bias.txt', 'w') as f:
+            f.write('\n'.join(dram_layout(bias_values)))
+    with open('input.txt', 'w') as f:
+        f.write('\n'.join(dram_layout(input)))
+    with open('weights_nondram.txt', 'w') as f:
+        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        weights_nondram = [str(x) for x in weights_nondram]
+        f.write('\n'.join(weights_nondram))
+    with open('weights_raw.txt', 'w') as f:
+        weights_raw = weights.flatten().tolist()
+        weights_raw = [str(x) for x in weights_raw]
+        f.write('\n'.join(weights_raw))
+    with open('weights.txt', 'w') as f:
+        final_weights = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        f.write('\n'.join(dram_layout(np.array(final_weights, dtype=np.int8))))
+
+    result = np.matmul(input.astype(np.int32), weights.astype(np.int32))
+    output = result.flatten().tolist()
+    output = [str(x) for x in output]
+    with open('output.txt', 'w') as f:
+        f.write('\n'.join(output))
+
 
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
     # First figure out what the size of the output should be
