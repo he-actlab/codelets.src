@@ -221,6 +221,15 @@ class Codelet(object):
     def tile_levels(self):
         return self._tile_levels
 
+    @property
+    def param_tiling(self):
+        ptiling = {}
+        for l, tiling in self.domain_loop_map.items():
+            ptiling[l] = {}
+            for loopname, tile_size in tiling.items():
+                ptiling[l][self.loop_param_map[loopname]] = tile_size
+        return ptiling
+
     def is_tiling_set(self, level: int):
         return level in self.domain_tiling
 
