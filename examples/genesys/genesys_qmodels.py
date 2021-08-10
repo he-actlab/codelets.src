@@ -525,21 +525,33 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
 
     return outputs, compilation_info
 
-def generate_random_values(cdlt, layer_name, **kwargs):
+def generate_random_values(cdlt, model_name, layer_name, **kwargs):
     if "conv" in layer_name:
-        generate_random_values_conv(cdlt, layer_name, **kwargs)
+        generate_random_values_conv(cdlt, model_name, layer_name, **kwargs)
     else:
         assert "gemm" in layer_name
-        generate_random_values_gemm(cdlt, layer_name, **kwargs)
+        generate_random_values_gemm(cdlt, model_name, layer_name, **kwargs)
 
 
-def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
+def generate_random_values_conv(cdlt, model_name, layer_name,
+                                base_path=".",
+                                format="nhwc",
+                                use_random=True,
+                                fixed_values=None,
+                                actual_data=False):
 
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
     stride = cdlt.required_params['stride'].value
     pad = cdlt.required_params['pad'].value
+    if actual_data:
+        layer_num = 0
+        layer_name = "conv"
+        input, weights, bias, output = get_model_values(model_name, layer_name, layer_num)
+        assert input.shape == input_dims
+        assert weights.shape == weight_dims
+        assert output.shape == out_dims
     if use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
@@ -594,7 +606,6 @@ def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", 
             weights[j] = j % 128
         weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
 
-    assert "conv" in layer_name
 
     with open(f'{base_path}/input_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
@@ -613,7 +624,7 @@ def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", 
 
 
 
-    if format.lower() == "nhwc" and "conv" in layer_name:
+    if format.lower() == "nhwc":
         input = input.transpose(0, 3, 1, 2)
         # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
         weights = weights.transpose(*tuple(WEIGHTS_CL_TO_CF))
@@ -646,11 +657,24 @@ def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", 
 
 
 
-def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", use_random=True, fixed_values=None):
+def generate_random_values_gemm(cdlt, model_name, layer_name,
+                                base_path=".",
+                                format="nhwc",
+                                use_random=True,
+                                fixed_values=None,
+                                actual_data=False):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
-    if use_random:
+    output = None
+    if actual_data:
+        layer_num = 0
+        layer_name = "linear"
+        input, weights, bias, output = get_model_values(model_name, layer_name, layer_num)
+        assert input.shape == input_dims
+        assert weights.shape == weight_dims
+        assert output.shape == out_dims
+    elif use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
     elif fixed_values is not None:
@@ -666,7 +690,6 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
                 weights[j] = fixed_values['weights']
             weights = weights.reshape(weight_dims)
         else:
-            print(f"Here")
             assert "folder_path" in fixed_values
             with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
                 input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
@@ -714,18 +737,19 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
 
     #
     # # test_output = manual_conv(input, weights, cdlt, layout="nchw")
-    output = np.dot(np.int32(input), np.int32(weights))
-    #
-    # # np.testing.assert_allclose(output, test_output)
+    if output is None:
+        output = np.dot(np.int32(input), np.int32(weights))
+        #
+        # # np.testing.assert_allclose(output, test_output)
     output = output.flatten().tolist()
     output = [str(x) for x in output]
-    #
+
     # # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:
         f.write('\n'.join(output))
 
 
-def get_model_values(model_name, layer_name, layer_num):
+def get_model_values(model_name, layer_name, layer_num, write_data=False):
     if model_name == "resnet18":
         layer_data, model = get_resnet18(True, layer_name, layer_num)
     elif model_name == "resnet50":
@@ -738,22 +762,25 @@ def get_model_values(model_name, layer_name, layer_num):
     else:
         assert "linear" in layer_name.lower() or "gemm" in layer_name.lower()
         x, wgt, b, out = pad_gemm(layer_data)
-    base_filename = f'{model_name}_{layer_name.lower()}'
+    if write_data:
+        base_filename = f'{model_name}_{layer_name.lower()}'
 
-    with open(f'{base_filename}_input_i8.txt', 'w') as f:
-        # f.write('\n'.join(dram_layout(x)))
-        f.write('\n'.join([str(i) for i in x.flatten()]))
+        with open(f'{base_filename}_input_i8.txt', 'w') as f:
+            # f.write('\n'.join(dram_layout(x)))
+            f.write('\n'.join([str(i) for i in x.flatten()]))
 
-    with open(f'{base_filename}_weights_i8.txt', 'w') as f:
-        # f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
-        f.write('\n'.join([str(i) for i in wgt.flatten()]))
+        with open(f'{base_filename}_weights_i8.txt', 'w') as f:
+            # f.write('\n'.join(dram_layout(shuffle_weights(wgt))))
+            f.write('\n'.join([str(i) for i in wgt.flatten()]))
 
-    out = out.flatten().tolist()
-    out = [str(x) for x in out]
-    with open(f'{base_filename}_output_i32.txt', 'w') as f:
-        f.write('\n'.join(out))
+        out = out.flatten().tolist()
+        out = [str(x) for x in out]
+        with open(f'{base_filename}_output_i32.txt', 'w') as f:
+            f.write('\n'.join(out))
 
-    b = b.flatten().tolist()
-    b = [str(x) for x in b]
-    with open(f'{base_filename}_bias_i32.txt', 'w') as f:
-        f.write('\n'.join(b))
+        b = b.flatten().tolist()
+        b = [str(x) for x in b]
+        with open(f'{base_filename}_bias_i32.txt', 'w') as f:
+            f.write('\n'.join(b))
+    else:
+        return x, wgt, b, out
