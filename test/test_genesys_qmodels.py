@@ -72,7 +72,7 @@ def test_gen_conv_testcase():
 
 def test_gen_fc_layer_testcase():
     np.random.seed(10)
-    gen_fc_layer_testcase((1,512), (1, 1024), big_tile_size=64, bias = False)
+    gen_fc_layer_testcase((1,512), (1, 1024), big_tile_size={'P':64, 'N':512}, bias = False)
 
 def test_resnet_layer_extraction():
     # get_model_values("resnet18", "Conv2D", 0)

@@ -28,11 +28,11 @@ def str2bool(v):
 
 def create_dirs(fpath, dir_ext):
     cwd = Path(f"{__file__}").parent
-    base_path = f"{cwd}/compilation_output/{Path(fpath).stem}{dir_ext}"
+    base_path = Path(f"{cwd}/compilation_output/{Path(fpath).stem}{dir_ext}")
 
     if not Path(f"{base_path}").exists():
         try:
-            os.mkdir(base_path)
+            os.makedirs(base_path)
         except OSError as e:
             print(f"Creation of directory {base_path} failed:\n {e}")
         else:

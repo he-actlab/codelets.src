@@ -107,18 +107,19 @@ def shuffle_weights(weights, layer_type="conv"):
                         # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     return result
 
-def tiled_flatten(weights, big_tile_size):
+def tiled_flatten(weights, dram_tiling):
     result = list()
+    big_tile_size = dram_tiling['P']
     w_dim = weights.shape
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
     for big_tile in range(0, w_dim[1], big_tile_size):
         for nn in range(0, w_dim[0], tile_n):
-            for mm in range(0, big_tile_size, tile_m):
+            for mm in range(0, 64, tile_m):
                 for m in range(tile_m):
                     for n in range(tile_n):
                         result.append(weights[nn + n][big_tile + mm + m])
-    return result
+    return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
     dram_weights = []
@@ -199,7 +200,7 @@ def gen_fc_layer_testcase(input_dim, output_dim, big_tile_size=1, bias=False):
     with open('input.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
     with open('weights_nondram.txt', 'w') as f:
-        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size).tolist()
         weights_nondram = [str(x) for x in weights_nondram]
         f.write('\n'.join(weights_nondram))
     with open('weights_raw.txt', 'w') as f:
@@ -208,7 +209,7 @@ def gen_fc_layer_testcase(input_dim, output_dim, big_tile_size=1, bias=False):
         f.write('\n'.join(weights_raw))
     with open('weights.txt', 'w') as f:
         final_weights = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
-        f.write('\n'.join(dram_layout(np.array(final_weights, dtype=np.int8))))
+        f.write('\n'.join(dram_layout(final_weights)))
     model = QLayer('Linear', in_features=input_dim[-1], out_features=output_dim[-1], bias=bias)
     input_tensor = torch.from_numpy(input)
     input_tensor = input_tensor.float()
@@ -239,7 +240,7 @@ def gen_fc_layer_testcase_numpy(input_dim, output_dim, big_tile_size=1, bias=Fal
     with open('input.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
     with open('weights_nondram.txt', 'w') as f:
-        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
+        weights_nondram = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size).tolist()
         weights_nondram = [str(x) for x in weights_nondram]
         f.write('\n'.join(weights_nondram))
     with open('weights_raw.txt', 'w') as f:
@@ -248,7 +249,7 @@ def gen_fc_layer_testcase_numpy(input_dim, output_dim, big_tile_size=1, bias=Fal
         f.write('\n'.join(weights_raw))
     with open('weights.txt', 'w') as f:
         final_weights = tiled_flatten(shuffle_weights(weights, layer_type='linear'), big_tile_size)
-        f.write('\n'.join(dram_layout(np.array(final_weights, dtype=np.int8))))
+        f.write('\n'.join(dram_layout(final_weights)))
 
     result = np.matmul(input.astype(np.int32), weights.astype(np.int32))
     output = result.flatten().tolist()
@@ -650,6 +651,10 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
+    # Map {level : {loop_variable : tile_size}}
+    tiling_parameters = cdlt.param_tiling
+    # DRAM tiling is in level 1.
+    dram_tiling = tiling_parameters[1]
     if use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
@@ -704,10 +709,10 @@ def generate_random_values_gemm(cdlt, layer_name, base_path=".", format="nhwc", 
         f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
     #
     with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(shuffle_weights(weights, layer_type="gemm"))))
+        f.write('\n'.join(dram_layout(tiled_flatten(shuffle_weights(weights, layer_type="gemm"), dram_tiling))))
     #
     with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in shuffle_weights(weights, layer_type="gemm").flatten().tolist()]))
+        f.write('\n'.join([str(i) for i in tiled_flatten(shuffle_weights(weights, layer_type="gemm"), dram_tiling).tolist()]))
     #
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
