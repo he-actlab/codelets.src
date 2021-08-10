@@ -174,21 +174,26 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
+    # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
     # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
+
+    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
+
     wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
-    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OH']*sizes['OC']"
+    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
     if not ASIC_CONFIG:
-        bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
+        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
+        bandwidth = sg_edge.bandwidth
         cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
                                                   f"{obuf_index_size} <= {obuf_elements} and "
                                                   f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
-    cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
-    cdlt.add_compilation_param("N_hint2", f"size == 1")
-    cdlt.add_compilation_param("OH_hint2", f"size == 1")
-    cdlt.add_compilation_param("OW_hint2", f"size == 1")
+
+    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
+    # cdlt.add_compilation_param("N_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
     cdlt.add_compilation_param("KH_hint2", f"size == 1")
     cdlt.add_compilation_param("KW_hint2", f"size == 1")
     cdlt.add_compilation_param("IC_hint2", f"size == {sys_array_dims[0]}")
@@ -196,8 +201,8 @@ def conv2d(hag: ArchitectureNode):
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     # TESTING
-    cdlt.add_compilation_param("KH_hint1", f"split == 1")
-    cdlt.add_compilation_param("KW_hint1", f"split == 1")
+    # cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    # cdlt.add_compilation_param("KW_hint1", f"split == 1")
     ####
 
     return cdlt
@@ -267,15 +272,14 @@ def conv2d_bias(hag: ArchitectureNode):
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
     if not ASIC_CONFIG:
-        if not ASIC_CONFIG:
-            sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-            bandwidth = sg_edge.bandwidth
-            cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
-                                                      f"{obuf_index_size} <= {obuf_elements} and "
-                                                      f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
+        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
+        bandwidth = sg_edge.bandwidth
+        cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
+                                                  f"{obuf_index_size} <= {obuf_elements} and "
+                                                  f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
 
-    cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
-    cdlt.add_compilation_param("N_hint2", f"size == 1")
+    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
+    # cdlt.add_compilation_param("N_hint2", f"size == 1")
     # cdlt.add_compilation_param("OH_hint2", f"size == 1")
     # cdlt.add_compilation_param("OW_hint2", f"size == 1")
     cdlt.add_compilation_param("KH_hint2", f"size == 1")
@@ -285,8 +289,8 @@ def conv2d_bias(hag: ArchitectureNode):
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     # TESTING
-    cdlt.add_compilation_param("KH_hint1", f"split == 1")
-    cdlt.add_compilation_param("KW_hint1", f"split == 1")
+    # cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    # cdlt.add_compilation_param("KW_hint1", f"split == 1")
     ####
     return cdlt
 

@@ -26,9 +26,9 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
-def create_dirs(fpath):
+def create_dirs(fpath, dir_ext):
     cwd = Path(f"{__file__}").parent
-    base_path = f"{cwd}/compilation_output/{Path(fpath).stem}"
+    base_path = f"{cwd}/compilation_output/{Path(fpath).stem}{dir_ext}"
 
     if not Path(f"{base_path}").exists():
         try:
@@ -41,22 +41,25 @@ def create_dirs(fpath):
         print(f"Directory {base_path} already exists.")
     return base_path
 
-def store_values(program, base_path):
+def store_values(program, base_path, load_path=None, use_random=True):
     cdlt = program.codelets[0]
-    # project_path = f"custom_conv_fixed_shuffling"
-    project_path = f"resnet18_gemm_shiyufix"
-    fixed_values = {"folder_path": f"{CWD}/compilation_output/{project_path}"}
-    # fixed_values = {"input": 1, "weights": 2}
-    # fixed_values = None
+    if load_path:
+        fixed_values = {"folder_path": f"{CWD}/compilation_output/{load_path}"}
+    else:
+        fixed_values = None
     generate_random_values(cdlt, cdlt.op_name,
                            base_path=base_path,
-                           use_random=False,
+                           use_random=use_random,
                            fixed_values=fixed_values)
 
 
-def store_outputs(name, batch_size=1,
-                             verbose=False,
-                  emit_to_stdout=None):
+def store_outputs(name,
+                  batch_size=1,
+                  verbose=False,
+                  emit_to_stdout=None,
+                  load_path=None,
+                  dir_ext=None,
+                  use_random=False):
     tiling_path = None
     store_tiling = False
     store_json_output = False
@@ -124,16 +127,20 @@ def store_outputs(name, batch_size=1,
         else:
             print(program.emit(emit_to_stdout))
 
-    base_path = store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg)
-    store_compilation_output(program, "operations_idx", extension="txt")
-    store_compilation_output(program, "json", extension="json")
-    store_compilation_output(program, "string_final", extension="txt")
-    store_compilation_output(program, "decimal", extension="txt")
-    store_compilation_output(program, "binary", extension="txt")
-    store_values(program, base_path)
+    base_path = store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg, dir_ext=dir_ext)
+    store_compilation_output(program, "operations_idx", extension="txt", dir_ext=dir_ext)
+    store_compilation_output(program, "json", extension="json", dir_ext=dir_ext)
+    store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
+    store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
+    store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
+    store_values(program, base_path, use_random=use_random, load_path=load_path)
 
-def store_compilation_output(program: CodeletProgram, output_type, extension="txt", arch_cfg=None):
-    out_path = create_dirs(program.name)
+def store_compilation_output(program: CodeletProgram, output_type, extension="txt", dir_ext=None, arch_cfg=None):
+    if dir_ext:
+        dir_ext = f"_{dir_ext}"
+    else:
+        dir_ext = ""
+    out_path = create_dirs(program.name, dir_ext)
     if output_type == "arch_cfg":
         result = arch_cfg
     else:
@@ -150,6 +157,10 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
     argparser.add_argument('-m', '--model_name', required=True,
                            help='Name of the benchmark to compile.')
+    argparser.add_argument('-de', '--dir_ext', required=False, default=None,
+                           help='Storage name for directory')
+    argparser.add_argument('-lp', '--load_path', required=False, default=None,
+                           help='Load previous values for compilation test values.')
     argparser.add_argument('-l', '--layer_name', required=False, default=None,
                            help='Type fo output format')
     argparser.add_argument('-t', '--training_mode', type=str2bool, nargs='?', default=False,
@@ -157,6 +168,8 @@ if __name__ == "__main__":
     argparser.add_argument('-e', '--emit_to_stdout', required=False, default=None,
                            help='If unset, does not emit the compiled program.'
                                 'Otherwise, emits using the specified output type.')
+    argparser.add_argument('-r', '--use_random',type=str2bool, nargs='?', default=True,
+                           const=True, help='Compile layer with randomized output')
     argparser.add_argument('-v', '--verbose',type=str2bool, nargs='?', default=False,
                            const=True, help='Compiel with verbose output')
     argparser.add_argument('-bs', '--batch_size', default=1, type=int)
@@ -167,4 +180,4 @@ if __name__ == "__main__":
         base_name = f"{base_name}_{args.layer_name}"
     elif args.training_mode:
         base_name = f"{base_name}_train"
-    store_outputs(base_name, args.batch_size, args.verbose, args.emit_to_stdout)
+    store_outputs(base_name, args.batch_size, args.verbose, args.emit_to_stdout, use_random=args.use_random, dir_ext=args.dir_ext)

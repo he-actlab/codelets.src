@@ -93,7 +93,7 @@ def shuffle_weights(weights, layer_type="conv"):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert layer_type == "linear"
+        assert layer_type in ["linear", "gemm"]
        # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
         for mm in range(0, w_dim[1], tile_m):
             for nn in range(0, w_dim[0], tile_n):
@@ -588,11 +588,9 @@ def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", 
             input[i] = i % 128
         input = input.reshape(input_dims)
         cf_weight_dims = [weight_dims[i] for i in WEIGHTS_CL_TO_CF]
-        # weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
         weights = np.zeros(cf_weight_dims, dtype=np.int8).reshape(-1)
         for j in range(np.prod(weight_dims)):
             weights[j] = j % 128
-        # weights = weights.reshape(weight_dims)
         weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
 
     assert "conv" in layer_name
@@ -737,7 +735,7 @@ def get_model_values(model_name, layer_name, layer_num):
     if "conv" in layer_name.lower():
         x, wgt, b, out = pad_conv(layer_data)
     else:
-        assert "linear" in layer_name.lower()
+        assert "linear" in layer_name.lower() or "gemm" in layer_name.lower()
         x, wgt, b, out = pad_gemm(layer_data)
     base_filename = f'{model_name}_{layer_name.lower()}'
 

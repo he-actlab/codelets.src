@@ -337,7 +337,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     ld_st_loop_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', len(op.sizes_for_node('{buffer_name}')) - 1, '{ld_st}')"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
 
-    if buffer_name != "WBUF" and not ASIC_CONFIG:
+    if buffer_name != "WBUF":
         ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"
         ld_str_size = f"op.sizes_for_node('{buffer_name}')[-1]*op.operand.dtype.bits()//8"
         stride_size_str = f"(np.prod({all_sizes_str}[dim_info[0]:])//dim_info[1])*op.operand.dtype.bits()//8"
