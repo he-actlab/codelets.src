@@ -115,7 +115,7 @@ def tiled_flatten(weights, dram_tiling):
     tile_n = GENESYS_CFG['ARRAY_N']
     for big_tile in range(0, w_dim[1], big_tile_size):
         for nn in range(0, w_dim[0], tile_n):
-            for mm in range(0, 64, tile_m):
+            for mm in range(0, big_tile_size, tile_m):
                 for m in range(tile_m):
                     for n in range(tile_n):
                         result.append(weights[nn + n][big_tile + mm + m])
