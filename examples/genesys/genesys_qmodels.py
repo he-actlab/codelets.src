@@ -67,7 +67,7 @@ class QLayer(nn.Module):
     def bias(self):
         return self.layer.bias
 
-
+# Shuffles weights within a tile for correct mapping to systolic array
 def shuffle_weights(weights, layer_type="conv"):
 
     # Layout of weights is in (KH, KW, IC, OC) format
@@ -107,18 +107,31 @@ def shuffle_weights(weights, layer_type="conv"):
                         # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
     return result
 
-def tiled_flatten(weights, dram_tiling):
+# Sequentially write out tiles of weights which will be written in DRAM
+# A tile is written out in column-major order.
+# Column major order to enable a tile-size sequential read from DRAM to go to column of systolic array
+def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
     result = list()
-    big_tile_size = dram_tiling['P']
-    w_dim = weights.shape
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
-    for big_tile in range(0, w_dim[1], big_tile_size):
-        for nn in range(0, w_dim[0], tile_n):
-            for mm in range(0, big_tile_size, tile_m):
-                for m in range(tile_m):
-                    for n in range(tile_n):
-                        result.append(weights[nn + n][big_tile + mm + m])
+    w_dim = weights.shape
+    if layer_type == 'gemm':
+        big_tile_size = dram_tiling['P']
+        for big_tile in range(0, w_dim[1], big_tile_size):
+            for nn in range(0, w_dim[0], tile_n):
+                for mm in range(0, big_tile_size, tile_m):
+                    for m in range(tile_m):
+                        for n in range(tile_n):
+                            result.append(weights[nn + n][big_tile + mm + m])
+    else:
+        assert layer_type == 'conv'
+        for kh in range(w_dim[0]):
+            for kw in range(w_dim[1]):
+                for oc in range(0, w_dim[2], tile_m):  # OC
+                    for ic in range(0, w_dim[3], tile_n):  # IC
+                        for n in range(tile_n):  # Rows
+                            for m in range(tile_m):  # Columns
+                                result.append(weights[kh][kw][oc +m][ic + n])
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
@@ -604,10 +617,10 @@ def generate_random_values_conv(cdlt, layer_name, base_path=".", format="nhwc", 
         f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
 
     with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(shuffle_weights(weights))))
+        f.write('\n'.join(dram_layout(tiled_flatten(shuffle_weights(weights), layer_type='conv'))))
 
     with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in shuffle_weights(weights).flatten().tolist()]))
+        f.write('\n'.join([str(i) for i in tiled_flatten(shuffle_weights(weights), layer_type='conv').tolist()]))
 
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
