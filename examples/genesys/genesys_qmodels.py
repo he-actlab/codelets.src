@@ -141,6 +141,21 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
                             for n in range(tile_n):  # Rows
                                 for m in range(tile_m):  # Columns
                                     result.append(weights[kh][kw][ic + m][big_tile + oc + n])
+
+    # Interleave weights to maximize bandwidth use depending on array size and bandwidth
+    bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    systolic_array_column_size = weights.dtype.itemsize * tile_n
+    interleave_factor = bw // systolic_array_column_size
+    assert interleave_factor >= 1
+    assert tile_n == tile_m
+    # Set of tile_n size elements to interleave
+    window = tile_n * interleave_factor
+    for i in range(0, len(result), window):
+        interleaved_values = []
+        for j in range(tile_n):
+            for k in range(interleave_factor):
+                interleaved_values.append(result[i + j + (k*tile_n)])
+        result[i:i + window] = interleaved_values
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
