@@ -133,14 +133,14 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
     else:
         assert layer_type == 'conv'
         big_tile_size = dram_tiling['OC']
-
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
-                for oc in range(0, w_dim[2], tile_m):  # OC
-                    for ic in range(0, w_dim[3], tile_n):  # IC
-                        for n in range(tile_n):  # Rows
-                            for m in range(tile_m):  # Columns
-                                result.append(weights[kh][kw][oc + m][ic + n])
+                for big_tile in range(0, w_dim[3], big_tile_size): # Tile over OC
+                    for ic in range(0, w_dim[2], tile_m):  # IC
+                        for oc in range(0, big_tile_size, tile_n):  # OC
+                            for n in range(tile_n):  # Rows
+                                for m in range(tile_m):  # Columns
+                                    result.append(weights[kh][kw][ic + m][big_tile + oc + n])
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
