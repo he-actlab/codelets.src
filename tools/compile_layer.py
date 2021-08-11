@@ -41,25 +41,36 @@ def create_dirs(fpath, dir_ext):
         print(f"Directory {base_path} already exists.")
     return base_path
 
-def store_values(program, base_path, load_path=None, use_random=True):
+def store_values(program, model_name, base_path, load_path=None, use_random=True, actual_data=False):
+
     cdlt = program.codelets[0]
     if load_path:
         fixed_values = {"folder_path": f"{CWD}/compilation_output/{load_path}"}
     else:
         fixed_values = None
-    generate_random_values(cdlt, cdlt.op_name,
+    generate_random_values(cdlt, model_name, cdlt.op_name,
                            base_path=base_path,
                            use_random=use_random,
-                           fixed_values=fixed_values)
+                           fixed_values=fixed_values,
+                           actual_data=actual_data)
 
 
-def store_outputs(name,
+def store_outputs(model_name,
+                  layer_name,
+                  training_mode,
                   batch_size=1,
                   verbose=False,
                   emit_to_stdout=None,
                   load_path=None,
                   dir_ext=None,
+                  actual_data=False,
                   use_random=False):
+    name = model_name
+
+    if layer_name is not None:
+        name = f"{name}_{args.layer_name}"
+    elif training_mode:
+        name = f"{name}_train"
     tiling_path = None
     store_tiling = False
     store_json_output = False
@@ -133,7 +144,7 @@ def store_outputs(name,
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_values(program, base_path, use_random=use_random, load_path=load_path)
+    store_values(program, model_name, base_path, use_random=use_random, load_path=load_path, actual_data=actual_data)
 
 def store_compilation_output(program: CodeletProgram, output_type, extension="txt", dir_ext=None, arch_cfg=None):
     if dir_ext:
@@ -170,14 +181,17 @@ if __name__ == "__main__":
                                 'Otherwise, emits using the specified output type.')
     argparser.add_argument('-r', '--use_random',type=str2bool, nargs='?', default=True,
                            const=True, help='Compile layer with randomized output')
+    argparser.add_argument('-a', '--actual_data',type=str2bool, nargs='?', default=True,
+                           const=True, help='Compile layer with actual data from layer')
     argparser.add_argument('-v', '--verbose',type=str2bool, nargs='?', default=False,
                            const=True, help='Compiel with verbose output')
     argparser.add_argument('-bs', '--batch_size', default=1, type=int)
     args = argparser.parse_args()
-    base_name = args.model_name
 
-    if args.layer_name is not None:
-        base_name = f"{base_name}_{args.layer_name}"
-    elif args.training_mode:
-        base_name = f"{base_name}_train"
-    store_outputs(base_name, args.batch_size, args.verbose, args.emit_to_stdout, use_random=args.use_random, dir_ext=args.dir_ext)
+    store_outputs(args.model_name, args.layer_name, args.training_mode,
+                  args.batch_size,
+                  args.verbose,
+                  args.emit_to_stdout,
+                  use_random=args.use_random,
+                  dir_ext=args.dir_ext,
+                  actual_data=args.actual_data)
