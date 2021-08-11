@@ -671,6 +671,7 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
     # DRAM tiling is in level 1.
     dram_tiling = tiling_parameters[1]
     output = None
+    bias = None
     if actual_data:
         layer_num = 0
         layer_name = "linear"
@@ -739,6 +740,11 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
 
+    if bias is not None:
+        bias = bias.flatten().tolist()
+        bias = [str(x) for x in bias]
+        with open(f'{base_path}/bias.txt', 'w') as f:
+            f.write('\n'.join(bias))
     #
     # # test_output = manual_conv(input, weights, cdlt, layout="nchw")
     if output is None:
@@ -747,6 +753,7 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
         # # np.testing.assert_allclose(output, test_output)
     output = output.flatten().tolist()
     output = [str(x) for x in output]
+
 
     # # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:
