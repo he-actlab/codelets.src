@@ -80,19 +80,22 @@ def shuffle_weights(weights, layer_type="conv"):
     tile_n = GENESYS_CFG['ARRAY_N']
     if layer_type == "conv":
         coord_map = {}
-        print(result.shape)
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
-                for ic in range(0, w_dim[3], tile_n):  # IC
-                    for oc in range(0, w_dim[2], tile_m): # OC
+                for ic in range(0, w_dim[2], tile_n):  # IC
+                    for oc in range(0, w_dim[3], tile_m): # OC
                         for n in range(tile_n):  # Rows
                             for m in range(tile_m): # Columns
                                 # Reverse order within a tile because systolic array is filled from last column first.
 
                                 src_coord = kh, kw, ic + n, oc + m
-                                dst_coord = kh, kw, ic + tile_n - m - 1, oc + n
+                                dst_coord = kh, kw, ic + n, oc + tile_m - m - 1
                                 assert src_coord not in coord_map
                                 coord_map[src_coord] = dst_coord
+                                assert src_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {src_coord[-1]}\n" \
+                                                                         f"OC: {oc}, Column: {m}"
+                                assert dst_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {dst_coord[-1]}\n" \
+                                                                         f"OC: {oc}, Column: {n}"
 
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
@@ -129,13 +132,15 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
                             result.append(weights[nn + n][big_tile + mm + m])
     else:
         assert layer_type == 'conv'
+        big_tile_size = dram_tiling['OC']
+
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
                 for oc in range(0, w_dim[2], tile_m):  # OC
                     for ic in range(0, w_dim[3], tile_n):  # IC
                         for n in range(tile_n):  # Rows
                             for m in range(tile_m):  # Columns
-                                result.append(weights[kh][kw][oc +m][ic + n])
+                                result.append(weights[kh][kw][oc + m][ic + n])
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
@@ -690,7 +695,7 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
                                 use_random=True,
                                 fixed_values=None,
                                 actual_data=False,
-                                generate_partial_values=True):
+                                generate_partial_values=False):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
