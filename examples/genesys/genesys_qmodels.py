@@ -7,8 +7,10 @@ from . import GENESYS_CFG
 from .genesys_model_utils import get_resnet18, get_resnet50
 import numpy as np
 
-WEIGHTS_CL_TO_CF = [3, 2, 0, 1]
-WEIGHTS_CF_TO_CL = [2, 3, 1, 0]
+WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
+WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
+ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
+ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 # FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
@@ -71,12 +73,14 @@ class QLayer(nn.Module):
 def shuffle_weights(weights, layer_type="conv"):
 
     # Layout of weights is in (KH, KW, IC, OC) format
+
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
     if layer_type == "conv":
         coord_map = {}
+        print(result.shape)
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
                 for ic in range(0, w_dim[3], tile_n):  # IC
@@ -454,7 +458,7 @@ def conv_forward_naive(x, w, b, conv_param):
     cache = (x, w, b, conv_param)
     return out, cache
 
-def manual_gemm(inputs, weights):
+def manual_gemm(inputs, weights, o_coord):
     M = inputs.shape[0]
     N = inputs.shape[1]
     P = weights.shape[1]
@@ -468,7 +472,7 @@ def manual_gemm(inputs, weights):
                 partial_sum = inputs[m, n] * weights[n, p]
                 outputs[m, p] += partial_sum
 
-                if (m, p) == (0, 512):
+                if (m, p) == o_coord:
                     all_coords = (m, n, p)
                     icoord = (m, n)
                     icoord_idx = np.ravel_multi_index([m, n], inputs.shape)
@@ -480,7 +484,7 @@ def manual_gemm(inputs, weights):
                         f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
     return outputs, compilation_info
 
-def manual_conv(inputs, weights, cdlt, layout="nhwc"):
+def manual_conv(inputs, weights, cdlt, o_coord, layout="nhwc"):
     if layout == "nhwc":
         N, IH, IW, IC = inputs.shape
         KH, KW, IC_, OC = weights.shape
@@ -492,6 +496,7 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
         OC, IC_, KH, KW,  = weights.shape
         N_, OH, OW, OC_ = cdlt.outputs[0].shape
         out_shape = (N_, OC_, OH, OW)
+    assert isinstance(o_coord, tuple) and len(o_coord) == 4
     assert N_ == N
     assert IC == IC_
     assert OC == OC_
@@ -512,7 +517,7 @@ def manual_conv(inputs, weights, cdlt, layout="nhwc"):
 
                                     partial_sum = inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc]
                                     outputs[n, y, x, oc] += partial_sum
-                                    if (n, y, x, oc) == (0,0,0,0):
+                                    if (n, y, x, oc) == o_coord:
                                         all_coords = (oc, n, ic, kh, kw, y, x)
                                         icoord = (n, kh + y*stride, kw + x*stride, ic)
                                         icoord_idx = np.ravel_multi_index([n, kh + y*stride, kw + x*stride, ic], inputs.shape)
@@ -546,19 +551,46 @@ def generate_random_values(cdlt, model_name, layer_name, **kwargs):
         assert "gemm" in layer_name
         generate_random_values_gemm(cdlt, model_name, layer_name, **kwargs)
 
+def partial_values_gemm(cdlt, base_path, x, w, ref_out, o_coord):
+    other_test, ic_vals = manual_gemm(x, w, o_coord)
+    with open(f'{base_path}/out_coords.csv', 'w') as f:
+        for k, v in ic_vals.items():
+            # f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+
+            f.write(f'IC={k}, (m/n/p), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+            for l in v:
+                f.write(f"IC={k}, " + "," + l + "\n")
+    np.testing.assert_allclose(other_test, ref_out)
+
+
+def partial_values_conv(cdlt, base_path, x, w, ref_out, o_coord):
+
+    other_test, ic_vals = manual_conv(x, w, cdlt, o_coord, layout="nhwc")
+    with open(f'{base_path}/out_coords.csv', 'w') as f:
+        f.write(f'IC, (oc/n/ic/kh/kw/y/x), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+
+        for k, v in ic_vals.items():
+            for l in v:
+                f.write(f"IC={k}, " + "," + l + "\n")
+    np.testing.assert_allclose(other_test, ref_out)
 
 def generate_random_values_conv(cdlt, model_name, layer_name,
                                 base_path=".",
                                 format="nhwc",
                                 use_random=True,
                                 fixed_values=None,
-                                actual_data=False):
+                                actual_data=False,
+                                generate_partial_values=False):
 
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
     stride = cdlt.required_params['stride'].value
     pad = cdlt.required_params['pad'].value
+
+    tiling_parameters = cdlt.param_tiling
+    # DRAM tiling is in level 1.
+    dram_tiling = tiling_parameters[1]
     if actual_data:
         layer_num = 0
         layer_name = "conv"
@@ -566,7 +598,8 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         assert input.shape == input_dims
         assert weights.shape == weight_dims
         assert output.shape == out_dims
-    if use_random:
+
+    elif use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
     elif fixed_values is not None:
@@ -590,24 +623,6 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
                 weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
             with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
                 test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
-            # fixed_values['outputs'] = test_outputs
-            #
-            # other_test, ic_vals = manual_conv(input, weights, cdlt, layout="nhwc")
-            # with open(f'{base_path}/out_coords.txt', 'w') as f:
-            #     for k, v in ic_vals.items():
-            #         # compilation_info[ic].append(
-            # #         #     f"{all_coords}, {icoord}, {wcoord}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}")
-            #         # all_coords = (oc, n, ic, kh, kw, y, x)
-            # #         # icoord = (n, kh + y * stride, kw + x * stride, ic)
-            # #         # wcoord = (kh, kw, ic, oc)
-            # #         compilation_info[ic].append(
-            # #             f'"{all_coords}", "{(n, y, x, oc)}", "{icoord}", "{wcoord}", "{inputs[icoord]}", "{weights[wcoord]}", {partial_sum}')
-            #
-            #         f.write(f'IC={k}, "(oc, n, ic, kh, kw, y, x)", O_idx, I_idx, W_idx, I_val, W_val, partial\n')
-            #         for l in v:
-            #             f.write("," + l + "\n")
-            # np.testing.assert_allclose(other_test, test_outputs)
-
     else:
 
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
@@ -628,10 +643,10 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
 
     with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
-        f.write('\n'.join(dram_layout(tiled_flatten(shuffle_weights(weights), layer_type='conv'))))
+        f.write('\n'.join(dram_layout(tiled_flatten(shuffle_weights(weights, layer_type="conv"), dram_tiling, layer_type='conv'))))
 
     with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in tiled_flatten(shuffle_weights(weights), layer_type='conv').tolist()]))
+        f.write('\n'.join([str(i) for i in tiled_flatten(shuffle_weights(weights, layer_type="conv"), dram_tiling, layer_type='conv').tolist()]))
 
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
@@ -648,6 +663,11 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     conv_param = {'stride': stride, 'pad': 0}
     b = np.zeros(weights.shape[0], dtype=np.int32)
     output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+
+    if generate_partial_values:
+        tinput = input.transpose(*tuple(ACT_CF_TO_CL))
+        tweights = input.transpose(*tuple(WEIGHTS_CF_TO_CL))
+        partial_values_conv(cdlt, base_path, tinput, tweights, output, (0,0,0,0))
     # output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
     output = output.transpose(0, 2, 3, 1)
     if fixed_values is not None and "outputs" in fixed_values:
@@ -661,13 +681,6 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     with open(f'{base_path}/output.txt', 'w') as f:
         f.write('\n'.join(output))
 
-    # if len(cdlt.inputs) == 3:
-    #     bias = model.bias.detach().numpy()
-    #     print(bias.dtype)
-    #     bias = bias.flatten().tolist()
-    #     bias = [str(x) for x in bias]
-    #     with open(f'{base_path}/bias.txt', 'w') as f:
-    #         f.write('\n'.join(bias))
 
 
 
@@ -676,7 +689,8 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
                                 format="nhwc",
                                 use_random=True,
                                 fixed_values=None,
-                                actual_data=False):
+                                actual_data=False,
+                                generate_partial_values=True):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
@@ -716,16 +730,7 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
                 weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
             with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
                 test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
-            other_test, ic_vals = manual_gemm(input, weights)
 
-            with open(f'{base_path}/out_coords.txt', 'w') as f:
-                for k, v in ic_vals.items():
-                    # f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
-
-                    # f.write(f'IC={k}, "(m, n, p)", O_idx, I_idx, W_idx, I_val, W_val, partial\n')
-                    for l in v:
-                        f.write(f"IC={k}, " + "," + l + "\n")
-            np.testing.assert_allclose(other_test, test_outputs)
     else:
 
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
@@ -737,19 +742,19 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
             weights[j] = j % 128
         weights = weights.reshape(weight_dims)
 
-    #
+
     with open(f'{base_path}/input_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))
-    #
+
     with open(f'{base_path}/input_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
-    #
+
     with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(tiled_flatten(shuffle_weights(weights, layer_type="gemm"), dram_tiling))))
-    #
+
     with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in tiled_flatten(shuffle_weights(weights, layer_type="gemm"), dram_tiling).tolist()]))
-    #
+
     with open(f'{base_path}/weights_raw.txt', 'w') as f:
         f.write('\n'.join([str(i) for i in weights.flatten().tolist()]))
 
@@ -758,12 +763,12 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
         bias = [str(x) for x in bias]
         with open(f'{base_path}/bias.txt', 'w') as f:
             f.write('\n'.join(bias))
-    #
-    # # test_output = manual_conv(input, weights, cdlt, layout="nchw")
+
     if output is None:
         output = np.dot(np.int32(input), np.int32(weights))
-        #
-        # # np.testing.assert_allclose(output, test_output)
+
+    if generate_partial_values:
+        partial_values_gemm(cdlt, base_path, input, weights, output, (0, 0))
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 

@@ -68,6 +68,7 @@ class CodeletProgram(object):
         self._program_mode = program_mode
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
+        self._codelet_instructions = {}
 
     @property
     def name(self) -> str:

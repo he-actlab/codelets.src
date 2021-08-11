@@ -323,7 +323,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                         loop_end = cdlt.get_loop_end(op.op_str)
                         new_loop_end_id, new_global_loop_end_id = cdlt.get_new_op_ids(loop_end)
                         inner_op_end = loop_end.copy(cdlt, loop_name=inner_op.op_str, loop_level=inner_loop_level,
-                                                     op_id=new_loop_end_id, new_global_loop_end_id=new_global_loop_end_id)
+                                                     op_id=new_loop_end_id, global_op_id=new_global_loop_end_id)
                         cdlt.insert_op(inner_op_end, inner_idx)
 
                     ## end updates to end loop block

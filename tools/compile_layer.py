@@ -8,8 +8,9 @@ from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
-                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm", "lenet_bn_conv", "custom_conv_conv"]
-ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv"]
+                   "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv",
+                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm"]
+ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm"]
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 
 
@@ -181,7 +182,7 @@ if __name__ == "__main__":
                                 'Otherwise, emits using the specified output type.')
     argparser.add_argument('-r', '--use_random',type=str2bool, nargs='?', default=True,
                            const=True, help='Compile layer with randomized output')
-    argparser.add_argument('-a', '--actual_data',type=str2bool, nargs='?', default=True,
+    argparser.add_argument('-a', '--actual_data',type=str2bool, nargs='?', default=False,
                            const=True, help='Compile layer with actual data from layer')
     argparser.add_argument('-v', '--verbose',type=str2bool, nargs='?', default=False,
                            const=True, help='Compiel with verbose output')
