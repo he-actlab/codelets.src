@@ -215,12 +215,6 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
             perm_stack.pop()
             prev_splits = tile_info.move_up_tile_level(prev_level)
             level -= 1
-        elif valid_splits is None:
-            raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
-                               f"Dimensions: {cdlt.operand_dim_mapping()}\n"
-                               f"Times per level: {level_counter}\n"
-                               f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
-                               f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n")
         else:
             selected_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
                                enumerate(selected_permutation)}
