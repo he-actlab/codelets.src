@@ -67,6 +67,8 @@ def store_outputs(model_name,
                   actual_data=False,
                   use_random=False):
     name = model_name
+    # tile_method = "min_tiles"
+    tile_method = "valid_split"
 
     if layer_name is not None:
         name = f"{name}_{args.layer_name}"
@@ -94,7 +96,8 @@ def store_outputs(model_name,
                                   factor_fn='default',
                                 batch_size=batch_size,
                                 do_hoist_stage=True,
-                                do_tile_stage=True,
+                                tiling_search_algorithm=tile_method,
+                                        do_tile_stage=True,
                                 print_config=False
                                   )
     elif name in ALL_MODEL_NAMES:

@@ -194,17 +194,18 @@ def conv2d(hag: ArchitectureNode):
     # cdlt.add_compilation_param("N_hint2", f"size == 1")
     # cdlt.add_compilation_param("OH_hint2", f"size == 1")
     # cdlt.add_compilation_param("OW_hint2", f"size == 1")
-    ## DRAM to buffers
-    cdlt.add_compilation_param("IC_hint2", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint2", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint2", f"split == 1")
-    cdlt.add_compilation_param("KW_hint2", f"split == 1")
 
-    ## Buffer to systolic array
+    ## DRAM to buffers
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint1", f"size == 1")
-    cdlt.add_compilation_param("KW_hint1", f"size == 1")
+    cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    cdlt.add_compilation_param("KW_hint1", f"split == 1")
+
+    ## Buffer to systolic array
+    cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
+    cdlt.add_compilation_param("KH_hint0", f"size == 1")
+    cdlt.add_compilation_param("KW_hint0", f"size == 1")
     ####
 
     return cdlt
@@ -266,7 +267,6 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "OH", "OW", "N", "KH", "KW"])
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
     wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
@@ -282,26 +282,23 @@ def conv2d_bias(hag: ArchitectureNode):
 
     # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     # cdlt.add_compilation_param("N_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
-
-
     # bw/sys array width*bits
-    ## DRAM to buffers
-    cdlt.add_compilation_param("IC_hint2", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint2", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint2", f"split == 1")
-    cdlt.add_compilation_param("KW_hint2", f"split == 1")
 
-    ## Buffer to systolic array
+    ## DRAM to buffers
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint1", f"size == 1")
-    cdlt.add_compilation_param("KW_hint1", f"size == 1")
+    cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    cdlt.add_compilation_param("KW_hint1", f"split == 1")
 
-    # TESTING
+    ## Buffer to systolic array
+    cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
+    cdlt.add_compilation_param("KH_hint0", f"size == 1")
+    cdlt.add_compilation_param("KW_hint0", f"size == 1")
 
-    ####
+
+
+
     return cdlt
 
 def elem_add(hag: ArchitectureNode):

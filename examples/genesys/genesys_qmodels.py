@@ -600,7 +600,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
                                 use_random=True,
                                 fixed_values=None,
                                 actual_data=False,
-                                generate_partial_values=False):
+                                generate_partial_values=True):
 
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
@@ -684,12 +684,13 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     b = np.zeros(weights.shape[0], dtype=np.int32)
     output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
-    if generate_partial_values:
-        tinput = input.transpose(*tuple(ACT_CF_TO_CL))
-        tweights = input.transpose(*tuple(WEIGHTS_CF_TO_CL))
-        partial_values_conv(cdlt, base_path, tinput, tweights, output, (0,0,0,0))
+
     # output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
     output = output.transpose(0, 2, 3, 1)
+    if generate_partial_values:
+        tinput = input.transpose(*tuple(ACT_CF_TO_CL))
+        tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
+        partial_values_conv(cdlt, base_path, tinput, tweights, output, (0,0,0,0))
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
