@@ -152,7 +152,7 @@ class DummyParam:
 def dummy_op(op1, op2, op_str, reflected=False):
     raise NotImplementedError(f"No implementation for loop {op_str} op {type(op1)}.")
 
-@dummy_op.register
+@dummy_op.register(DummyOp)
 def _(op1: DummyOp, op2: DummyOp, op_str: str, reflected=False):
     template_type_str = list(set(op1.template_types + op2.template_types))
     arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
@@ -166,7 +166,7 @@ def _(op1: DummyOp, op2: DummyOp, op_str: str, reflected=False):
     fp = FlexParam(fp_name, arg_str, fn_str)
     return DummyOp(template_type_str, fp)
 
-@dummy_op.register
+@dummy_op.register(int)
 def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
     if reflected:
         new_code = f"({op1}{op_str}{op2.flex_param.fn_body_str})"
@@ -175,137 +175,3 @@ def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
     op2.flex_param.update_fn_code(new_code)
     return op2
 
-# @singledispatch
-# def dummy_mul(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_rmul(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_add(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_radd(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_div(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_rdiv(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_floor_div(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_rfloor_div(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_sub(op2, op1):
-#     raise NotImplementedError
-#
-# @singledispatch
-# def dummy_rsub(op2, op1):
-#     raise NotImplementedError
-#
-# @dummy_mul.register
-# def _(op2: DummyOp, op1: DummyOp):
-#     return dummy_dummy_op(op1, op2, "*")
-#
-# @dummy_mul.register
-# def _(op2: int, op1: DummyOp):
-#     return int_dummy_op(op2, op1, "*")
-#
-# @dummy_rmul.register
-# def _(op1: DummyOp, op2: DummyOp):
-#     return dummy_dummy_op(op2, op1, "*")
-#
-# @dummy_rmul.register
-# def _(op1: int, op2: DummyOp):
-#     return int_dummy_op(op1, op2, "*", reflected=True)
-#
-# @dummy_sub.register
-# def _(op1: DummyOp, op2: DummyOp):
-#     return dummy_dummy_op(op2, op1, "-")
-#
-# @dummy_sub.register
-# def _(op1: int, op2: DummyOp):
-#     return int_dummy_op(op1, op2, "-")
-#
-# @dummy_rsub.register
-# def _(op2: DummyOp, op1: DummyOp):
-#     return dummy_dummy_op(op1, op2, "-")
-#
-# @dummy_rsub.register
-# def _(op2: int, op1: DummyOp):
-#     return int_dummy_op(op2, op1, "-", reflected=True)
-#
-# @dummy_add.register
-# def _(op1: DummyOp, op2: DummyOp):
-#     return dummy_dummy_op(op2, op1, "+")
-#
-# @dummy_add.register
-# def _(op1: int, op2: DummyOp):
-#     return int_dummy_op(op1, op2, "+")
-#
-# @dummy_radd.register
-# def _(op2: DummyOp, op1: DummyOp):
-#     return dummy_dummy_op(op1, op2, "+")
-#
-# @dummy_radd.register
-# def _(op2: int, op1: DummyOp):
-#     return int_dummy_op(op2, op1, "+", reflected=True)
-#
-# @dummy_div.register
-# def _(op1: DummyOp, op2: DummyOp):
-#     return dummy_dummy_op(op2, op1, "/")
-#
-# @dummy_div.register
-# def _(op1: int, op2: DummyOp):
-#     return int_dummy_op(op1, op2, "/")
-#
-# @dummy_rdiv.register
-# def _(op2: DummyOp, op1: DummyOp):
-#     return dummy_dummy_op(op1, op2, "/")
-#
-# @dummy_rdiv.register
-# def _(op2: int, op1: DummyOp):
-#     return int_dummy_op(op2, op1, "/", reflected=True)
-#
-# @dummy_floor_div.register
-# def _(op1: DummyOp, op2: DummyOp):
-#     return dummy_dummy_op(op2, op1, "//")
-#
-# @dummy_floor_div.register
-# def _(op1: int, op2: DummyOp):
-#     return int_dummy_op(op1, op2, "//")
-#
-# @dummy_rfloor_div.register
-# def _(op2: DummyOp, op1: DummyOp):
-#     return dummy_dummy_op(op1, op2, "//")
-#
-# @dummy_rfloor_div.register
-# def _(op2: int, op1: DummyOp):
-#     return int_dummy_op(op2, op1, "//", reflected=True)
-#
-# def dummy_dummy_op(op1: DummyOp, op2: DummyOp, op_str: str):
-#     template_type_str = list(set(op1.template_types + op2.template_types))
-#     arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
-#     fn_str = f"{op1.flex_param.fn_body_str}{op_str}{op2.flex_param.fn_body_str}"
-#     fp = FlexParam(f"({op1.name}{op_str}{op1.name})", arg_str, fn_str)
-#     return DummyOp(template_type_str, fp)
-#
-# def int_dummy_op(op1: int, op2: DummyOp, op_str: str, reflected=False):
-#     if reflected:
-#         new_code = f"({op1}{op_str}{op2.flex_param.fn_body_str})"
-#     else:
-#         new_code = f"({op2.flex_param.fn_body_str}{op_str}{op1})"
-#     op2.flex_param.update_fn_code(new_code)
-#     return op2

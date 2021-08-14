@@ -333,7 +333,7 @@ class LoopTemplate(OperationTemplate):
 def loop_op(op1, op2, op_str, reflected=False):
     raise NotImplementedError(f"No implementation for loop {op_str} op {type(op1)}.")
 
-@loop_op.register
+@loop_op.register(DummyOp)
 def _(op1: DummyOp, op2: LoopTemplate, op_str: str, reflected=False):
     fp_name = f"loop_dummy{DummyOp.op_count}"
     if reflected:
@@ -346,7 +346,7 @@ def _(op1: DummyOp, op2: LoopTemplate, op_str: str, reflected=False):
         dparam = DummyParam(fp, (op2,))
     return dparam
 
-@loop_op.register
+@loop_op.register(DummyParam)
 def _(op1: DummyParam, op2: LoopTemplate, op_str: str, reflected=False):
     fp_name = f"loop_dummy{DummyParam.op_count}"
     if reflected:
@@ -359,7 +359,7 @@ def _(op1: DummyParam, op2: LoopTemplate, op_str: str, reflected=False):
         dparam = DummyParam(fp, (op1, op2))
     return dparam
 
-@loop_op.register
+@loop_op.register(LoopTemplate)
 def _(op1: LoopTemplate, op2: LoopTemplate, op_str: str, reflected=False):
     fp_name = f"loop_loop{DummyParam.op_count}"
     fn_body_str = f"{op1.op_str}{op_str}{op2.op_str}"

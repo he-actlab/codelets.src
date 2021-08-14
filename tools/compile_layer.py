@@ -67,8 +67,8 @@ def store_outputs(model_name,
                   actual_data=False,
                   use_random=False):
     name = model_name
-    # tile_method = "min_tiles"
-    tile_method = "valid_split"
+    tile_method = "min_tiles"
+    # tile_method = "valid_split"
 
     if layer_name is not None:
         name = f"{name}_{args.layer_name}"
