@@ -650,6 +650,17 @@ class Codelet(object):
                                    f"Node shape: {node.shape}\n"
                                    f"Operand shape variables: {operand.shape_list}")
 
+    def uses_hag_node(self, node_name: str) -> bool:
+        assert self.hag.has_node(node_name), f"Invalid node {node_name} for HAG"
+        for o in self.ops:
+            if o.op_type == "compute" and node_name == o.target:
+                return True
+            elif o.op_type == "transfer" and node_name in o.path:
+                return True
+            elif o.op_type == "config" and node_name in o.target:
+                return True
+        return False
+
     def get_tile_level(self, node_name: str):
         for i in self.tile_levels.keys():
             if node_name in self.tile_levels[i]:
