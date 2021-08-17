@@ -339,25 +339,31 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
 
     if buffer_name != "WBUF":
         ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"
-        ld_str_size = f"op.sizes_for_node('{buffer_name}')[-1]*op.operand.dtype.bits()//8"
-        stride_size_str = f"(np.prod({all_sizes_str}[dim_info[0]:])//dim_info[1])*op.operand.dtype.bits()//8"
+        ## OLD VALUES
+        # ld_str_size = f"op.sizes_for_node('{buffer_name}')[-1]*op.operand.dtype.bits()//8"
+        # stride_size_str = f"(np.prod({all_sizes_str}[dim_info[0]:])//dim_info[1])*op.operand.dtype.bits()//8"
+        # loop_iter_str = f"dim_info[2] - 1 if dim_info[0] < len(op.operand.shape) - 1 else 0"
+        # iterable_str = f'zip(range(len(op.operand.shape)), op.sizes_for_node("DRAM"), op.sizes_for_node("{buffer_name}"))'
+        ## NEW VALUEs
+        loop_iter_str = f"dim_info[1] - 1 if dim_info[0] < len(op.get_contiguous_strides()) - 1 else 0"
+        ld_str_size = f"op.get_contiguous_strides()[-1]*op.operand.dtype.bits()//8"
+        stride_size_str = f"(dim_info[1]*op.operand.dtype.bits()//8)"
+        iterable_str = f"enumerate(op.get_contiguous_strides())"
+        # END CHANGES
+
         stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"
         stride_size_high = f"program.extract_bits({stride_size_str}, 16, 16)"
 
         loop_id_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', dim_info[0], '{ld_st}')"
-        loop_iter_str = f"dim_info[2] - 1 if dim_info[0] < len(op.operand.shape) - 1 else 0"
+
         macro_instr = hag.get_primitive_template("SA_LOOP_CFG")
-        macro_instr.add_iterable('dim_info', f'zip(range(len(op.operand.shape)),'
-                                             f'op.sizes_for_node("DRAM"),'
-                                             f'op.sizes_for_node("{buffer_name}"))')
+        macro_instr.add_iterable('dim_info', iterable_str)
         macro_instr.set_field_flex_param("LOOP_ID", loop_id_str)
         macro_instr.set_field_flex_param("NUM_ITERATIONS", f"{loop_iter_str}")
         macro_instr.set_print_tabs("op.loop_level + dim_info[0]")
 
         micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-        micro_instr.add_iterable('dim_info', f'zip(range(len(op.operand.shape)),'
-                                             f'op.sizes_for_node("DRAM"),'
-                                             f'op.sizes_for_node("{buffer_name}"))')
+        micro_instr.add_iterable('dim_info', iterable_str)
         micro_instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
         micro_instr.set_field_by_name("ACCESS_TYPE", ld_st)
         micro_instr.set_field_by_name("BUFFER", f"{buffer_name}")
@@ -367,9 +373,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         macro_instr.add_base_instruction(micro_instr)
 
         micro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
-        micro_instr.add_iterable('dim_info', f'zip(range(len(op.operand.shape)),'
-                                             f'op.sizes_for_node("DRAM"),'
-                                             f'op.sizes_for_node("{buffer_name}"))')
+        micro_instr.add_iterable('dim_info', iterable_str)
         micro_instr.set_field_by_name("LOW_HIGH_BITS", "HIGH")
         micro_instr.set_field_by_name("ACCESS_TYPE", ld_st)
         micro_instr.set_field_by_name("BUFFER", f"{buffer_name}")
