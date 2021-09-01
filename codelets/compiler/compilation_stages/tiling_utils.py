@@ -193,6 +193,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
+
                 continue
             valid_splits = tile_info.validate_splits(cdlt, p, level)
             if valid_splits is None:
