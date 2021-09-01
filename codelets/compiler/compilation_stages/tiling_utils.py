@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List
 from collections import defaultdict, deque
-from itertools import product
+from itertools import product, tee
 from pytools import memoize
 
 if TYPE_CHECKING:
@@ -178,6 +178,7 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
     while tile_info.levels > level > 0:
         prev_level = level - 1
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
+        perms, perms_copy = tee(perms)
         assert perms is not None
         valid_splits = None
         fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
@@ -207,6 +208,8 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
         # Explored all permutations
         if not stop_search:
             selected_permutation = selection_metric(search_space, last_valid_permutation)
+            # Need to reset permutation generator to restart search if return to this level
+            perm_stack[level-1] = perms_copy
         # If no split available, move up a level and restart search.
         # Else store current permutation and move down a level.
         if selected_permutation is None:
