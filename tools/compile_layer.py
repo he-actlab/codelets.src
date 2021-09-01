@@ -9,8 +9,8 @@ import pprint
 
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv",
-                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm"]
-ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm"]
+                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm", "custom_conv_tiled_ic_conv"]
+ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm", "custom_conv_tiled_ic"]
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 
 
@@ -71,7 +71,7 @@ def store_outputs(model_name,
     # tile_method = "valid_split"
 
     if layer_name is not None:
-        name = f"{name}_{args.layer_name}"
+        name = f"{name}_{layer_name}"
     elif training_mode:
         name = f"{name}_train"
     tiling_path = None
