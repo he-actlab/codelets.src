@@ -70,16 +70,21 @@ class QLayer(nn.Module):
         return self.layer.bias
 
 # Shuffles weights within a tile for correct mapping to systolic array
-def shuffle_weights(weights, layer_type="conv"):
+def shuffle_weights(w_orig, layer_type="conv"):
 
     # Layout of weights is in (KH, KW, IC, OC) format
+    weights = w_orig.copy()
 
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
+
     if layer_type == "conv":
         coord_map = {}
+        ic_coords = []
+        oc_coords = []
+        all_ics = []
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
                 for ic in range(0, w_dim[2], tile_n):  # IC
@@ -90,6 +95,9 @@ def shuffle_weights(weights, layer_type="conv"):
 
                                 src_coord = kh, kw, ic + n, oc + m
                                 dst_coord = kh, kw, ic + n, oc + tile_m - m - 1
+                                # dst_coord = kh, kw, ic + tile_n - n - 1, oc + tile_m - m - 1
+                                ic_coords.append((dst_coord[-2], src_coord[-2]))
+                                oc_coords.append((dst_coord[-1], src_coord[-1]))
                                 assert src_coord not in coord_map
                                 coord_map[src_coord] = dst_coord
                                 assert src_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {src_coord[-1]}\n" \
@@ -132,18 +140,22 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
                             result.append(weights[nn + n][big_tile + mm + m])
     else:
         assert layer_type == 'conv'
-        big_tile_size = dram_tiling['OC']
+        big_tile_size_oc = dram_tiling['OC']
+        big_tile_size_ic = dram_tiling['IC']
         for kh in range(w_dim[0]):
             for kw in range(w_dim[1]):
-                for big_tile in range(0, w_dim[3], big_tile_size): # Tile over OC
-                    for ic in range(0, w_dim[2], tile_m):  # IC
-                        for oc in range(0, big_tile_size, tile_n):  # OC
-                            for n in range(tile_n):  # Rows
-                                for m in range(tile_m):  # Columns
-                                    result.append(weights[kh][kw][ic + m][big_tile + oc + n])
+                for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
+                    for big_tile_oc in range(0, w_dim[3], big_tile_size_oc): # Tile over OC
+                        # for ic in range(0, w_dim[2], tile_m):  # IC
+                        for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                            for oc in range(0, big_tile_size_oc, tile_n):  # OC
+                                for n in range(tile_n):  # Rows
+                                    for m in range(tile_m):  # Columns
+                                        result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n])
 
     # Interleave weights to maximize bandwidth use depending on array size and bandwidth
     bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    systolic_array_row_size = weights.dtype.itemsize * tile_m
     systolic_array_column_size = weights.dtype.itemsize * tile_n
     interleave_factor = bw // systolic_array_column_size
     assert interleave_factor >= 1
@@ -600,8 +612,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
                                 use_random=True,
                                 fixed_values=None,
                                 actual_data=False,
-                                generate_partial_values=False):
-
+                                generate_partial_values=True):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
@@ -618,7 +629,6 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         assert input.shape == input_dims
         assert weights.shape == weight_dims
         assert output.shape == out_dims
-
     elif use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
@@ -682,21 +692,20 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
 
     conv_param = {'stride': stride, 'pad': 0}
     b = np.zeros(weights.shape[0], dtype=np.int32)
-    output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
 
-    # output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+    output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
     output = output.transpose(0, 2, 3, 1)
     if generate_partial_values:
         tinput = input.transpose(*tuple(ACT_CF_TO_CL))
         tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
-        coords = np.unravel_index(512, output.shape)
+        coords = np.unravel_index(0, output.shape)
         partial_values_conv(cdlt, base_path, tinput, tweights, output, coords)
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
     # np.testing.assert_allclose(output, test_output)
-    print(output.shape)
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 
@@ -790,8 +799,8 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
     if output is None:
         output = np.dot(np.int32(input), np.int32(weights))
 
-    if generate_partial_values:
-        partial_values_gemm(cdlt, base_path, input, weights, output, (0, 0))
+    # if generate_partial_values:
+    #     partial_values_gemm(cdlt, base_path, input, weights, output, (0, 0))
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 

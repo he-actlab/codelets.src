@@ -67,9 +67,13 @@ def test_extracted_layer(source_model, layer_name):
     # "lenet_gemm",
     # "lenet_bn_conv",
     # "custom_conv_conv",
+    # "custom_gemm_gemm",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
+    tile_method = "min_tiles"
+    # tile_method = "valid_split"
+
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -94,37 +98,31 @@ def test_genesys_layers(layer_name):
                             do_hoist_stage=True,
                             do_tile_stage=True,
                             print_config=False,
-                            tiling_search_algorithm='valid_split'
+                            tiling_search_algorithm=tile_method
                                     # relocation_offsets=reloc_offsets
                               )
-    # for o in program.codelets[0].ops:
-    #     if o.op_type == "transfer":
-    #         print(f"{o.op_str}:\n"
-    #               f"Path: {o.path}\n"
-    #               f"Offsets: {o.offsets}\n"
-    #               f"Dom offsets: {o.domain_offsets}\n"
-    #               f"Sizes: {o.sizes}\n"
-    #               f"Indices: {o.access_indices}\n")
-    # print(program.emit("decimal"))
-    print(program.hag.get_subgraph_node("OBUF").size_bytes)
-    print(program.hag.get_subgraph_node("OBUF").num_elements)
-    print(4*1024)
-    print(program.emit("operations_idx"))
-    print(program.emit("string_final"))
+    # print(program.codelets[0].loop_param_map)
+    # print(program.codelets[0].param_tiling)
+    # print(program.emit("operations_idx"))
+    wbuf = program.hag.get_subgraph_node("WBUF")
+    print(wbuf.capacity)
+    # print(program.emit("string_final"))
     # print(program.emit("string_final"))
 
 
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_gemm",
+    "cc1_conv",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
-     "resnet18_conv",
+    #  "resnet18_conv",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
     # "lenet_bn_conv",
     # "custom_conv_conv",
+    # "custom_gemm_gemm",
 ])
 def test_genesys_layers_min_tiles_search(layer_name):
     batch_size = 1
@@ -150,7 +148,13 @@ def test_genesys_layers_min_tiles_search(layer_name):
                             print_config=False,
                             tiling_search_algorithm='min_tiles'
                               )
-    print(program.emit("operations_idx"))
+    pprint.pprint(program.emit("json_no_ops"))
+    # print(program.emit("operations_idx"))
+    print(program.emit("string_final"))
+
+
+
+
 
 def test_reference_creation():
     batch_size = 1

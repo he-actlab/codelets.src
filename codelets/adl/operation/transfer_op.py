@@ -101,21 +101,31 @@ class Transfer(Operation):
     def get_contiguous_strides(self):
         assert len(self.sizes) == 2
         if self.sizes[0] == self.sizes[1]:
-            return [np.prod(self.sizes[0])]
+            return [np.prod(self.sizes[0])],[np.prod(self.sizes[0])]
         elif np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
             ref_sizes = self.sizes[1]
         else:
             xfer_sizes = self.sizes[1]
             ref_sizes = self.sizes[0]
+        iterations = [1]
         strides = [1]
+        mult = 0
         for i, s in enumerate(xfer_sizes):
             if s == ref_sizes[i]:
                 strides[-1] *= s
+                iterations[-1] *= s
+                mult += 1
             else:
+                if mult == 0:
+                    strides[-1] = np.prod(ref_sizes[i:],dtype=np.int)
+                else:
+                    strides[-1] = strides[-1]*np.prod(ref_sizes[i+1:],dtype=np.int)
                 strides.append(s)
-
-        return strides
+                iterations.append(s)
+                mult = 0
+        assert len(strides) == len(iterations)
+        return strides,iterations
 
     def get_src_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)

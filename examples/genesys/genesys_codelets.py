@@ -25,6 +25,7 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
+
         with cdlt.loop(P) as p:
             with cdlt.loop(N) as n:
                 with cdlt.loop(M) as m:
@@ -43,8 +44,33 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
-    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
+    # cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
+    # cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
+
+    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
+    wbuf_index_size = f"sizes['N']*sizes['P']"
+    obuf_index_size = f"sizes['M']*sizes['P']"
+    if not ASIC_CONFIG:
+        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
+        bandwidth = sg_edge.bandwidth
+        cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
+                                                  f"{obuf_index_size} <= {obuf_elements} and "
+                                                  f"sizes['N']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
+
+    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
+    # cdlt.add_compilation_param("N_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
+    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
+
+    ## DRAM to buffers
+    cdlt.add_compilation_param("N_hint1", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("P_hint1", f"size % {sys_array_dims[1]} == 0")
+
+    ## Buffer to systolic array
+    cdlt.add_compilation_param("N_hint0", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("P_hint0", f"size % {sys_array_dims[1]} == 0")
+
     return cdlt
 
 
@@ -197,6 +223,7 @@ def conv2d(hag: ArchitectureNode):
 
     ## DRAM to buffers
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
+    # cdlt.add_compilation_param("IC_hint1", f"size == {sys_array_dims[0]}")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint1", f"split == 1")
     cdlt.add_compilation_param("KW_hint1", f"split == 1")
@@ -285,12 +312,14 @@ def conv2d_bias(hag: ArchitectureNode):
     # bw/sys array width*bits
 
     ## DRAM to buffers
-    cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
+    # cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("IC_hint1", f"size == {sys_array_dims[0]}")
+
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint1", f"split == 1")
     cdlt.add_compilation_param("KW_hint1", f"split == 1")
 
-    ## Buffer to systolic array
+    # Buffer to systolic array
     cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint0", f"size == 1")

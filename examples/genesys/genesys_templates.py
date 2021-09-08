@@ -4,8 +4,8 @@ from . import ASIC_CONFIG
 from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CAST_NAMES, \
     CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES, PLACEHOLDER_OP_NAMES
 
-
-
+BENCH_BASE_ADDR = {"INSTR":0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840, "OBUF": 0}
+GENERATING_BENCH = False
 from functools import partial
 BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
                  'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7},
@@ -19,7 +19,6 @@ LOOPS_PER_LEVEL = 7
 SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES
 
 BASE_ADDR_STR = "program.extract_bits(relocation_table.get_base_by_name({OPERAND_NAME}), {NUM_BITS}, {POS})"
-# ASIC_CONFIG = False
 
 def placeholder_alu_template(op_name, hag):
 
@@ -141,27 +140,48 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
     instructions.append(instr)
 
+    if GENERATING_BENCH:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "IMEM")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+                                 " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "IMEM")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    # TODO: Fix relocation table imem value
-    instr.set_field_flex_param("BASE_ADDR",
-                             "program.extract_bits(relocation_table.get_relocation_base('INSTR_MEM', cdlt.cdlt_uid),"
-                             " 16, 0)",
-                               lazy_eval=True)
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "IMEM")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+                                 " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
+    else:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "IMEM")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                   "program.extract_bits(relocation_table.get_relocation_base('INSTR_MEM', cdlt.cdlt_uid),"
+                                   " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "IMEM")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                             "program.extract_bits(relocation_table.get_relocation_base('INSTR_MEM', cdlt.cdlt_uid),"
-                             " 16, 16)",
-                               lazy_eval=True)
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "IMEM")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   "program.extract_bits(relocation_table.get_relocation_base('INSTR_MEM', cdlt.cdlt_uid),"
+                                   " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
     instr = hag.get_primitive_template("LD_ST")
     instr.add_condition("cdlt.instance_id < len(program.codelets)")
@@ -195,25 +215,48 @@ def simd_start_template(hag: ComputeNode):
 
 def wbuf_start_template(hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[1].node_name", NUM_BITS="16",
-                                                    POS="0"),
-                               lazy_eval=True)
-    instructions.append(instr)
+    if GENERATING_BENCH:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "WBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['WBUF']},"
+                                 " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "WBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[1].node_name", NUM_BITS="16",
-                                                    POS="16"),
-                               lazy_eval=True)
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "WBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['WBUF']},"
+                                 " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
+
+    else:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "WBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[1].node_name", NUM_BITS="16",
+                                                        POS="0"),
+                                   lazy_eval=True)
+        instructions.append(instr)
+
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "WBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[1].node_name", NUM_BITS="16",
+                                                        POS="16"),
+                                   lazy_eval=True)
+        instructions.append(instr)
     return instructions
 
 def imm_start_template(hag: ComputeNode):
@@ -251,70 +294,136 @@ def imm_end_template(hag: ComputeNode):
 
 def ibuf_start_template(hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[0].node_name", NUM_BITS="16",
-                                                    POS="0"),
-                               lazy_eval=True)
-    instructions.append(instr)
+    if GENERATING_BENCH:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['IBUF']},"
+                                 " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[0].node_name", NUM_BITS="16",
-                                                    POS="16"),
-                               lazy_eval=True)
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['IBUF']},"
+                                 " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
+    else:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[0].node_name", NUM_BITS="16",
+                                                        POS="0"),
+                                   lazy_eval=True)
+        instructions.append(instr)
+
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "IBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[0].node_name", NUM_BITS="16",
+                                                        POS="16"),
+                                   lazy_eval=True)
+        instructions.append(instr)
     return instructions
 
 def bbuf_start_template(hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "BBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[2].node_name", NUM_BITS="16",
-                                                    POS="0"),
-                               lazy_eval=True)
-    instructions.append(instr)
+    if GENERATING_BENCH:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "BBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['BBUF']},"
+                                 " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "BBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[2].node_name", NUM_BITS="16",
-                                                    POS="16"),
-                               lazy_eval=True)
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "BBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['BBUF']},"
+                                 " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
+    else:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "BBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[2].node_name", NUM_BITS="16",
+                                                        POS="0"),
+                                   lazy_eval=True)
+        instructions.append(instr)
+
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "BBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.inputs[2].node_name", NUM_BITS="16",
+                                                        POS="16"),
+                                   lazy_eval=True)
+        instructions.append(instr)
     return instructions
 
 def obuf_start_template(hag: ComputeNode):
     instructions = []
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "OBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.outputs[0].node_name", NUM_BITS="16", POS="0"),
-                               lazy_eval=True)
+    if GENERATING_BENCH:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "OBUF")
+        # TODO: Fix relocation table imem value
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['OBUF']},"
+                                 " 16, 0)",
+                                   lazy_eval=True)
+        instructions.append(instr)
 
-    instructions.append(instr)
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "OBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                 f"program.extract_bits({BENCH_BASE_ADDR['OBUF']},"
+                                 " 16, 16)",
+                                   lazy_eval=True)
+        instructions.append(instr)
+    else:
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "OBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.outputs[0].node_name", NUM_BITS="16", POS="0"),
+                                   lazy_eval=True)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "BUFFER")
-    instr.set_field_by_name("BUFFER", "OBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                               BASE_ADDR_STR.format(OPERAND_NAME="cdlt.outputs[0].node_name", NUM_BITS="16", POS="16"),
-                               lazy_eval=True)
-    instructions.append(instr)
+        instructions.append(instr)
+
+        instr = hag.get_primitive_template("SET_BASE_ADDR")
+        instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+        instr.set_field_by_name("MEM_TYPE", "BUFFER")
+        instr.set_field_by_name("BUFFER", "OBUF")
+        instr.set_field_flex_param("BASE_ADDR",
+                                   BASE_ADDR_STR.format(OPERAND_NAME="cdlt.outputs[0].node_name", NUM_BITS="16", POS="16"),
+                                   lazy_eval=True)
+        instructions.append(instr)
     return instructions
 
 
@@ -345,10 +454,10 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         # loop_iter_str = f"dim_info[2] - 1 if dim_info[0] < len(op.operand.shape) - 1 else 0"
         # iterable_str = f'zip(range(len(op.operand.shape)), op.sizes_for_node("DRAM"), op.sizes_for_node("{buffer_name}"))'
         ## NEW VALUEs
-        loop_iter_str = f"dim_info[1] - 1 if dim_info[0] < len(op.get_contiguous_strides()) - 1 else 0"
-        ld_str_size = f"op.get_contiguous_strides()[-1]*op.operand.dtype.bits()//8"
-        stride_size_str = f"(dim_info[1]*op.operand.dtype.bits()//8)"
-        iterable_str = f"enumerate(op.get_contiguous_strides())"
+        loop_iter_str = f"dim_info[1][1] - 1 if dim_info[0] < len(op.get_contiguous_strides()[0]) - 1 else 0"
+        ld_str_size = f"op.get_contiguous_strides()[0][-1]*op.operand.dtype.bits()//8"
+        stride_size_str = f"(dim_info[1][0]*op.operand.dtype.bits()//8)"
+        iterable_str = f"enumerate(zip(*op.get_contiguous_strides()))"
         # END CHANGES
 
         stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"

@@ -618,7 +618,6 @@ class CodeletProgram(object):
             print(f"Running template stages")
 
         self._codelet_templates = self.get_required_templates(node_sequence)
-
         for level, fns in self.template_stages.items():
             for template_name in list(self.codelet_templates.keys()):
                 cdlt_tmplt = self.codelet_templates[template_name]
@@ -818,9 +817,7 @@ class CodeletProgram(object):
             if verbose:
                 print(f"\nLoading predefined tiling at {tiling_path}")
             self.load_tiling(tiling_path)
-
         codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
-
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
 
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)

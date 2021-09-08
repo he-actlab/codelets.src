@@ -102,6 +102,7 @@ class TilingInfo:
             splits = {self.loop_dim_map[l]: splits[i] for i, l in enumerate(loop_deps)}
             valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
             if not valid:
+
                 return False
         return True
 

@@ -120,10 +120,18 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'lenet'
+    model_name = 'cc1'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
-
-    convert_model_to_polymath(model_path)
+    #
+    # convert_model_to_polymath(model_path)
     store_unique_model_layers(model_name, store_as_polymath=True)
     # print_unique_model_layers(model_name, store_as_polymath=True)
     # store_target_model_layer(model_name, "BatchNormalization", store_name="batchnormalization", store_as_polymath=True)
+    # model_names = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
+    #                'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
+    #                'mobilenet_v3_large_c2', 'googlenet_fc1', 'bert_large_ffn_fc1', 'bert_large_ffn_fc2',
+    #                'bert_large_self_attn_kqv_gen', 'bert_large_self_attn_qk', 'bert_large_self_attn_vqk',
+    #                'bert_large_self_attn_zw', 'dlrm_mlp_top_1', 'dlrm_mlp_top_2', 'dlrm_mlp_top_3', 'dlrm_mlp_top_4']
+    # for model_name in model_names:
+    #     model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    #     store_unique_model_layers(model_name, store_as_polymath=True)

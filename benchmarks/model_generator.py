@@ -905,8 +905,8 @@ def run_covenant_benchmarks():
 def main():
     # run_covenant_benchmarks()
     n = 1
-    ic = 4
-    oc = 8
+    ic = 128
+    oc = 64
     h = 33
     w = 33
     ksize = 3

@@ -88,11 +88,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     if template.op_name in SA_OPS:
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
         out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
-
         inp_dim = template.inputs[0].shape_list[-1]
         out_dim = template.outputs[0].shape_list[-1]
-        dummy_inp_dim = template.node.inputs[0].shape[-1]
-        dummy_out_dim = template.node.outputs[0].shape[-1]
+        dummy_inp_dim = template.node.inputs[0].shape[1]
+        dummy_out_dim = template.node.outputs[0].shape[1]
         template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
         template.update_dummy_op(out_dim.name, dummy_out_dim + (out_constr - dummy_out_dim) % out_constr)
     else:

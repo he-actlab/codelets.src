@@ -7,10 +7,16 @@ from examples.genesys.genesys_qmodels import generate_random_values
 from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 
+BENCHMARKS = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
+                  'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
+                  'mobilenet_v3_large_c2', 'googlenet_fc1', 'bert_large_ffn_fc1', 'bert_large_ffn_fc2',
+                  'bert_large_self_attn_kqv_gen', 'bert_large_self_attn_qk', 'bert_large_self_attn_vqk',
+                  'bert_large_self_attn_zw', 'dlrm_mlp_top_1', 'dlrm_mlp_top_2', 'dlrm_mlp_top_3', 'dlrm_mlp_top_4']
+BENCHMARK_GEMM = [f"{b}_gemm" for b in BENCHMARKS]
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv",
-                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm"]
-ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm"]
+                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm", "cc1_conv"] + BENCHMARK_GEMM
+ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm", "cc1"]
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 
 
@@ -71,7 +77,7 @@ def store_outputs(model_name,
     # tile_method = "valid_split"
 
     if layer_name is not None:
-        name = f"{name}_{args.layer_name}"
+        name = f"{name}_{layer_name}"
     elif training_mode:
         name = f"{name}_train"
     tiling_path = None
@@ -168,7 +174,18 @@ def store_compilation_output(program: CodeletProgram, output_type, extension="tx
     return out_path
 
 if __name__ == "__main__":
-
+    # all_benchmarks =  ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
+    #                'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
+    #                'mobilenet_v3_large_c2', 'googlenet_fc1', 'bert_large_ffn_fc1', 'bert_large_ffn_fc2',
+    #                'bert_large_self_attn_kqv_gen', 'bert_large_self_attn_qk', 'bert_large_self_attn_vqk',
+    #                'bert_large_self_attn_zw', 'dlrm_mlp_top_1', 'dlrm_mlp_top_2', 'dlrm_mlp_top_3', 'dlrm_mlp_top_4']
+    # for b in all_benchmarks:
+    #     store_outputs(b, 'gemm', False, 1,
+    #               False,
+    #               None,
+    #               use_random=True,
+    #               dir_ext=False,
+    #               actual_data=False)
     argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
     argparser.add_argument('-m', '--model_name', required=True,
                            help='Name of the benchmark to compile.')
@@ -191,7 +208,7 @@ if __name__ == "__main__":
                            const=True, help='Compiel with verbose output')
     argparser.add_argument('-bs', '--batch_size', default=1, type=int)
     args = argparser.parse_args()
-
+    #
     store_outputs(args.model_name, args.layer_name, args.training_mode,
                   args.batch_size,
                   args.verbose,
