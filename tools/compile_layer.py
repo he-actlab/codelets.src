@@ -17,6 +17,7 @@ ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_c
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv",
                    "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm", "cc1_conv"] + BENCHMARK_GEMM
 ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm", "cc1"]
+
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 
 
