@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass, template_pad_pass, TilingInfo
+    add_simd_typecast, template_layout_pass, template_pad_pass, TilingInfo, instr_opt_stage
 import inspect
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from .genesys_templates import GENESYS_TEMPLATES
@@ -303,6 +303,7 @@ def compile_genesys(model_name,
     program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
                                  stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
                                  skip_noops=False)
+    program.add_compilation_step("instr_opt", instr_opt_stage, instruction=True)
     if relocation_offsets:
         program.set_relocation_ns_offsets(relocation_offsets)
 
@@ -428,6 +429,8 @@ def compile_genesys_layer(layer_file,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("instr_opt", instr_opt_stage, instruction=True)
+
     if tiling_search_algorithm == 'min_tiles':
         tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
                         'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}

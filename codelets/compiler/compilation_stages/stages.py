@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from codelets.templates.operand_template import IndexOperandTemplate, OperandTemplate
 from codelets.templates.operation_template import OperationTemplate
@@ -6,6 +6,7 @@ from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
 from codelets.codelet_impl.codelet import USE_LOOP_END
 from codelets.compiler.program import CodeletProgram
+from codelets.adl.flex_template.instruction import Instruction
 from collections import defaultdict
 
 from .tiling_utils import set_codelet_tiling
@@ -72,6 +73,10 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
             o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
+def instr_opt_stage(program, instructions: List[Instruction]):
+
+
+    return instructions
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     #

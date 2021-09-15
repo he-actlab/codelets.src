@@ -148,7 +148,7 @@ def _deserialize_node(node_object):
 
     return node
 
-# add extra_params
+# add attributes
 def _deserialize_capabilities(capability_list: List[Dict]):
     caps = []
     for c in capability_list:
@@ -156,7 +156,7 @@ def _deserialize_capabilities(capability_list: List[Dict]):
         kwargs['target'] = c['target']
         kwargs['latency'] = c['latency']
         kwargs['source'] = _deserialize_operands(c['source'])
-        for k, v in c['extra_params'].items():
+        for k, v in c['attributes'].items():
             kwargs[k] = v
         cap = Instruction(c['target_name'], c['opcode'], c['opcode_width'], **kwargs)
         caps.append(cap)

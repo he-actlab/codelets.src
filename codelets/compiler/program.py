@@ -3,6 +3,7 @@ from typing import List, Callable, Dict, List, Any
 from collections import defaultdict
 from time import time
 from codelets.adl.flex_param import FlexParam
+from codelets.adl.flex_template.instruction import Instruction
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
@@ -97,6 +98,10 @@ class CodeletProgram(object):
     @property
     def relocatables(self) -> RelocationTable:
         return self._relocatables
+
+    @property
+    def codelet_instructions(self) -> Dict[str, List[Instruction]]:
+        return self._codelet_instructions
 
     @property
     def compilation_pipeline(self) -> Dict[int, List[CompilationStage]]:
@@ -419,10 +424,9 @@ class CodeletProgram(object):
             op_str = "\n".join(op_str)
         return op_str
 
-    def emit_codelets(self, output_type):
+    def emit_codelets_reevaluate(self, output_type):
         codelet_strings = []
         for c in self.codelets:
-
             # Emit codelet start
             if self.hag.has_op_template("codelet", "start"):
                 cdlt_start = self.hag.get_cdlt_op_template("start")
@@ -435,6 +439,17 @@ class CodeletProgram(object):
                 cdlt_end = self.hag.get_cdlt_op_template("end")
                 for ft in cdlt_end.instructions:
                     codelet_strings += ft.emit(output_type)
+        return codelet_strings
+    def emit_codelets(self, output_type):
+        codelet_strings = []
+        for c in self.codelets:
+            instr = self.codelet_instructions[c.cdlt_uid]
+            if len(instr) == 0:
+                continue
+            # Change the output type for "emit" to output_type once finalized
+            instr_str = [i.emit(output_type) for i in instr]
+            codelet_strings.append(f"\n".join(instr_str) + "\n")
+
         return codelet_strings
 
     def emit(self, output_type: str):
@@ -702,10 +717,7 @@ class CodeletProgram(object):
         for level, fns in self.compilation_pipeline.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
-
                 for fn in fns:
-
-
                     if cdlt.is_noop() and fn.skip_noops:
                         if verbose:
                             print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
@@ -779,6 +791,23 @@ class CodeletProgram(object):
     def run_instruction_stages(self, codelets, verbose=False):
         if verbose and len(self.instruction_stages.keys()) > 0:
             print(f"Running instruction stages")
+
+        for name, cdlt in codelets.items():
+            instr = []
+            if self.hag.has_op_template("codelet", "start"):
+                cdlt_start = self.hag.get_cdlt_op_template("start")
+                for ft in cdlt_start.instructions:
+                    instr += ft.instructions
+
+            for o in cdlt.ops:
+                for ft in o.instructions:
+                    instr += ft.instructions
+
+            if self.hag.has_op_template("codelet", "end"):
+                cdlt_end = self.hag.get_cdlt_op_template("end")
+                for ft in cdlt_end.instructions:
+                    instr += ft.instructions
+            self.codelet_instructions[cdlt.cdlt_uid] = instr
         finalized_codelets = {}
 
         stage_start = time()
@@ -791,7 +820,8 @@ class CodeletProgram(object):
                         continue
                     if verbose:
                         print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
-                    cdlt = fn.run(self, cdlt)
+                    assert cdlt.cdlt_uid in self.codelet_instructions
+                    cdlt = fn.run(self, self.codelet_instructions[cdlt.cdlt_uid])
 
                 finalized_codelets[name] = cdlt
 
@@ -826,8 +856,7 @@ class CodeletProgram(object):
             self.finalize_instructions(node_sequence, codelets, verbose=verbose)
             self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
             self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
-
-        self.run_instruction_stages(codelets, verbose=verbose)
+            self.run_instruction_stages(codelets, verbose=verbose)
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")

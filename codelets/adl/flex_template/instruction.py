@@ -51,7 +51,7 @@ class Instruction(object):
         self._opname = opname
         self._opcode = opcode
         self._opcode_width = opcode_width
-        self._extra_params = kwargs
+        self._attributes = kwargs
         self._latency = latency
         self._target = target
         self._fields = fields
@@ -86,8 +86,8 @@ class Instruction(object):
         return self._opcode_width
 
     @property
-    def extra_params(self) -> Dict:
-        return self._extra_params
+    def attributes(self) -> Dict:
+        return self._attributes
 
     @property
     def instr_length(self):
@@ -139,8 +139,9 @@ class Instruction(object):
                             target=self.target,
                             field_values=self.field_values,
                             latency=self.latency,
-                            format_str_fn=self.format_str_fn
+                            format_str_fn=self.format_str_fn,
                             )
+        instr._attributes = self.attributes.copy()
         return instr
 
     def __str__(self):

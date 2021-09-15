@@ -28,6 +28,7 @@ class Field:
     param_fn_type: str = field(default="int")
     lazy_eval: bool = field(default=False)
     required: bool = field(default=False)
+    attributes: Dict[str, Union[str,int]] = field(default_factory=dict)
 
 
     @property
@@ -44,6 +45,10 @@ class Field:
         assert eval_type in ['string', 'int']
         self.param_fn_type = eval_type
 
+    def add_attribute(self, attr_name: str, attr_value: Union[str, int]):
+        assert attr_name not in self.attributes
+        self.attributes[attr_name] = attr_value
+
     def set_value(self, value):
         if self.value is not None:
             raise ValueError(f"{self.field_name} has already been set to {self.value}")
@@ -58,6 +63,14 @@ class Field:
         else:
             self.value_str = value_name
             self.value = self.value_names[value_name]
+
+    def update_value(self, value: Union[str,int]):
+        self.value = None
+        self.value_str = None
+        if isinstance(value, str):
+            self.set_value_by_string(value)
+        else:
+            self.set_value(value)
 
     def get_string_value(self) -> Union[str]:
         if self.value_str is not None:
@@ -112,4 +125,5 @@ class Field:
         field.param_fn = flex_param
         field.param_fn_type = self.param_fn_type
         field.lazy_eval = self.lazy_eval
+        field.attributes = self.attributes.copy()
         return field
