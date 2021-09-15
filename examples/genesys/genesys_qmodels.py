@@ -79,9 +79,9 @@ def shuffle_weights(w_orig, layer_type="conv"):
     result = np.zeros(w_dim, dtype=weights.dtype)
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
+    coord_map = {}
 
     if layer_type == "conv":
-        coord_map = {}
         ic_coords = []
         oc_coords = []
         all_ics = []
@@ -96,8 +96,7 @@ def shuffle_weights(w_orig, layer_type="conv"):
                                 src_coord = kh, kw, ic + n, oc + m
                                 dst_coord = kh, kw, ic + n, oc + tile_m - m - 1
                                 # dst_coord = kh, kw, ic + tile_n - n - 1, oc + tile_m - m - 1
-                                ic_coords.append((dst_coord[-2], src_coord[-2]))
-                                oc_coords.append((dst_coord[-1], src_coord[-1]))
+
                                 assert src_coord not in coord_map
                                 coord_map[src_coord] = dst_coord
                                 assert src_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {src_coord[-1]}\n" \
@@ -118,14 +117,25 @@ def shuffle_weights(w_orig, layer_type="conv"):
                         # Adjacent values in memory are filled in systolic array column.
                         # So, if systolic array size is 32x32, weight at (0, 0) should be in (31,0) in memory
                         # weight at (1, 0) should be in (31,1) in memory and so on.
+                        dst_coord = (nn + n, mm + tile_m - m - 1)
+                        src_coord = (nn+n, mm+m)
+                        coord_map[src_coord] = dst_coord
+
                         result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
                         # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
-    return result
+    return result, coord_map
 
 # Sequentially write out tiles of weights which will be written in DRAM
 # A tile is written out in column-major order.
 # Column major order to enable a tile-size sequential read from DRAM to go to column of systolic array
 def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
+
+    if isinstance(weights, tuple):
+        weights, coord_map = weights
+        rev_coords = {v: k for k,v in coord_map.items()}
+    else:
+        rev_coords = {}
+    final_coords = {}
     result = list()
     tile_m = GENESYS_CFG['ARRAY_M']
     tile_n = GENESYS_CFG['ARRAY_N']
@@ -142,32 +152,46 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
         assert layer_type == 'conv'
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
-        for kh in range(w_dim[0]):
-            for kw in range(w_dim[1]):
-                for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
-                    for big_tile_oc in range(0, w_dim[3], big_tile_size_oc): # Tile over OC
-                        # for ic in range(0, w_dim[2], tile_m):  # IC
-                        for ic in range(0, big_tile_size_ic, tile_m):  # IC
-                            for oc in range(0, big_tile_size_oc, tile_n):  # OC
+
+        for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
+
+            for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
+                # for ic in range(0, w_dim[2], tile_m):  # IC
+                for kh in range(w_dim[0]):
+                    for kw in range(w_dim[1]):
+                        for oc in range(0, big_tile_size_oc, tile_n):  # OC
+                            for ic in range(0, big_tile_size_ic, tile_m):  # IC
                                 for n in range(tile_n):  # Rows
                                     for m in range(tile_m):  # Columns
+                                        src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n)
+                                        dst_coord = np.unravel_index([len(result)], weights.shape)
+                                        final_coords[rev_coords[src_coord]] = dst_coord
                                         result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n])
+    absolute_coords = {np.ravel_multi_index(k, weights.shape): np.ravel_multi_index(v, weights.shape) for k,v in final_coords.items()}
+    # tsize = 64*64*3*3
+    # for i in range(9):
+    #     print(f"{i*8192 + tsize} --> {absolute_coords[i*8192+ tsize]}")
+    #     print(f"{np.unravel_index(i*8192+ tsize, weights.shape)} --> {np.unravel_index(absolute_coords[i*8192+ tsize][0], weights.shape)}\n")
 
+
+
+    # print()
     # Interleave weights to maximize bandwidth use depending on array size and bandwidth
-    bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
-    systolic_array_row_size = weights.dtype.itemsize * tile_m
-    systolic_array_column_size = weights.dtype.itemsize * tile_n
-    interleave_factor = bw // systolic_array_column_size
-    assert interleave_factor >= 1
-    assert tile_n == tile_m
-    # Set of tile_n size elements to interleave
-    window = tile_n * interleave_factor
-    for i in range(0, len(result), window):
-        interleaved_values = []
-        for j in range(tile_n):
-            for k in range(interleave_factor):
-                interleaved_values.append(result[i + j + (k*tile_n)])
-        result[i:i + window] = interleaved_values
+    # bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    # systolic_array_row_size = weights.dtype.itemsize * tile_m
+    # systolic_array_column_size = weights.dtype.itemsize * tile_n
+    # interleave_factor = bw // systolic_array_column_size
+    # assert interleave_factor >= 1
+    # assert tile_n == tile_m
+    # # Set of tile_n size elements to interleave
+    # window = tile_n * interleave_factor
+    # for i in range(0, len(result), window):
+    #     print(i)
+    #     interleaved_values = []
+    #     for j in range(tile_n):
+    #         for k in range(interleave_factor):
+    #             interleaved_values.append(result[i + j + (k*tile_n)])
+    #     result[i:i + window] = interleaved_values
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
@@ -612,7 +636,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
                                 use_random=True,
                                 fixed_values=None,
                                 actual_data=False,
-                                generate_partial_values=True):
+                                generate_partial_values=False):
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
@@ -664,7 +688,6 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         for j in range(np.prod(weight_dims)):
             weights[j] = j % 128
         weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
-
 
     with open(f'{base_path}/input_shuffled.txt', 'w') as f:
         f.write('\n'.join(dram_layout(input)))

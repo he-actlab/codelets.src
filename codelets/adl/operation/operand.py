@@ -414,10 +414,10 @@ class Operand:
         else:
             width = 1
 
-        if outer_loop:
-            stride_val = np.prod(other_sizes)*(offset_val.stride)
-        else:
-            stride_val = (offset_val.stride)
+        # if outer_loop:
+        #     stride_val = np.prod(other_sizes)*(offset_val.stride)
+        # else:
+        stride_val = (offset_val.stride)
 
         return np.ceil(stride_val/width).astype(np.int64)
 

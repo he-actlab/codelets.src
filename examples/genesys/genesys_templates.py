@@ -4,8 +4,8 @@ from . import ASIC_CONFIG
 from .genesys_instructions import DTYPE_CFG_NAMES, LOOP_OP_NAMES, ITER_CFG_NAMES, DTYPE_CAST_NAMES, \
     CMP_OP_NAMES, CALC_OP_NAMES, ALU_OP_NAMES, PLACEHOLDER_OP_NAMES
 
-BENCH_BASE_ADDR = {"INSTR":0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840, "OBUF": 0}
-GENERATING_BENCH = False
+BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
+GENERATING_BENCH = True
 from functools import partial
 BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
                  'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7},
@@ -647,6 +647,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     else:
         # Product of iteration of inner loops * stride * operand.dtype_size / 8
         stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//8) "
+        # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)"
     # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
 
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
@@ -688,6 +689,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instr.set_field_flex_param("STRIDE", "program.extract_bits("
                                          f"{out_stride_str},"
                                          "16, 0)")
+
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")

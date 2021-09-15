@@ -306,6 +306,9 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
                                                   f"{obuf_index_size} <= {obuf_elements} and "
                                                   f"sizes['IC']*{OP_DTYPES[0].bits()} == {bandwidth}")
+        # cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
+        #                                           f"{obuf_index_size} <= {obuf_elements} and "
+        #                                           f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
 
     # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
     # cdlt.add_compilation_param("N_hint2", f"size == 1")

@@ -3,7 +3,7 @@ from onnx import ModelProto, GraphProto
 import onnx
 from pathlib import Path
 import polymath as pm
-
+import numpy as np
 
 MODEL_DIR = Path(f"{Path(__file__).parent}/models")
 LAYER_DIR = Path(f"{Path(__file__).parent}/layers")
@@ -84,26 +84,53 @@ def print_unique_model_layers(model_name, store_as_polymath=False):
             layers[n.op_type] += 1
     print(list(layers.keys()))
 
-def store_target_model_layer(model_name, layer_name, store_name=None, store_as_polymath=False):
+def get_onnx_shape(tensor_dict, val_name):
+    assert val_name in tensor_dict
+    value = tensor_dict[val_name]
+    shape = [d.dim_value for d in value.type.tensor_type.shape.dim]
+    return tuple(shape)
+
+def store_target_model_layer(model_name, layer_name, store_name=None, store_as_polymath=False,
+                             store_min=False):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
     found = False
-
+    layers = []
+    op_name = layer_name.lower() if store_name is None else store_name
+    layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
     for n in model.graph.node:
         if n.op_type == layer_name:
-            inputs = n.input
+            outputs = n.output
             if n.op_type == 'BatchNormalization':
                 outputs = [n.output[0]]
-            op_name = n.op_type.lower() if store_name is None else store_name
-            layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
-            onnx.utils.extract_model(model_path, layer_path, inputs, outputs)
-            if store_as_polymath:
-                convert_model_to_polymath(layer_path)
-            found = True
-            break
+            layers.append({'inputs': n.input, 'outputs': outputs})
 
+            found = True
+            if not store_min:
+                break
     if not found:
         raise RuntimeError(f"Unable to find layer {layer_name} in model")
+
+    if not store_min:
+        layer = layers[0]
+    else:
+        tensor_dict = {i.name: i for i in model.graph.input}
+        tensor_dict.update({o.name: o for o in model.graph.output})
+        tensor_dict.update({v.name: v for v in model.graph.value_info})
+        min_size = float('inf')
+        min_layer = None
+        for l in layers:
+            lsize = np.sum([np.prod(get_onnx_shape(tensor_dict, i)) for i in l['inputs']])
+            lsize += np.sum([np.prod(get_onnx_shape(tensor_dict, i)) for i in l['outputs']])
+            if lsize < min_size:
+                min_size = lsize
+                min_layer = l
+        assert min_layer is not None
+        layer = min_layer
+    onnx.utils.extract_model(model_path, layer_path, layer['inputs'], layer['outputs'])
+    if store_as_polymath:
+        convert_model_to_polymath(layer_path)
+
 
 
 if __name__ == "__main__":
@@ -120,13 +147,13 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'cc1'
+    model_name = 'resnet50'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     #
     # convert_model_to_polymath(model_path)
-    store_unique_model_layers(model_name, store_as_polymath=True)
+    # store_unique_model_layers(model_name, store_as_polymath=True)
     # print_unique_model_layers(model_name, store_as_polymath=True)
-    # store_target_model_layer(model_name, "BatchNormalization", store_name="batchnormalization", store_as_polymath=True)
+    store_target_model_layer(model_name, "Conv", store_name="conv_small", store_as_polymath=True, store_min=True)
     # model_names = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
     #                'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
     #                'mobilenet_v3_large_c2', 'googlenet_fc1', 'bert_large_ffn_fc1', 'bert_large_ffn_fc2',

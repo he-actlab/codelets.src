@@ -6,6 +6,7 @@ from codelets.compiler.program import CodeletProgram
 from examples.genesys.genesys_qmodels import generate_random_values
 from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
+BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
 BENCHMARKS = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
                   'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
@@ -15,11 +16,11 @@ BENCHMARKS = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50
 BENCHMARK_GEMM = [f"{b}_gemm" for b in BENCHMARKS]
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv",
-                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm", "cc1_conv"] + BENCHMARK_GEMM
+                   "lenet_gemm", "lenet_bn_conv", "custom_conv_conv", "custom_gemm_gemm", "cc1_conv", "resnet50_conv_small"] + BENCHMARK_GEMM
 ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "custom_gemm", "cc1"]
 
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
-
+import numpy as np
 
 CWD = Path(f"{__file__}").parent
 BENCH_DIR = f"{CWD}/input_files"
@@ -49,7 +50,8 @@ def create_dirs(fpath, dir_ext):
         print(f"Directory {base_path} already exists.")
     return base_path
 
-def store_values(program, model_name, base_path, load_path=None, use_random=True, actual_data=False):
+def store_values(program, model_name, base_path, load_path=None, use_random=True, actual_data=False,
+                 store_partials=False):
 
     cdlt = program.codelets[0]
     if load_path:
@@ -60,7 +62,8 @@ def store_values(program, model_name, base_path, load_path=None, use_random=True
                            base_path=base_path,
                            use_random=use_random,
                            fixed_values=fixed_values,
-                           actual_data=actual_data)
+                           actual_data=actual_data,
+                           generate_partial_values=store_partials)
 
 
 def store_outputs(model_name,
@@ -72,7 +75,8 @@ def store_outputs(model_name,
                   load_path=None,
                   dir_ext=None,
                   actual_data=False,
-                  use_random=False):
+                  use_random=False,
+                  store_partials=False):
     name = model_name
     tile_method = "min_tiles"
     # tile_method = "valid_split"
@@ -155,7 +159,9 @@ def store_outputs(model_name,
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_values(program, model_name, base_path, use_random=use_random, load_path=load_path, actual_data=actual_data)
+    store_values(program, model_name, base_path, use_random=use_random, load_path=load_path,
+                 actual_data=actual_data,
+                 store_partials=store_partials)
 
 def store_compilation_output(program: CodeletProgram, output_type, extension="txt", dir_ext=None, arch_cfg=None):
     if dir_ext:
@@ -165,6 +171,7 @@ def store_compilation_output(program: CodeletProgram, output_type, extension="tx
     out_path = create_dirs(program.name, dir_ext)
     if output_type == "arch_cfg":
         result = arch_cfg
+        result['IBUF_END'] = int(BENCH_BASE_ADDR['IBUF'] + np.prod(program.codelets[0].inputs[0].shape))
     else:
         result = program.emit(output_type)
     if not isinstance(result, str):
@@ -198,6 +205,8 @@ if __name__ == "__main__":
                            help='Type fo output format')
     argparser.add_argument('-t', '--training_mode', type=str2bool, nargs='?', default=False,
                            const=True, help='Whether or not the model is in training mode')
+    argparser.add_argument('-p', '--partial_values', type=str2bool, nargs='?', default=False,
+                           const=True, help='Whether or not store partial values for debugging purposes')
     argparser.add_argument('-e', '--emit_to_stdout', required=False, default=None,
                            help='If unset, does not emit the compiled program.'
                                 'Otherwise, emits using the specified output type.')
@@ -216,4 +225,5 @@ if __name__ == "__main__":
                   args.emit_to_stdout,
                   use_random=args.use_random,
                   dir_ext=args.dir_ext,
-                  actual_data=args.actual_data)
+                  actual_data=args.actual_data,
+                  store_partials=args.partial_values)
