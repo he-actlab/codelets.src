@@ -112,7 +112,8 @@ def test_genesys_layers(layer_name):
 
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_gemm",
-    "cc1_conv",
+    # "resnet50_conv_small",
+    # "cc1_conv",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
@@ -121,7 +122,7 @@ def test_genesys_layers(layer_name):
     # "lenet_averagepool",
     # "lenet_gemm",
     # "lenet_bn_conv",
-    # "custom_conv_conv",
+    "custom_conv_conv",
     # "custom_gemm_gemm",
 ])
 def test_genesys_layers_min_tiles_search(layer_name):
@@ -148,10 +149,9 @@ def test_genesys_layers_min_tiles_search(layer_name):
                             print_config=False,
                             tiling_search_algorithm='min_tiles'
                               )
-    pprint.pprint(program.emit("json_no_ops"))
-    # print(program.emit("operations_idx"))
-    print(program.emit("string_final"))
-
+    # pprint.pprint(program.emit("json_no_ops"))
+    normal = program.emit("operations")
+    print(normal)
 
 
 

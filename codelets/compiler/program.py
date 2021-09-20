@@ -440,15 +440,19 @@ class CodeletProgram(object):
                 for ft in cdlt_end.instructions:
                     codelet_strings += ft.emit(output_type)
         return codelet_strings
+
     def emit_codelets(self, output_type):
         codelet_strings = []
         for c in self.codelets:
-            instr = self.codelet_instructions[c.cdlt_uid]
-            if len(instr) == 0:
-                continue
-            # Change the output type for "emit" to output_type once finalized
-            instr_str = [i.emit(output_type) for i in instr]
-            codelet_strings.append(f"\n".join(instr_str) + "\n")
+            if output_type in ["string_final", "decimal", "binary"]:
+                instr = self.codelet_instructions[c.cdlt_uid]
+                if len(instr) == 0:
+                    continue
+                # Change the output type for "emit" to output_type once finalized
+                instr_str = [i.emit(output_type) for i in instr]
+                codelet_strings.append(f"\n".join(instr_str) + "\n")
+            else:
+                codelet_strings.append(self.emit_single_codelet(c, output_type))
 
         return codelet_strings
 
