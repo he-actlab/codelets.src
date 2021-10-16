@@ -217,7 +217,8 @@ def create_lenet(optimize_model, training_mode, convert_data_format, to_polymath
     convert_torch_model(input_var, model, "lenet", optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
 
 
-def create_custom_conv(optimize_model, training_mode, convert_data_format, to_polymath, input_shape, oc, ksize, stride, pad):
+def create_custom_conv(optimize_model, training_mode, convert_data_format, to_polymath, input_shape, oc, ksize, stride, pad,
+                       name=None):
     n, ic, h, w = input_shape
     class CustomConv(nn.Module):
         def __init__(self):
@@ -233,7 +234,10 @@ def create_custom_conv(optimize_model, training_mode, convert_data_format, to_po
     input_var = torch.randn(n, ic, h, w)
     output = model(input_var)
     model.eval()
-    convert_torch_model(input_var, model, "custom_conv", optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
+    if name is None:
+        name = "custom_conv"
+    convert_torch_model(input_var, model, name, optimize_model, training_mode, to_polymath,
+                        convert_data_format=convert_data_format)
 
 
 def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, include_bias=False):
@@ -443,6 +447,28 @@ def create_resnet50(optimize_model, training_mode, convert_data_format, to_polym
         out = model(input_var)
     convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
 
+def create_resnet101(optimize_model, training_mode, convert_data_format, to_polymath, batch_size=1):
+    model = models.resnet101(pretrained=not training_mode)
+    input_var = torch.randn(batch_size, 3, 224, 224)
+    model_name = "resnet101"
+
+    if batch_size != 1:
+        model_name = f"{model_name}_batch{batch_size}"
+
+    if not training_mode:
+        output = model(input_var)
+        model.eval()
+    else:
+        model_name = f"{model_name}_train"
+
+
+
+    if convert_data_format:
+        input_var = input_var.contiguous(memory_format=torch.channels_last)
+        model = model.to(memory_format=torch.channels_last)
+        out = model(input_var)
+    convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
+
 def _make_empty_samples(N, C, H, W, training=False):
 
     img, other = get_test_images()
@@ -599,7 +625,7 @@ def print_nodes(model_proto):
           f"Total Operations: {num_nodes_total}")
 
 def convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath,
-                        convert_data_format=False):
+                        convert_data_format=False, out_dir=None, verbose=False):
     f = io.BytesIO()
     mode = torch.onnx.TrainingMode.TRAINING if training_mode else torch.onnx.TrainingMode.EVAL
     if 'mask_rcnn' not in model_name:
@@ -637,13 +663,14 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           # keep_initializers_as_inputs=True,
                           # operator_export_type=torch.onnx.OperatorExportTypes.ONNX_ATEN,
                           )
-        print(type(f.getvalue()))
     model_proto = onnx.ModelProto.FromString(f.getvalue())
-    print_nodes(model_proto)
+    if verbose:
+        print_nodes(model_proto)
     onnx.checker.check_model(model_proto)
     add_value_info_for_constants(model_proto)
     model_proto = onnx.shape_inference.infer_shapes(model_proto)
-    filepath = f"{CWD}/{model_name}.onnx"
+
+    filepath = f"{CWD}/models/{model_name}.onnx"
     if optimize_model:
         model_proto, check = simplify(model_proto)
         assert check
@@ -906,15 +933,15 @@ def main():
     # run_covenant_benchmarks()
     n = 1
     ic = 128
-    oc = 64
-    h = 33
-    w = 33
+    oc = 128
+    h = 30
+    w = 30
     ksize = 3
-    stride = 2
+    stride = 3
     pad = 0
     # assert (w + 2 * pad - ksize) % stride == 0, 'width does not work'
     input_shape = (n, ic, h, w)
-    create_custom_conv(True, True, False, False, input_shape, oc, ksize, stride, pad)
+    create_custom_conv(True, True, False, False, input_shape, oc, ksize, stride, pad, "cc_layer2")
 
     # # input_var = torch.randn(*input_shape)
     # # l = torch.nn.Conv2d(ic, oc, ksize, stride=stride, padding=pad)
@@ -944,7 +971,9 @@ def main():
     # create_maskrcnn_part(split_part, optimize_model, training_mode, data_format_convert, to_polymath)
 
 if __name__ == "__main__":
-    main()
+    # main()
+    create_resnet50(True, False, False, False,
+                    batch_size=1)
     # argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
     # argparser.add_argument('-b', '--benchmark', required=True,
     #                        help='Name of the benchmark to create. One of "resnet18", "lenet')

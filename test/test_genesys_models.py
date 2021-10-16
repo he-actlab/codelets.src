@@ -50,7 +50,8 @@ def test_srdfg_creation():
     # "lenetbn",
     # "lenetbn_train",
     # "resnet50_train",
-    "resnet18",
+    # "resnet18",
+    "resnet50",
     # "resnet18_train",
     # "lenet",
     # "lenet_train"

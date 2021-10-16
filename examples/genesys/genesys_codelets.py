@@ -51,17 +51,16 @@ def gemm(hag: ArchitectureNode):
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['N']*sizes['P']"
     obuf_index_size = f"sizes['M']*sizes['P']"
+    constraint = f"np.prod(list(splits.values())) > 1"
+
     if not ASIC_CONFIG:
         sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
         bandwidth = sg_edge.bandwidth
-        cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
-                                                  f"{obuf_index_size} <= {obuf_elements} and "
-                                                  f"sizes['N']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
-
-    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
-    # cdlt.add_compilation_param("N_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
+        fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
+                      f"{obuf_index_size} <= {obuf_elements} and " \
+                      f"sizes['N']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
+        constraint = f"{constraint} and {fpga_constr}"
+    cdlt.add_compilation_param("LEVEL1_hint", constraint)
 
     ## DRAM to buffers
     cdlt.add_compilation_param("N_hint1", f"size % {sys_array_dims[0]} == 0")
@@ -200,8 +199,6 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["OC", "IC", "KH", "KW", "N", "OH", "OW"])
-    # cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
@@ -209,21 +206,23 @@ def conv2d(hag: ArchitectureNode):
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
+
+    gt_one_tiles = f"np.prod(list(splits.values())) > 1"
+    # ic_tiling = f"((splits['IC'] == 1 and splits['KH'] == 1 and splits['KW'] == 1 and splits['OH'] == 1 and splits['OW'] == 1) " \
+    #             f"or (splits['KH'] > 1 or splits['KW'] > 1 or splits['OH'] > 1 or splits['OW'] > 1))"
+    ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
+    constraint = f"{gt_one_tiles} and {ic_tiling}"
     if not ASIC_CONFIG:
         sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
         bandwidth = sg_edge.bandwidth
-        cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
-                                                  f"{obuf_index_size} <= {obuf_elements} and "
-                                                  f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
+        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
+        constraint = f"{constraint} and {ic_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
 
-    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
-    # cdlt.add_compilation_param("N_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OH_hint2", f"size == 1")
-    # cdlt.add_compilation_param("OW_hint2", f"size == 1")
+    cdlt.add_compilation_param("LEVEL1_hint", constraint)
+
 
     ## DRAM to buffers
     cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-    # cdlt.add_compilation_param("IC_hint1", f"size == {sys_array_dims[0]}")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint1", f"split == 1")
     cdlt.add_compilation_param("KW_hint1", f"split == 1")
@@ -300,24 +299,26 @@ def conv2d_bias(hag: ArchitectureNode):
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
+    gt_one_tiles = f"np.prod(list(splits.values())) > 1"
+
+    ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
+    t = f""
+    # t = f" and splits['OC'] == 1 and splits['IC'] > 1"
+    # t = f" and splits['OC'] > 1 and splits['IC'] == 1"
+    # t = f" and splits['OC'] > 1 and splits['IC'] > 1"
+    constraint = f"{gt_one_tiles} and {ic_tiling}{t}"
     if not ASIC_CONFIG:
         sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
         bandwidth = sg_edge.bandwidth
-        cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
-                                                  f"{obuf_index_size} <= {obuf_elements} and "
-                                                  f"sizes['IC']*{OP_DTYPES[0].bits()} == {bandwidth}")
-        # cdlt.add_compilation_param("LEVEL1_hint", f"{wbuf_index_size} <= {wbuf_elements} and "
-        #                                           f"{obuf_index_size} <= {obuf_elements} and "
-        #                                           f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0")
+        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
 
-    # cdlt.add_compilation_param("N_hint1", f"((size & (size - 1)) == 0)")
-    # cdlt.add_compilation_param("N_hint2", f"size == 1")
+        constraint = f"{constraint} and {ic_hint} and {wbuf_index_size} <= {wbuf_elements} and " \
+                     f"{obuf_index_size} <= {obuf_elements}"
+    cdlt.add_compilation_param("LEVEL1_hint", constraint)
     # bw/sys array width*bits
 
     ## DRAM to buffers
-    # cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("IC_hint1", f"size == {sys_array_dims[0]}")
-
+    cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
     cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint1", f"split == 1")
     cdlt.add_compilation_param("KW_hint1", f"split == 1")
@@ -327,8 +328,6 @@ def conv2d_bias(hag: ArchitectureNode):
     cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
     cdlt.add_compilation_param("KH_hint0", f"size == 1")
     cdlt.add_compilation_param("KW_hint0", f"size == 1")
-
-
 
 
     return cdlt
@@ -606,7 +605,7 @@ def mean_var(hag: ArchitectureNode):
             cdlt.compute("INV_SQRT", [istd], [istd], target="SIMD")
             cdlt.compute("DIV", [mean, denom_op], [mean], target="SIMD")
             cdlt.transfer(mean[c], ["VMEM1", "DRAM"])
-            cdlt.transfer(istd[c], ["VMEM1", "DRAM"])
+            cdlt.transfer(istd[c], ["VMEM2", "DRAM"])
 
     return cdlt
 
@@ -1086,6 +1085,7 @@ def maxpool2d(hag: ArchitectureNode):
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad[0])
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         with cdlt.loop(N) as n:

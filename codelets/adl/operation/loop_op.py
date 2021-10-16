@@ -304,15 +304,17 @@ class Loop(Operation):
     def emit(self, output_type):
         # TODO: Add template
         if output_type == "operations":
+            cdlt = Operation.current_codelet
             op_str = f"{self.op_str}[{self.loop_level}]: START={self.start}; STOP={self.end}; STRIDE={self.stride}; OFFSET:{self.offset}"
+            if cdlt is not None and self.op_str in cdlt.loop_param_map:
+                op_str = f"({cdlt.loop_param_map[self.op_str]}){op_str}"
         elif output_type == "json":
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,
                       "start": self.start,
                       "end": self.end,
                       "offset": self.offset,
-                      "stride": self.stride
-                      }
+                      "stride": self.stride}
         else:
             op_str = []
             for ft in self.instructions:

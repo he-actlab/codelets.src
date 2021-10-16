@@ -8,6 +8,7 @@ from pytools import memoize_method
 from collections import defaultdict
 from copy import deepcopy
 from contextlib import contextmanager
+import numpy as np
 import polymath as pm
 
 USE_LOOP_END = Loop.USE_LOOP_END
@@ -230,6 +231,15 @@ class Codelet(object):
                 ptiling[l][self.loop_param_map[loopname]] = tile_size
         return ptiling
 
+    @property
+    def param_splits(self):
+        ptiling = {}
+        for l, tiling in self.domain_tiling.items():
+            ptiling[l] = {}
+            for loopname, tile_size in tiling.items():
+                ptiling[l][self.loop_param_map[loopname]] = tile_size
+        return ptiling
+
     def is_tiling_set(self, level: int):
         return level in self.domain_tiling
 
@@ -279,6 +289,9 @@ class Codelet(object):
             if l.loop_level > max_level:
                 max_level = l.loop_level
         return max_level
+
+    def get_tile_count(self):
+        return np.prod(list(self.domain_tiling[1].values()))
 
 
     def execute(self, program, operand_mappings):
@@ -417,6 +430,7 @@ class Codelet(object):
             op_str['inputs'] = [i.emit(output_type) for i in self.inputs]
             op_str['outputs'] = [o.emit(output_type) for o in self.outputs]
             op_str['operation_sequence'] = [op.emit(output_type) for op in self.ops]
+            op_str['instr_len'] = self.num_instr
         elif output_type == "json_no_ops":
             op_params = {}
             operand_dim_map = self.operand_dim_mapping()

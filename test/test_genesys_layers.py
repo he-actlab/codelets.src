@@ -2,6 +2,7 @@ from codelets.compiler.relocation_table import RelocationTable
 from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
     compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
+from tools.compile_layer import store_outputs
 from .util import create_reference_outputs, validate_program
 from pathlib import Path
 import pytest
@@ -56,7 +57,7 @@ def test_extracted_layer(source_model, layer_name):
     # print(program.emit("operations_idx"))
 
 @pytest.mark.parametrize('layer_name',[
-    "resnet18_gemm",
+    # "resnet18_gemm",
     # "custom_matmul_matmul",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
@@ -66,13 +67,13 @@ def test_extracted_layer(source_model, layer_name):
     # "lenet_averagepool",
     # "lenet_gemm",
     # "lenet_bn_conv",
-    # "custom_conv_conv",
+    "custom_conv_conv",
     # "custom_gemm_gemm",
 ])
 def test_genesys_layers(layer_name):
     batch_size = 1
-    tile_method = "min_tiles"
-    # tile_method = "valid_split"
+    # tile_method = "min_tiles"
+    tile_method = "valid_split"
 
     update_cfg_dtypes = False
     tiling_path = None
@@ -80,8 +81,6 @@ def test_genesys_layers(layer_name):
     store_json_output = False
     json_output_filename = None
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
-    # offsets = [0, 2048, 4096]
-    # reloc_offsets = {ns: offsets[i] for i, ns in enumerate(RelocationTable.MEM_LAYOUT)}
 
     # This function returns
     program = compile_genesys_layer(layer_name,
@@ -101,25 +100,28 @@ def test_genesys_layers(layer_name):
                             tiling_search_algorithm=tile_method
                                     # relocation_offsets=reloc_offsets
                               )
-    # print(program.codelets[0].loop_param_map)
-    # print(program.codelets[0].param_tiling)
-    # print(program.emit("operations_idx"))
-    wbuf = program.hag.get_subgraph_node("WBUF")
-    print(wbuf.capacity)
-    # print(program.emit("string_final"))
-    # print(program.emit("string_final"))
+
+    print(program.emit("operations_idx"))
+    print(program.codelets[0].get_tile_count())
+
 
 
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_gemm",
-    "cc1_conv",
+    "resnet18_maxpool",
+    # "cc1_conv",
+    # "cc2_conv",
+    # "cc3_conv",
+    # "cc_layer2_conv",
     # "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
     #  "resnet18_conv",
+     # "resnet50_conv_large",
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
+    # "lenet_bn_batchnormalization",
     # "lenet_bn_conv",
     # "custom_conv_conv",
     # "custom_gemm_gemm",
@@ -148,11 +150,6 @@ def test_genesys_layers_min_tiles_search(layer_name):
                             print_config=False,
                             tiling_search_algorithm='min_tiles'
                               )
-    pprint.pprint(program.emit("json_no_ops"))
-    # print(program.emit("operations_idx"))
-    print(program.emit("string_final"))
-
-
 
 
 
@@ -161,8 +158,12 @@ def test_reference_creation():
     update_cfg_dtypes = False
     # names = ["resnet18", "lenet", "lenet_train"]
     # names = []
+
     names = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_gemm", "resnet18_globalaveragepool", "lenet_averagepool", "lenet_conv", "lenet_gemm",
                  "resnet18_train_batchnormalization"]
+
     create_reference_outputs(names, batch_size=batch_size, update_cfg_dtypes=update_cfg_dtypes,
                              verbose=False)
-#
+
+
+

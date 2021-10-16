@@ -390,7 +390,8 @@ def compile_genesys_layer(layer_file,
                           save_genesys_filename=None,
                           load_genesys_filename=None,
                           relocation_offsets=None,
-                          tiling_search_algorithm='valid_split'):
+                          tiling_search_algorithm='valid_split',
+                          do_compile=True):
     LAYER_DIR = f"{benchmark_path}/layers/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
@@ -454,34 +455,35 @@ def compile_genesys_layer(layer_file,
     if relocation_offsets:
         program.set_relocation_ns_offsets(relocation_offsets)
 
-    if tiling_path is not None:
-        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
-                        finalize_instructions=finalize_instructions)
-    else:
-        program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
-
-    if store_tiling:
-        program.store_tiling(f"{TILING_DIR}")
-
-    if store_json_output:
-        out_type = "json" if store_ops else "json_no_ops"
-        res = program.emit(out_type)
-
-        if json_output_filename is not None:
-            with open(json_output_filename, "w") as outfile:
-                json.dump(res, outfile, indent=4)
+    if do_compile:
+        if tiling_path is not None:
+            program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
+                            finalize_instructions=finalize_instructions)
         else:
-            store_dir = f"{OUT_DIR}/{layer_file}_compiled"
-            p = Path(f"{store_dir}.json")
-            if p.exists():
-                count = 0
-                while Path(f"{store_dir}{count}.json").exists():
-                    count += 1
-                with open(f"{store_dir}{count}.json", "w") as outfile:
+            program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
+
+        if store_tiling:
+            program.store_tiling(f"{TILING_DIR}")
+
+        if store_json_output:
+            out_type = "json" if store_ops else "json_no_ops"
+            res = program.emit(out_type)
+
+            if json_output_filename is not None:
+                with open(json_output_filename, "w") as outfile:
                     json.dump(res, outfile, indent=4)
             else:
-                with open(f"{store_dir}.json", "w") as outfile:
-                    json.dump(res, outfile, indent=4)
+                store_dir = f"{OUT_DIR}/{layer_file}_compiled"
+                p = Path(f"{store_dir}.json")
+                if p.exists():
+                    count = 0
+                    while Path(f"{store_dir}{count}.json").exists():
+                        count += 1
+                    with open(f"{store_dir}{count}.json", "w") as outfile:
+                        json.dump(res, outfile, indent=4)
+                else:
+                    with open(f"{store_dir}.json", "w") as outfile:
+                        json.dump(res, outfile, indent=4)
     return program
 
 

@@ -98,16 +98,145 @@ class Transfer(Operation):
         assert node in self.path
         return self.sizes[self.path.index(node)]
 
-    def get_contiguous_strides(self):
+    def get_contiguous_xfer_size(self):
+        if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
+            xfer_sizes = self.sizes[0]
+            ref_sizes = self.sizes[1]
+        else:
+            xfer_sizes = self.sizes[1]
+            ref_sizes = self.sizes[0]
+
+        # rsize = 1
+        # for i in range(len(xfer_sizes)):
+        #     idx = len(xfer_sizes) - i - 1
+        #     rsize *= xfer_sizes[idx]
+        #     if xfer_sizes[idx] != ref_sizes[idx]:
+        #         break
+        rsize = 1
+        for i in range(len(xfer_sizes)):
+            idx = len(xfer_sizes) - i - 1
+            rsize *= xfer_sizes[idx]
+            if xfer_sizes[idx] != ref_sizes[idx]:
+                break
+        return rsize
+
+    def strides_iters(self, divisor = 1, max_bits = 64, contiguous=False):
+        assert len(self.sizes) == 2
+        if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
+            xfer_sizes = self.sizes[0]
+            ref_sizes = self.sizes[1]
+        else:
+            xfer_sizes = self.sizes[1]
+            ref_sizes = self.sizes[0]
+        if contiguous:
+        # TODO: include array size for req size divisibility
+            idx = [0]
+        else:
+            idx = [0] + [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+        strides = []
+        iters = []
+        for p, c in zip(idx, idx[1:]):
+            iters.append(np.prod(xfer_sizes[p:c], dtype=np.int32))
+            strides.append(np.prod(ref_sizes[c:], dtype=np.int32))
+        iters.append(1)
+        strides.append(np.prod(xfer_sizes[idx[-1]:], dtype=np.int32))
+        strides = [self.operand.dtype.bytes()*s for s in strides]
+
+        total_req_size = strides[-1]
+
+        if np.ceil(np.log2(total_req_size)) > max_bits:
+            total_iters = (1+np.ceil(np.ceil(np.log2(total_req_size))/max_bits))
+
+            while total_req_size % total_iters != 0 or total_req_size//total_iters % divisor == 0:
+                total_iters += 1
+            strides[-1] /= total_iters
+            iters[-1] = total_iters
+        strides = [np.int32(s) for s in strides]
+        iters = [np.int32(i) for i in iters]
+        return strides, iters
+
+    def test_contig_strides(self):
         assert len(self.sizes) == 2
         if self.sizes[0] == self.sizes[1]:
-            return [np.prod(self.sizes[0])],[np.prod(self.sizes[0])]
+            return [np.prod(self.sizes[0])], [np.prod(self.sizes[0])]
         elif np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
             ref_sizes = self.sizes[1]
         else:
             xfer_sizes = self.sizes[1]
             ref_sizes = self.sizes[0]
+
+        it1 = [1]
+        st1 = [1]
+        mult = 0
+        for i, s in enumerate(xfer_sizes):
+            if s == ref_sizes[i]:
+                st1[-1] *= s
+                it1[-1] *= s
+                mult += 1
+            else:
+                if mult == 0:
+                    st1[-1] = np.prod(ref_sizes[i:], dtype=np.int)
+                else:
+                    st1[-1] = st1[-1] * np.prod(ref_sizes[i + 1:], dtype=np.int)
+                st1.append(s)
+                it1.append(s)
+                mult = 0
+        # if self.operand.name in ["data", "out"]:
+
+        it2 = [1]
+        st2 = [np.prod(ref_sizes)]
+        for i, s in enumerate(xfer_sizes):
+            if s != ref_sizes[i]:
+                st2.append(np.prod(ref_sizes[i + 1:]))
+                it2.append(s)
+            else:
+                it2[-1] *= s
+                st2[-1] = st2[-1] // ref_sizes[i]
+        if st2[-1] == 1:
+            st2[-1] = xfer_sizes[-1]
+
+        # if self.operand.name == "out":
+        # idx = [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+        idx = [0] + [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+        st3 = []
+        it3 = []
+        prev_idx = 0
+        for p, c in zip(idx, idx[1:]):
+            it3.append(np.prod(xfer_sizes[p:c], dtype=np.int32))
+            st3.append(np.prod(ref_sizes[c:], dtype=np.int32))
+
+        # for i, idx in enumerate(idx):
+        #     it3.insert(0, np.prod(xfer_sizes[prev_idx:idx]))
+        #     st3.insert(0, np.prod(ref_sizes[idx:]))
+        #     prev_idx = idx
+        it3.append(1)
+        st3.append(np.prod(xfer_sizes[idx[-1]:], dtype=np.int32))
+        done_req = False
+        req_size = xfer_sizes[-1]
+
+        print(f'Operand: {self.operand.name}, {self.path}')
+        st4, it4 = self.strides_iters()
+        print(f"Xfer sizes: {xfer_sizes}, Ref sizes: {ref_sizes}, Strides: {st1}, iterations: {it1}\n"
+              f"Xfer sizes: {xfer_sizes}, Ref sizes: {ref_sizes}, Strides: {st2}, iterations: {it2}\n"
+              f"Xfer sizes: {xfer_sizes}, Ref sizes: {ref_sizes}, Strides: {st3}, iterations: {it3}, {self.get_contiguous_xfer_size()}\n"
+              f"Xfer sizes: {xfer_sizes}, Ref sizes: {ref_sizes}, Strides: {st4}, iterations: {it4}\n"
+              f""
+              f"")
+        assert len(st2) == len(it2)
+        return st2, it2
+
+    def get_contiguous_strides(self):
+        assert len(self.sizes) == 2
+        if self.sizes[0] == self.sizes[1]:
+            return [np.prod(self.sizes[0])], [np.prod(self.sizes[0])]
+        elif np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
+            xfer_sizes = self.sizes[0]
+            ref_sizes = self.sizes[1]
+        else:
+            xfer_sizes = self.sizes[1]
+            ref_sizes = self.sizes[0]
+
         iterations = [1]
         strides = [1]
         mult = 0
@@ -118,14 +247,28 @@ class Transfer(Operation):
                 mult += 1
             else:
                 if mult == 0:
-                    strides[-1] = np.prod(ref_sizes[i:],dtype=np.int)
+                    strides[-1] = np.prod(ref_sizes[i:], dtype=np.int)
                 else:
-                    strides[-1] = strides[-1]*np.prod(ref_sizes[i+1:],dtype=np.int)
+                    strides[-1] = strides[-1]*np.prod(ref_sizes[i+1:], dtype=np.int)
                 strides.append(s)
                 iterations.append(s)
                 mult = 0
-        assert len(strides) == len(iterations)
-        return strides,iterations
+        # if self.operand.name in ["data", "out"]:
+
+        it = [1]
+        sss = [np.prod(ref_sizes)]
+        for i, s in enumerate(xfer_sizes):
+            if s != ref_sizes[i]:
+                sss.append(np.prod(ref_sizes[i+1:]))
+                it.append(s)
+            else:
+                it[-1] *= s
+                sss[-1] = sss[-1]//ref_sizes[i]
+        if sss[-1] == 1:
+            sss[-1] = xfer_sizes[-1]
+
+        assert len(sss) == len(iterations)
+        return sss, iterations
 
     def get_src_movement(self, src, dst):
         accesses = self.operand.get_op_accesses(self.op_str)

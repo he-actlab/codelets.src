@@ -144,12 +144,18 @@ class DataMovement:
                 indices = self.get_symbol_atoms(o)
                 others = [i for i in list(o.free_symbols) if i not in indices]
                 max_vals = {}
+                rel_splits = []
                 for idx, i in enumerate(indices):
                     i_as_str = self.get_symbol_str(i)
                     assert cdlt.op_map[i_as_str].end % splits[i_as_str] == 0
+                    rel_splits.append(splits[i_as_str])
+
                     max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
                 max_vals.update({i: cdlt.required_params[self.get_symbol_str(i)].value for i in others})
                 size = self.resolve_offset(o, max_vals) + 1
+
+                if np.prod(rel_splits) == 1 and size < cdlt.get_operand(self.operand_name).shape_symbols[name]:
+                    size = cdlt.get_operand(self.operand_name).shape_symbols[name]
                 # TODO: Add logic here to check for zero values
             else:
                 size = o
@@ -189,7 +195,9 @@ class DataMovement:
         for lev in range(level):
             for key, loop in split_levels[lev+1].items():
                 splits[key] *= loop
+
         self.shape_map = self.get_size_from_splits(cdlt, splits)
+
 
     def set_offset_map(self, cdlt, loop_shapes, dep_map=None):
         dep_map = dep_map or {}
@@ -252,8 +260,10 @@ class DataMovement:
             free_symbs = list(expr.free_symbols)
             f = lambdify(free_symbs, expr, "numpy")
             self.lambdified_expr[expr] = f
+
         args = tuple([values[f] for f in list(expr.free_symbols) if f in values])
         res = f(*args)
+
         if not isinstance(res, (Integer, Integral)):
             raise TypeError(f"Unable to compute domain domain_offsets because offset is not an integer:"
                             f"Offset: {expr}\tType: {type(expr)}")
@@ -339,13 +349,15 @@ class Operand:
         if key not in self.tiling:
             movement = transfer_op.get_src_movement(transfer_op.path[0], transfer_op.path[1])
             self.tiling[transfer_op.path[0]] = movement.shape_map
+
         else:
             # TODO: Check if already set
             pass
 
+
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
-    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=True):
+    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=False):
         if movement_type == 'up':
             prev_level = level - 1
         else:
@@ -366,10 +378,13 @@ class Operand:
         if target_movement is None:
             raise RuntimeError(f"Could not find data movement for level {level} in operand "
                                f"{self.name}")
+
         if cdlt.get_tile_level(target_movement.src_node) > cdlt.get_tile_level(target_movement.dst_node):
             node_key = target_movement.src_node
+            other_key = target_movement.dst_node
         else:
             node_key = target_movement.dst_node
+            other_key = target_movement.src_node
 
         offset_val = None
         other_offsets = []
@@ -414,10 +429,33 @@ class Operand:
         else:
             width = 1
 
-        # if outer_loop:
-        #     stride_val = np.prod(other_sizes)*(offset_val.stride)
-        # else:
-        stride_val = (offset_val.stride)
+        if outer_loop and dst_node.name == "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
+            loop = cdlt.op_map[loop_str]
+            tile_sizes = []
+            num_tiles = []
+            for i, o in enumerate(target_movement.domain_offsets()):
+                tile_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
+                if i in acc_dims and i != offset_val.dim:
+                    num_tiles.append(self.tiling[other_key][self.shape_list[i]]//tile_sizes[i])
+            tile_size = np.prod([1] + tile_sizes)
+            tot_tiles = np.prod([1] + num_tiles)
+            # stride_val = np.prod(other_sizes)*(offset_val.stride)
+            # stride_val = np.prod(other_sizes)
+            # stride_val = np.prod(other_sizes)*(loop.stride)
+            stride_val = tile_size*tot_tiles
+            # print(f"Other sizes: {other_sizes}, Dim: {loop_name}, Stride: {offset_val.stride}/{loop.stride}\n"
+            #       f"Width: {width}, total: {stride_val}, actual total: {offset_val.dim_size}, {offset_val.offset}\n"
+            #       f"Acc dims: {acc_dims}, Total tiles: {tot_tiles}, tile size: {tile_size}\n")
+
+        else:
+            stride_val = offset_val.stride
+
+        if outer_loop and dst_node.name != "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop = cdlt.op_map[loop_str]
+            stride_val *= loop.stride
 
         return np.ceil(stride_val/width).astype(np.int64)
 

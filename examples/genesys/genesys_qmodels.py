@@ -1,9 +1,12 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 import torch.nn.functional as F
 from typing import Union, List
 from . import GENESYS_CFG
+from numpy.lib.stride_tricks import as_strided
+
 from .genesys_model_utils import get_resnet18, get_resnet50
 import numpy as np
 
@@ -152,15 +155,12 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
         assert layer_type == 'conv'
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
-
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
-
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
-                # for ic in range(0, w_dim[2], tile_m):  # IC
                 for kh in range(w_dim[0]):
                     for kw in range(w_dim[1]):
-                        for oc in range(0, big_tile_size_oc, tile_n):  # OC
-                            for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                        for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                            for oc in range(0, big_tile_size_oc, tile_n):  # OC
                                 for n in range(tile_n):  # Rows
                                     for m in range(tile_m):  # Columns
                                         src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n)
@@ -168,6 +168,7 @@ def tiled_flatten(weights, dram_tiling, layer_type = 'gemm'):
                                         final_coords[rev_coords[src_coord]] = dst_coord
                                         result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n])
     absolute_coords = {np.ravel_multi_index(k, weights.shape): np.ravel_multi_index(v, weights.shape) for k,v in final_coords.items()}
+
     # tsize = 64*64*3*3
     # for i in range(9):
     #     print(f"{i*8192 + tsize} --> {absolute_coords[i*8192+ tsize]}")
@@ -291,7 +292,6 @@ def gen_fc_layer_testcase(input_dim, output_dim, big_tile_size=1, bias=False):
     model.weight.data = model.weight.data.float()
     output = model(input_tensor)
     model.eval()
-    print(output)
     output = output.numpy()
     output = output.flatten().tolist()
     output = [str(x) for x in output]
@@ -334,8 +334,8 @@ def gen_fc_layer_testcase_numpy(input_dim, output_dim, big_tile_size=1, bias=Fal
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
     # First figure out what the size of the output should be
     N, C, H, W = x_shape
-    assert (H + 2 * padding - field_height) % stride == 0
-    assert (W + 2 * padding - field_height) % stride == 0
+    # assert (H + 2 * padding - field_height) % stride == 0
+    # assert (W + 2 * padding - field_height) % stride == 0
     out_height = np.int32((H + 2 * padding - field_height) / stride + 1)
     out_width = np.int32((W + 2 * padding - field_width) / stride + 1)
 
@@ -601,11 +601,128 @@ def manual_conv(inputs, weights, cdlt, o_coord, layout="nhwc"):
     return outputs, compilation_info
 
 def generate_random_values(cdlt, model_name, layer_name, **kwargs):
+    print(layer_name)
     if "conv" in layer_name:
         generate_random_values_conv(cdlt, model_name, layer_name, **kwargs)
+    elif "maxpool" in layer_name or "max_pool" in layer_name:
+        generate_random_values_maxpool(cdlt, model_name, layer_name, **kwargs)
     else:
         assert "gemm" in layer_name
         generate_random_values_gemm(cdlt, model_name, layer_name, **kwargs)
+
+def pool2d(x, k, stride, padding=0):
+    x_padded = np.pad(x, ((0, 0), (0, 0), (padding, padding), (padding, padding)), mode='constant')
+    N, C, H, W = x_padded.shape
+
+    pool_height, pool_width = k, k
+
+    # assert (H - pool_height) % stride == 0, 'Invalid height'
+    # assert (W - pool_width) % stride == 0, 'Invalid width'
+
+    out_height = (H - pool_height) // stride + 1
+    out_width = (W - pool_width) // stride + 1
+
+    x_split = x_padded.reshape(N * C, 1, H, W)
+    x_cols = im2col_indices(x_split, pool_height, pool_width, padding=0, stride=stride)
+    x_cols_argmax = np.argmax(x_cols, axis=0)
+    x_cols_max = x_cols[x_cols_argmax, np.arange(x_cols.shape[1])]
+    out = x_cols_max.reshape(out_height, out_width, N, C).transpose(2, 3, 0, 1)
+    # cache = (x, x_cols, x_cols_argmax, pool_param)
+    return out
+
+
+def maxpool(image, f=2, s=2):
+    '''
+    Downsample `image` using kernel size `f` and stride `s`
+    '''
+    n_c, c, h_prev, w_prev = image.shape
+    h = int((h_prev - f) / s) + 1
+    w = int((w_prev - f) / s) + 1
+
+    downsampled = np.zeros((n_c,c, h, w))
+    for i in range(n_c):
+        for j in range(c):
+            # slide maxpool window over each part of the image and assign the max value at each step to the output
+            curr_y = out_y = 0
+            while curr_y + f <= h_prev:
+                curr_x = out_x = 0
+                while curr_x + f <= w_prev:
+                    downsampled[i, j, out_y, out_x] = np.max(image[i,j, curr_y:curr_y + f, curr_x:curr_x + f])
+                    curr_x += s
+                    out_x += 1
+                curr_y += s
+                out_y += 1
+    return downsampled
+
+def generate_random_values_maxpool(cdlt, model_name, layer_name,
+                                base_path=".",
+                                format="nhwc",
+                                use_random=True,
+                                fixed_values=None,
+                                actual_data=False,
+                                generate_partial_values=False):
+    input_dims = cdlt.inputs[0].shape
+    out_dims = cdlt.outputs[0].shape
+    KH = cdlt.required_params['KH'].value
+    KW = cdlt.required_params['KW'].value
+
+    pad = cdlt.required_params['pad'].value
+    if isinstance(pad, (tuple, list)):
+        pad = pad[0]
+    stride_x = cdlt.required_params['sx'].value
+    stride_y = cdlt.required_params['sy'].value
+    tiling_parameters = cdlt.param_tiling
+    # DRAM tiling is in level 1.
+    dram_tiling = tiling_parameters[1]
+
+    if use_random:
+        input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
+    else:
+        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
+        for i in range(np.prod(input_dims)):
+            input[i] = i % 128
+        input = input.reshape(input_dims)
+
+    with open(f'{base_path}/input_raw.txt', 'w') as f:
+        f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
+
+    if format.lower() == "nhwc":
+        input = input.transpose(0, 3, 1, 2)
+
+    # test_output = manual_conv(input, weights, cdlt, layout="nchw")
+    # tout = F.max_pool2d(torch)
+    # output = pool2d(input.astype(np.int32), KH, stride_x, out_dims[1], out_dims[2], padding=pad)
+    output = pool2d(input.astype(np.int32), KH, stride_x, padding=pad)
+    print(input.shape)
+    tout = F.max_pool2d(torch.from_numpy(input.astype(np.float64)),
+                        kernel_size=KH, padding=pad)
+    print(input.shape)
+    print(tout.shape)
+    # np.testing.assert_allclose(output, tout.numpy())
+    # output = maxpool(input.astype(np.int32), f=KH, s=stride_x)
+    # print(output.shape)
+
+    # tout = F.conv2d(torch.from_numpy(input.astype(np.float64)), torch.from_numpy(weights.astype(np.float64)),
+    #                 torch.from_numpy(b.astype(np.float64)), stride=stride, padding=0)
+
+    output = output.transpose(0, 2, 3, 1)
+    if generate_partial_values:
+        tinput = input.transpose(*tuple(ACT_CF_TO_CL))
+        tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
+        coords = np.unravel_index(0, output.shape)
+        partial_values_conv(cdlt, base_path, tinput, tweights, output, coords)
+    if fixed_values is not None and "outputs" in fixed_values:
+        np.testing.assert_allclose(output, fixed_values["outputs"])
+
+    # np.testing.assert_allclose(output, test_output)
+
+    output = output.flatten().tolist()
+    output = [str(x) for x in output]
+
+    # Write outputs to file
+    with open(f'{base_path}/output.txt', 'w') as f:
+        f.write('\n'.join(output))
+
 
 def partial_values_gemm(cdlt, base_path, x, w, ref_out, o_coord):
     other_test, ic_vals = manual_gemm(x, w, o_coord)
@@ -646,6 +763,8 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     tiling_parameters = cdlt.param_tiling
     # DRAM tiling is in level 1.
     dram_tiling = tiling_parameters[1]
+    bias = np.zeros(shape=out_dims[-1], dtype=np.int32)
+
     if actual_data:
         layer_num = 0
         layer_name = "conv"
@@ -656,6 +775,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     elif use_random:
         input = np.random.randint(low=0, high=127, size=input_dims, dtype=np.int8)
         weights = np.random.randint(low=0, high=127, size=weight_dims, dtype=np.int8)
+        # bias = np.random.randint(low=0, high=127, size=out_dims[-1], dtype=np.int32)
     elif fixed_values is not None:
         if "input" in fixed_values:
             assert "input" in fixed_values and "weights" in fixed_values
@@ -715,12 +835,18 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
 
     conv_param = {'stride': stride, 'pad': 0}
     b = np.zeros(weights.shape[0], dtype=np.int32)
+
     # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
 
     output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
+
+    # tout = F.conv2d(torch.from_numpy(input.astype(np.float64)), torch.from_numpy(weights.astype(np.float64)),
+    #                 torch.from_numpy(b.astype(np.float64)), stride=stride, padding=0)
+
     output = output.transpose(0, 2, 3, 1)
     if generate_partial_values:
+        print(f"Here")
         tinput = input.transpose(*tuple(ACT_CF_TO_CL))
         tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
         coords = np.unravel_index(0, output.shape)
@@ -729,6 +855,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
     # np.testing.assert_allclose(output, test_output)
+
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 
@@ -736,7 +863,12 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
     with open(f'{base_path}/output.txt', 'w') as f:
         f.write('\n'.join(output))
 
+    bias = bias.flatten().tolist()
+    bias = [str(x) for x in bias]
 
+    # Write outputs to file
+    with open(f'{base_path}/bias.txt', 'w') as f:
+        f.write('\n'.join(bias))
 
 
 def generate_random_values_gemm(cdlt, model_name, layer_name,
@@ -753,7 +885,7 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
     # DRAM tiling is in level 1.
     dram_tiling = tiling_parameters[1]
     output = None
-    bias = None
+    bias = np.zeros(shape=out_dims[-1], dtype=np.int32)
     if actual_data:
         layer_num = 0
         layer_name = "linear"
@@ -826,7 +958,6 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
     #     partial_values_gemm(cdlt, base_path, input, weights, output, (0, 0))
     output = output.flatten().tolist()
     output = [str(x) for x in output]
-
 
     # # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:

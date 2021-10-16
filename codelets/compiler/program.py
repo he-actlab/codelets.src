@@ -353,7 +353,7 @@ class CodeletProgram(object):
         return op_str
 
     def emit_single_codelet(self, cdlt, output_type):
-
+        Operation.current_codelet = cdlt
         if output_type in ["operations", "operations_idx"]:
             input_str = ", ".join([f"{i.name}{i.shape_list}" for i in cdlt.inputs])
             out_str = ", ".join([f"{o.name}{o.shape_list}" for o in cdlt.outputs])
@@ -713,6 +713,7 @@ class CodeletProgram(object):
                     if verbose:
                         print(f"Applying stage {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)
+
                 codelets[n.name] = cdlt
 
         if verbose:
@@ -819,7 +820,6 @@ class CodeletProgram(object):
             self.load_tiling(tiling_path)
         codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
-
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
 
         if finalize:

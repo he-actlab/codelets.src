@@ -11,8 +11,8 @@ BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
                  'ST': {'IBUF': 4, 'WBUF': 5, 'OBUF': 6, 'BBUF': 7},
                  }
 VMEM_ID_MAP = {'LD': {'VMEM1': 0, 'VMEM2': 1},
-                 'ST': {'VMEM1': 2, 'VMEM2': 3},
-            }
+                 'ST': {'VMEM1': 2, 'VMEM2': 3}
+               }
 
 LOOPS_PER_LEVEL = 7
 
@@ -439,25 +439,39 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     # IC*BITWIDTH_INPUT % bandwidth = 0
     # NUM_ITERS - 1
     ## FIXE RULES END
+    if ASIC_CONFIG:
+        max_bits = f"16"
+    else:
+        max_bits = f"32"
 
     # TODO: Change to LOW/HIGH request
-    all_sizes_str = f"op.sizes_for_node('DRAM')"
 
     ld_st_loop_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', len(op.sizes_for_node('{buffer_name}')) - 1, '{ld_st}')"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
 
     if buffer_name != "WBUF":
+        # req_size_str = f"op.get_contiguous_xfer_size()*op.operand.dtype.bits()//8"
+
         ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"
-        ## OLD VALUES
-        # ld_str_size = f"op.sizes_for_node('{buffer_name}')[-1]*op.operand.dtype.bits()//8"
-        # stride_size_str = f"(np.prod({all_sizes_str}[dim_info[0]:])//dim_info[1])*op.operand.dtype.bits()//8"
-        # loop_iter_str = f"dim_info[2] - 1 if dim_info[0] < len(op.operand.shape) - 1 else 0"
-        # iterable_str = f'zip(range(len(op.operand.shape)), op.sizes_for_node("DRAM"), op.sizes_for_node("{buffer_name}"))'
-        ## NEW VALUEs
-        loop_iter_str = f"dim_info[1][1] - 1 if dim_info[0] < len(op.get_contiguous_strides()[0]) - 1 else 0"
-        ld_str_size = f"op.get_contiguous_strides()[0][-1]*op.operand.dtype.bits()//8"
-        stride_size_str = f"(dim_info[1][0]*op.operand.dtype.bits()//8)"
-        iterable_str = f"enumerate(zip(*op.get_contiguous_strides()))"
+        # loop_iter_str = f"dim_info[1][1] - 1 if dim_info[0] < len(op.get_contiguous_strides()[0]) - 1 else 0"
+        # loop_iter_str = f"dim_info[1][1] - 1 if dim_info[0] < len(op.get_contiguous_strides()[0]) - 1 else " \
+        #                 f"np.ceil(np.log2({req_size_str}))//16"
+        # loop_iter_str = f"dim_info[1][1] - 1 if dim_info[0] < len(op.strides_iters()[0]) - 1 else " \
+        #                 f"np.ceil(np.log2({req_size_str}))//16"
+        loop_iter_str = f"dim_info[1][1] - 1"
+        # req_size_str = f"{req_size_str}/(1+np.ceil(np.log2({req_size_str}))//16)"
+        req_size_str = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits})[0][-1]"
+
+        # ld_str_size = f"op.get_contiguous_strides()[0][-1]*op.operand.dtype.bits()//8"
+        if ASIC_CONFIG:
+            denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
+            # stride_size_str = f"((dim_info[1][0]*op.operand.dtype.bits())//({denom_str}))"
+            stride_size_str = f"(dim_info[1][0]//({denom_str}))"
+        else:
+            # stride_size_str = f"(dim_info[1][0]*op.operand.dtype.bits()//8)"
+            stride_size_str = f"dim_info[1][0]"
+        # iterable_str = f"enumerate(zip(*op.get_contiguous_strides()))"
+        iterable_str = f"enumerate(zip(*op.strides_iters(divisor={n_banks}, max_bits={max_bits})))"
         # END CHANGES
 
         stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"
@@ -493,13 +507,27 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         instructions.append(macro_instr)
     else:
         ld_st_tabs = f"op.loop_level + 1"
-        ld_str_size = f"np.prod(op.sizes_for_node('{buffer_name}'))*op.operand.dtype.bits()//8"
-        stride_size_low = f"program.extract_bits({ld_str_size}, 16, 0)"
-        stride_size_high = f"program.extract_bits({ld_str_size}, 16, 16)"
+        # req_size_str = f"np.prod(op.sizes_for_node('{buffer_name}'))*op.operand.dtype.bits()//8"
+        # ld_str_size = f"np.prod(op.sizes_for_node('{buffer_name}'))*op.operand.dtype.bits()//8"
+        req_size_str = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
+        ld_str_size = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
+
+        if ASIC_CONFIG:
+            denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
+            stride_size_str = f"({ld_str_size})//{denom_str}"
+        else:
+            stride_size_str = f"({ld_str_size})"
+
+        stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"
+        stride_size_high = f"program.extract_bits({stride_size_str}, 16, 16)"
         instr = hag.get_primitive_template("SA_LOOP_CFG")
         instr.set_field_flex_param("LOOP_ID", ld_st_loop_str)
-        instr.set_field_flex_param("NUM_ITERATIONS", f"0")
+        # instr.set_field_flex_param("NUM_ITERATIONS", f"0")
+        instr.set_field_flex_param("NUM_ITERATIONS", f"op.strides_iters(divisor={n_banks}, "
+                                                     f"max_bits={max_bits},"
+                                                     f"contiguous=True)[1][-1] - 1")
         instructions.append(instr)
+        # req_size_str = f"{req_size_str}/(1+np.ceil(np.log2({req_size_str}))//16)"
 
         instr = hag.get_primitive_template("SET_LOOP_STRIDE")
         instr.set_field_by_name("LOW_HIGH_BITS", "LOW")
@@ -524,7 +552,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
     instr.set_field_flex_param("LOOP_ID", ld_st_loop_str)
-    instr.set_field_flex_param("REQUEST_SIZE", f"{ld_str_size}//{n_banks}")
+    instr.set_field_flex_param("REQUEST_SIZE", f"{req_size_str}//{n_banks}")
     instr.set_print_tabs(ld_st_tabs)
     instructions.append(instr)
     return instructions
@@ -640,16 +668,13 @@ def outer_sa_loops(hag: ArchitectureNode):
     denom_str = f"hag.get_subgraph_edge('DRAM', operand.get_ld_storage_location(cdlt, 1)).bandwidth"
     if ASIC_CONFIG:
         # Product of stride of inner loops * stride * operand.dtype_size / bandwidth DRAM-BUF 256 (word/line size)
-        # Operand MxN, N=1024, stride, N=1, M = N, 16 tiles --> stride=64
-        # (offset in dim N)*stride/ bandwidth DRAM-BUF 256 (word/line size)
         # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
-        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//{denom_str}"
+        stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True)*operand.dtype.bits()//{denom_str}"
     else:
         # Product of iteration of inner loops * stride * operand.dtype_size / 8
-        stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride*operand.dtype.bits()//8) "
-        # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)"
-    # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
+        stride_str = f"(operand.get_offset(cdlt, 1, op.loop_id, hag,outer_loop=True)*operand.dtype.bits()//8)"
 
+    # stride_str = f"operand.get_offset_(cdlt, 'DRAM', 1, op.loop_id, hag)*op.stride"
     macro_instr = hag.get_primitive_template("SET_LOOP_STRIDE")
     macro_instr.add_iterable('operand', f'cdlt.operands')
     macro_instr.add_condition(loop_cond_str)
@@ -674,10 +699,10 @@ def outer_sa_loops(hag: ArchitectureNode):
     if ASIC_CONFIG:
         denom_str = f"hag.get_subgraph_edge('DRAM', cdlt.outputs[0].get_ld_storage_location(cdlt, 1)).bandwidth"
 
-        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits() // {denom_str}"
+        out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True)*cdlt.outputs[0].dtype.bits() // {denom_str}"
         # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
     else:
-        out_stride_str = f"(cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)*op.stride*cdlt.outputs[0].dtype.bits()//8) "
+        out_stride_str = f"(cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True)*cdlt.outputs[0].dtype.bits()//8) "
 
     # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag)"
     instr = hag.get_primitive_template("SET_LOOP_STRIDE")

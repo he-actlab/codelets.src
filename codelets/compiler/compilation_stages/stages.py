@@ -212,8 +212,10 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
+
     outer_loop_map = {}
     loop_replacement_map = {}
+
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -249,7 +251,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                             offset += 1
                             outgoing = True
                             cdlt.insert_op(op, target_idx + num_splits - 1)
+
                         op.operand.update_transfer_access(op, outgoing=outgoing)
+
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
                         outgoing = True
@@ -361,7 +365,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             else:
                 new_deps.append(d)
         op._dependencies = new_deps
-
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
             last_move = o.data_moves[-1]

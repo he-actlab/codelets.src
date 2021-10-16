@@ -56,7 +56,6 @@ def store_unique_model_layers(model_name, store_as_polymath=False):
         if n.op_type not in layers:
             inputs = n.input
             outputs = n.output
-
             if n.op_type == 'BatchNormalization':
                 outputs = [n.output[0]]
 
@@ -91,7 +90,7 @@ def get_onnx_shape(tensor_dict, val_name):
     return tuple(shape)
 
 def store_target_model_layer(model_name, layer_name, store_name=None, store_as_polymath=False,
-                             store_min=False):
+                             store_min=False, tgt_layer_name=None):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
     found = False
@@ -99,7 +98,10 @@ def store_target_model_layer(model_name, layer_name, store_name=None, store_as_p
     op_name = layer_name.lower() if store_name is None else store_name
     layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
     for n in model.graph.node:
+
         if n.op_type == layer_name:
+            if tgt_layer_name and tgt_layer_name != n.name:
+                continue
             outputs = n.output
             if n.op_type == 'BatchNormalization':
                 outputs = [n.output[0]]
@@ -147,13 +149,13 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'resnet50'
+    model_name = 'cc3'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     #
     # convert_model_to_polymath(model_path)
-    # store_unique_model_layers(model_name, store_as_polymath=True)
+    store_unique_model_layers(model_name, store_as_polymath=True)
     # print_unique_model_layers(model_name, store_as_polymath=True)
-    store_target_model_layer(model_name, "Conv", store_name="conv_small", store_as_polymath=True, store_min=True)
+    # store_target_model_layer(model_name, "Conv", store_name="conv_large", store_as_polymath=True, store_min=False, tgt_layer_name='Conv_114')
     # model_names = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
     #                'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',
     #                'mobilenet_v3_large_c2', 'googlenet_fc1', 'bert_large_ffn_fc1', 'bert_large_ffn_fc2',
