@@ -25,10 +25,13 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
-
+        #
         with cdlt.loop(P) as p:
             with cdlt.loop(N) as n:
                 with cdlt.loop(M) as m:
+        # with cdlt.loop(M) as m:
+        #     with cdlt.loop(N) as n:
+        #         with cdlt.loop(P) as p:
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(bias[p], ["DRAM", "BBUF"])
@@ -91,9 +94,12 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with cdlt.loop(P) as p:
+        # with cdlt.loop(P) as p:
+        #     with cdlt.loop(N) as n:
+        #         with cdlt.loop(M) as m:
+        with cdlt.loop(M) as m:
             with cdlt.loop(N) as n:
-                with cdlt.loop(M) as m:
+                with cdlt.loop(P) as p:
                     cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
                     cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
                     cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
@@ -208,8 +214,6 @@ def conv2d(hag: ArchitectureNode):
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
 
     gt_one_tiles = f"np.prod(list(splits.values())) > 1"
-    # ic_tiling = f"((splits['IC'] == 1 and splits['KH'] == 1 and splits['KW'] == 1 and splits['OH'] == 1 and splits['OW'] == 1) " \
-    #             f"or (splits['KH'] > 1 or splits['KW'] > 1 or splits['OH'] > 1 or splits['OW'] > 1))"
     ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
     constraint = f"{gt_one_tiles} and {ic_tiling}"
     if not ASIC_CONFIG:
@@ -359,6 +363,173 @@ def elem_add(hag: ArchitectureNode):
                         cdlt.compute("ADD", [op1, op2], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
                         # cdlt.transfer(out[n, c, h, w], ["OBUF", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+
+
+
+def elem_mul(hag: ArchitectureNode):
+
+    with CodeletTemplate("elem_mul") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("mul_out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("MUL", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+def elem_lt(hag: ArchitectureNode):
+
+    with CodeletTemplate("elem_lt") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("lt_out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("LT", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+def elem_eq(hag: ArchitectureNode):
+
+    with CodeletTemplate("elem_eq") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("eq_out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("EQ", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+def elem_sub(hag: ArchitectureNode):
+
+    with CodeletTemplate("elem_sub") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("sub_out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        # out.set_write_destination("OBUF")
+                        cdlt.compute("SUB", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+                        # cdlt.transfer(out[n, c, h, w], ["OBUF", "DRAM"])
+        cdlt.configure("end", "SIMD")
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+
+def elem_div(hag: ArchitectureNode):
+
+    with CodeletTemplate("elem_div") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("sub_out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        # out.set_write_destination("OBUF")
+                        cdlt.compute("DIV", [op1, op2], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+                        # cdlt.transfer(out[n, c, h, w], ["OBUF", "DRAM"])
+        cdlt.configure("end", "SIMD")
+        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 
@@ -396,7 +567,7 @@ def sgd1d(hag: ArchitectureNode):
             cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
             cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
             cdlt.transfer(updated_param[n], ["VMEM1", "DRAM"])
-
+        cdlt.configure("end", "SIMD")
     return cdlt
 
 def sgd2d(hag: ArchitectureNode):
@@ -435,6 +606,10 @@ def sgd2d(hag: ArchitectureNode):
                 cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
                 cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
                 cdlt.transfer(updated_param[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def sgd3d(hag: ArchitectureNode):
@@ -458,6 +633,10 @@ def sgd3d(hag: ArchitectureNode):
                     updated_param.set_write_destination("VMEM1")
                     cdlt.compute("ADD", [param, grad], [updated_param], target="SIMD")
                     cdlt.transfer(updated_param[c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def sgd4d(hag: ArchitectureNode):
@@ -502,6 +681,10 @@ def sgd4d(hag: ArchitectureNode):
                         cdlt.compute("MUL", [grad, lr_op], [itemp2], target="SIMD")
                         cdlt.compute("SUB", [itemp1, itemp2], [updated_param], target="SIMD")
                         cdlt.transfer(updated_param[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def batch_norm(hag: ArchitectureNode):
@@ -548,6 +731,10 @@ def batch_norm(hag: ArchitectureNode):
                         cdlt.compute("MUL", [out, scale], [out], target="SIMD")
                         cdlt.compute("ADD", [out, offset], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
 
     return cdlt
 
@@ -606,7 +793,10 @@ def mean_var(hag: ArchitectureNode):
             cdlt.compute("DIV", [mean, denom_op], [mean], target="SIMD")
             cdlt.transfer(mean[c], ["VMEM1", "DRAM"])
             cdlt.transfer(istd[c], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def batchnorm_grad(hag: ArchitectureNode):
@@ -704,7 +894,9 @@ def batchnorm_grad(hag: ArchitectureNode):
                         cdlt.transfer(data_grad[n1, c, h1, w1], ["VMEM1", "DRAM"])
             cdlt.transfer(offset_grad[c], ["VMEM1", "DRAM"])
             cdlt.transfer(scale_grad[c], ["VMEM1", "DRAM"])
-
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
 
     return cdlt
 
@@ -720,6 +912,21 @@ def coarse_flatten(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
+    return cdlt
+
+def coarse_flatten2d(hag: ArchitectureNode):
+
+    with CodeletTemplate("coarse_flatten2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
     return cdlt
 
 def tensor_transpose(hag: ArchitectureNode):
@@ -734,7 +941,14 @@ def tensor_transpose(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
 
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        pass
     return cdlt
 
 def tensor_reshape(hag: ArchitectureNode):
@@ -750,6 +964,7 @@ def tensor_reshape(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
     return cdlt
 
 def tensor_pad(hag: ArchitectureNode):
@@ -765,6 +980,7 @@ def tensor_pad(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
     return cdlt
 
 def tensor_flip(hag: ArchitectureNode):
@@ -780,6 +996,7 @@ def tensor_flip(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
 
     return cdlt
 
@@ -797,6 +1014,7 @@ def flatten_grad(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([out])
+        cdlt.configure("end", "SIMD")
 
     return cdlt
 
@@ -818,7 +1036,10 @@ def reduce_sum(hag: ArchitectureNode):
                 out.set_write_destination("VMEM1")
                 cdlt.compute("ADD", [data, data], [out], target="SIMD")
                 cdlt.transfer(out[c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def cross_entropy_loss(hag: ArchitectureNode):
@@ -846,9 +1067,13 @@ def cross_entropy_loss(hag: ArchitectureNode):
                 cdlt.compute("ADD", [temp1, loss], [loss], target="SIMD")
             cdlt.compute("DIV", [temp1, loss], [loss], target="SIMD")
             cdlt.transfer(loss[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
-def relu(_):
+def relu(hag):
 
     with CodeletTemplate("relu") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -861,19 +1086,168 @@ def relu(_):
         out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
+        # fix C dim to array size
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
-                        out.set_write_destination("VMEM1")
-                        cdlt.compute("RELU", [op1], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
 
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("RELU", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
     return cdlt
 
-def relu2d(_):
+
+def elem_cast(hag):
+
+    with CodeletTemplate("elem_cast") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_cast", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        # fix C dim to array size
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("RELU", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def elem_cast2d(hag):
+
+    with CodeletTemplate("elem_cast2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(op1[n, c], ["DRAM", "VMEM1"])
+                out.set_write_destination("VMEM1")
+                cdlt.compute("RELU", [op1], [out], target="SIMD")
+                cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
+def sigmoid(hag):
+
+    with CodeletTemplate("elem_sigmoid") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        # fix C dim to array size
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("SIGMOID", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def exp(hag):
+
+    with CodeletTemplate("exp") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_exp", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        # fix C dim to array size
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("EXP", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def leaky_relu(hag):
+
+    with CodeletTemplate("leaky_relu") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
+
+        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        # fix C dim to array size
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+
+                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("LEAKY_RELU", [op1], [out], target="SIMD")
+                        cdlt.transfer(out[n, c, h, w], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def relu2d(hag):
 
     with CodeletTemplate("relu2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -890,7 +1264,10 @@ def relu2d(_):
                 out.set_write_destination("VMEM1")
                 cdlt.compute("RELU", [op1], [out], target="SIMD")
                 cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def elem_tanh(hag: ArchitectureNode):
@@ -915,7 +1292,7 @@ def elem_tanh(hag: ArchitectureNode):
                         out.set_write_destination("VMEM1")
                         cdlt.compute("TANH", [op1], [out], target="SIMD")
                         cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
-
+        cdlt.configure("end", "SIMD")
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C", "H", "W"])
 
     return cdlt
@@ -937,9 +1314,11 @@ def elem_tanh2d(hag: ArchitectureNode):
                 out.set_write_destination("VMEM1")
                 cdlt.compute("TANH", [op1], [out], target="SIMD")
                 cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
-
+        cdlt.configure("end", "SIMD")
     cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C"])
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def relu_grad(hag: ArchitectureNode):
@@ -966,6 +1345,7 @@ def relu_grad(hag: ArchitectureNode):
                         data_grad.set_write_destination("VMEM1")
                         cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
     return cdlt
 
 
@@ -989,6 +1369,10 @@ def relu_grad2d(hag: ArchitectureNode):
                 data_grad.set_write_destination("VMEM1")
                 cdlt.compute("RELU", [data, grad], [data_grad], target="SIMD")
                 cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def elem_tanh_grad(hag: ArchitectureNode):
@@ -1025,6 +1409,10 @@ def elem_tanh_grad(hag: ArchitectureNode):
                         cdlt.compute("SUB", [one_op, data], [temp1], target="SIMD")
                         cdlt.compute("MUL", [grad, temp1], [data_grad], target="SIMD")
                         cdlt.transfer(data_grad[n, c, h, w], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def elem_tanh_grad2d(hag: ArchitectureNode):
@@ -1060,6 +1448,10 @@ def elem_tanh_grad2d(hag: ArchitectureNode):
                 cdlt.compute("SUB", [one_op, data], [temp1], target="SIMD")
                 cdlt.compute("MUL", [grad, temp1], [data_grad], target="SIMD")
                 cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 # TODO: Implement valid operation sequence
@@ -1097,9 +1489,13 @@ def maxpool2d(hag: ArchitectureNode):
                                 cdlt.transfer(data[n, c, y*sy + kh, x*sx + kw], ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
                                 cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
-                                out.set_write_destination("VMEM1")
+                                out.set_write_destination("VMEM2")
                                 cdlt.compute("MAX", [data, out], [out], target="SIMD")
-                                cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
+                                cdlt.transfer(out[n, c, y, x], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def averagepool2d(hag: ArchitectureNode):
@@ -1140,6 +1536,10 @@ def averagepool2d(hag: ArchitectureNode):
                                 cdlt.compute("ADD", [data, out], [out], target="SIMD")
                 cdlt.compute("DIV", [out, denom_op], [out], target="SIMD")
                 cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def max_pool_grad(hag: ArchitectureNode):
@@ -1177,6 +1577,10 @@ def max_pool_grad(hag: ArchitectureNode):
                                 data_grad.set_write_destination("VMEM1")
                                 cdlt.compute("MAX", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, y*sy + kh, x*sx + kw], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 
@@ -1216,6 +1620,10 @@ def average_pool_grad(hag: ArchitectureNode):
                                 data_grad.set_write_destination("VMEM1")
                                 cdlt.compute("MAX", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, y*sy + kh, x*sx + kw], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def global_average_pool_grad(hag: ArchitectureNode):
@@ -1251,6 +1659,10 @@ def global_average_pool_grad(hag: ArchitectureNode):
                                 data_grad.set_write_destination("VMEM1")
                                 cdlt.compute("MEAN", [data, grad], [data_grad], target="SIMD")
                                 cdlt.transfer(data_grad[n, c, iy, ix], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 # TODO: Implement valid operation sequence
@@ -1290,8 +1702,13 @@ def global_avg_pool(hag: ArchitectureNode):
                                 cdlt.transfer(out[n, c, oy, ox], ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM2")
                                 cdlt.compute("ADD", [data, out], [out], target="SIMD")
-                cdlt.compute("DIV", [out, denom_op], [out], target="SIMD")
-                cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
+
+                # cdlt.compute("DIV", [out, denom_op], [out], target="SIMD")
+                                cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):
@@ -1315,21 +1732,62 @@ def cross_entropy_loss_grad(hag: ArchitectureNode):
                 data_grad.set_write_destination("VMEM1")
                 cdlt.compute("SUB", [data, target], [data_grad], target="SIMD")
                 cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
+
+
+def clip(hag: ArchitectureNode):
+
+    with CodeletTemplate("cross_entropy_loss_grad") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data, target])
+        cdlt.set_outputs([data_grad])
+
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(target[n], ["DRAM", "VMEM2"])
+                data_grad.set_write_destination("VMEM1")
+                cdlt.compute("SUB", [data, target], [data_grad], target="SIMD")
+                cdlt.transfer(data_grad[n, c], ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    return cdlt
+
 
 GENESYS_CODELETS = {
     "max_pool": maxpool2d,
     "avg_pool": averagepool2d,
     "global_avg_pool": global_avg_pool,
     "coarse_flatten": coarse_flatten,
+    "coarse_flatten2d": coarse_flatten2d,
     "conv_bias": conv2d_bias,
     "conv": conv2d,
     "gemm": gemm,
     "matmul": matmul,
     "elem_add": elem_add,
+    "elem_sub": elem_sub,
+    "elem_div": elem_div,
     "elem_tanh": elem_tanh,
+    "elem_mul": elem_mul,
+    "elem_lt": elem_lt,
+    "exp": exp,
+    "sigmoid": sigmoid,
     "elem_tanh2d": elem_tanh2d,
     "relu": relu,
+    "leaky_relu": leaky_relu,
     "relu2d": relu2d,
     "batch_norm": batch_norm,
     "mean_var": mean_var,
@@ -1343,6 +1801,8 @@ GENESYS_CODELETS = {
     "sgd3d": sgd3d,
     "sgd4d": sgd4d,
     'elem_tanh_grad': elem_tanh_grad,
+    'elem_cast': elem_cast,
+    'elem_cast2d': elem_cast2d,
     'elem_tanh_grad2d': elem_tanh_grad2d,
     'average_pool_grad': average_pool_grad,
     'max_pool_grad': max_pool_grad,

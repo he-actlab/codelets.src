@@ -32,6 +32,7 @@ LD_STORE_LOOPS = 14
 LD_STORE_OFFSET_MAP = "{'LD': {'IBUF': 0, 'WBUF': 6, 'OBUF': 10, 'BBUF': 14}," \
            "'ST': {'OBUF': 15, 'WBUF': 19 , 'BBUF': 23, 'IBUF': 24}}"
 
+VALID_MODELS = ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn', "my_ddpg_model", "my_ppo_model", "my_sac_model"]
 
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
@@ -258,9 +259,10 @@ def compile_genesys(model_name,
                     print_config=True,
                     store_ops=False,
                     factor_fn='default',
-                    relocation_offsets=None):
-    MODEL_DIR = f"{benchmark_path}/models/srdfg"
-    OUT_DIR = f"{benchmark_path}/compiler_outputs"
+                    relocation_offsets=None, model_dir=None,
+                    out_dir=None):
+    MODEL_DIR = model_dir or f"{benchmark_path}/models/srdfg"
+    OUT_DIR = out_dir or f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
     dtypes = dtypes or GENESYS_DTYPES
@@ -269,7 +271,7 @@ def compile_genesys(model_name,
     else:
         def_cfg = GENESYS_CFG
 
-    if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
+    if model_name not in VALID_MODELS:
         raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"

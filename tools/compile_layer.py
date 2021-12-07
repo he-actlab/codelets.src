@@ -53,6 +53,21 @@ def create_dirs(fpath, dir_ext):
         print(f"Directory {base_path} already exists.")
     return base_path
 
+def update_tile_constraints(program, constraint, layer_type, orig_constraint=None):
+    assert isinstance(constraint, dict)
+    if layer_type == "add":
+        layer_type = "elem_add"
+    elif layer_type == "maxpool":
+        layer_type = "max_pool"
+    for level, cstr in constraint.items():
+        if f'LEVEL{level}_hint' not in program.hag.codelets[layer_type].compilation_params.keys():
+            program.hag.codelets[layer_type].compilation_params[f'LEVEL{level}_hint'] = cstr
+        elif cstr not in program.hag.codelets[layer_type].compilation_params[f'LEVEL{level}_hint']:
+            orig = program.hag.codelets[layer_type].compilation_params[f'LEVEL{level}_hint']
+            new_constraint = f"{orig} and {cstr}"
+            program.hag.codelets[layer_type].compilation_params[f'LEVEL{level}_hint'] = new_constraint
+    return program
+
 def store_values(program, model_name, base_path, load_path=None, use_random=True, actual_data=False,
                  store_partials=False):
 
@@ -80,7 +95,7 @@ def store_outputs(model_name,
                   actual_data=False,
                   use_random=False,
                   store_partials=False,
-                  program=None):
+                  program=None, added_constr=None):
     name = model_name
     tile_method = "min_tiles"
     # tile_method = "valid_split"
@@ -115,8 +130,9 @@ def store_outputs(model_name,
                                     batch_size=batch_size,
                                     do_hoist_stage=True,
                                     tiling_search_algorithm=tile_method,
-                                            do_tile_stage=True,
-                                    print_config=False
+                                    do_tile_stage=True,
+                                    print_config=False,
+                                            do_compile=False
                                       )
         elif name in model_files and not training_mode:
             program = compile_genesys(name,
@@ -150,6 +166,10 @@ def store_outputs(model_name,
         else:
             raise RuntimeError(f"Invalid layer name for compilation : {name}")
 
+    if added_constr:
+        program = update_tile_constraints(program, added_constr, layer_name)
+    program.compile(verbose=False, finalize_instructions=True)
+
     arch_cfg = get_arch(None, None, update_cfg_dtypes)
     print(f"Configuration for program:")
     # pprint.pprint(arch_cfg)
@@ -167,6 +187,7 @@ def store_outputs(model_name,
     store_values(program, model_name, base_path, use_random=use_random, load_path=load_path,
                  actual_data=actual_data,
                  store_partials=store_partials)
+    return program
 
 def store_compilation_output(program: CodeletProgram, output_type, extension="txt", dir_ext=None, arch_cfg=None):
     if dir_ext:
@@ -238,18 +259,28 @@ if __name__ == "__main__":
                       store_partials=args.partial_values)
     else:
         model = "resnet18"
-        layer = "maxpool"
+        layer = "relu"
         training_mode = False
         batch = 1
         verbose = False
         rand_vals = True
         dir_ext = None
         store_partials = False
-        store_outputs(model, layer, training_mode,
+        add_constr = {}
+        program = store_outputs(model, layer, training_mode,
                       batch,
                       verbose,
                       None,
                       use_random=rand_vals,
                       dir_ext=dir_ext,
                       actual_data=False,
-                      store_partials=store_partials)
+                      store_partials=store_partials,
+                      added_constr=add_constr)
+        # print(program.emit("string_final"))
+        print(program.emit("operations_idx"))
+
+        # output = program.codelets[0].outputs[0]
+        # print(program.codelets[0].inputs[0].data_path)
+        # print(output.data_path)
+
+

@@ -15,21 +15,49 @@ FIELD_TEMPLATE = """
     % if 
 </%def>
 """
+# field_name: str
+# bitwidth: int
+# field_id: int = field(default_factory=lambda: next(field_cnt))
+# value: int = field(default=None)
+# value_names: Dict[str, int] = field(default_factory=dict)
+# value_str: str = field(default=None)
+# param_fn: FlexParam = field(default=None, init=False)
+# param_fn_type: str = field(default="int")
+# lazy_eval: bool = field(default=False)
+# required: bool = field(default=False)
 
-@dataclass
-class Field:
-    field_name: str
-    bitwidth: int
-    field_id: int = field(default_factory=lambda: next(field_cnt))
-    value: int = field(default=None)
-    value_names: Dict[str, int] = field(default_factory=dict)
-    value_str: str = field(default=None)
-    param_fn: FlexParam = field(default=None, init=False)
-    param_fn_type: str = field(default="int")
-    lazy_eval: bool = field(default=False)
-    required: bool = field(default=False)
-
-
+class Field(object):
+    def __init__(self, field_name, bitwidth,
+                 field_id=None,
+                 value=None,
+                 value_names=None,
+                 value_str=None,
+                 param_fn = None,
+                 param_fn_type="int",
+                 lazy_eval = False,
+                 required = False):
+        self.field_name: str = field_name
+        self.field_id: int = field_id or next(field_cnt)
+        self.bitwidth: int = bitwidth
+        self._value: int = value
+        self.value_names: Dict[str, int] = value_names or {}
+        self.value_str: str = value_str
+        self.param_fn: FlexParam = param_fn
+        self.param_fn_type: str = param_fn_type
+        self.lazy_eval: bool = lazy_eval
+        self.required: bool = required
+# @dataclass
+# class Field:
+#     field_name: str
+#     bitwidth: int
+#     field_id: int = field(default_factory=lambda: next(field_cnt))
+#     value: int = field(default=None)
+#     value_names: Dict[str, int] = field(default_factory=dict)
+#     value_str: str = field(default=None)
+#     param_fn: FlexParam = field(default=None, init=False)
+#     param_fn_type: str = field(default="int")
+#     lazy_eval: bool = field(default=False)
+#     required: bool = field(default=False)
     @property
     def isset(self) -> bool:
         return self.value is not None
@@ -37,6 +65,20 @@ class Field:
     @property
     def value_name_list(self) -> List[str]:
         return list(self.value_names.keys())
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, val):
+        bin_rep = np.binary_repr(val, self.bitwidth)
+        if len(bin_rep) != self.bitwidth:
+            raise RuntimeError(f"Field {self.field_name} has too many bits:\n"
+                               f"Value: {val}\n"
+                               f"Required bits: {len(bin_rep)}\n"
+                               f"Field bits: {self.bitwidth}")
+        self._value = val
 
     def set_param_fn(self, fn: FlexParam, eval_type="int"):
         assert isinstance(fn, FlexParam)
@@ -64,15 +106,18 @@ class Field:
             return self.value_str
         return str(self.value)
 
-
     def set_value_from_param_fn(self, *args, **iter_args):
         param_fn_args = list(args)
+
         for k, v in iter_args.items():
             if k not in self.param_fn.fn_args:
                 self.param_fn.add_fn_arg(k)
                 param_fn_args.append(v)
+
         param_fn_args = tuple(param_fn_args)
+
         result = self.param_fn.evaluate_fn(*param_fn_args)
+
 
         if isinstance(result, str) and result in self.value_names:
             self.value = self.value_names[result]
@@ -83,6 +128,7 @@ class Field:
                                f"Possible string values: {list(self.value_names.keys())}"
                   f"Arg name: {self.field_name}")
         else:
+
             self.value = result
 
     def template_header(self):
@@ -105,11 +151,21 @@ class Field:
 
     def copy(self):
 
-        field = Field(self.field_name, self.bitwidth, self.field_id, self.value, self.value_names.copy(),
-                     self.value_str)
 
         flex_param = None if not self.param_fn else self.param_fn.copy()
-        field.param_fn = flex_param
-        field.param_fn_type = self.param_fn_type
-        field.lazy_eval = self.lazy_eval
+
+        field = Field(self.field_name, self.bitwidth, field_id=self.field_id, value=self.value, value_names=self.value_names.copy(),
+                     value_str=self.value_str, param_fn_type=self.param_fn_type, lazy_eval=self.lazy_eval, param_fn=flex_param)
+
+        # flex_param = None if not self.param_fn else self.param_fn.copy()
+        # field.param_fn = flex_param
+        # field.param_fn_type = self.param_fn_type
+        # field.lazy_eval = self.lazy_eval
+        # field = Field(self.field_name, self.bitwidth, self.field_id, self.value, self.value_names.copy(),
+        #              self.value_str)
+        #
+        # flex_param = None if not self.param_fn else self.param_fn.copy()
+        # field.param_fn = flex_param
+        # field.param_fn_type = self.param_fn_type
+        # field.lazy_eval = self.lazy_eval
         return field

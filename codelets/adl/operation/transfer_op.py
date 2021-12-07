@@ -132,14 +132,19 @@ class Transfer(Operation):
         # TODO: include array size for req size divisibility
             idx = [0]
         else:
-            idx = [0] + [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+            idx = [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+        if 0 not in idx:
+            idx.insert(0, 0)
+
         strides = []
         iters = []
+
         for p, c in zip(idx, idx[1:]):
             iters.append(np.prod(xfer_sizes[p:c], dtype=np.int32))
             strides.append(np.prod(ref_sizes[c:], dtype=np.int32))
         iters.append(1)
         strides.append(np.prod(xfer_sizes[idx[-1]:], dtype=np.int32))
+
         strides = [self.operand.dtype.bytes()*s for s in strides]
 
         total_req_size = strides[-1]
@@ -153,6 +158,7 @@ class Transfer(Operation):
             iters[-1] = total_iters
         strides = [np.int32(s) for s in strides]
         iters = [np.int32(i) for i in iters]
+
         return strides, iters
 
     def test_contig_strides(self):

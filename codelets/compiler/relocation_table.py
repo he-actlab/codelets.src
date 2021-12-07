@@ -146,6 +146,7 @@ class RelocationTable(object):
 
     def add_data_relocation(self, node: pm.Node, cdlt: Codelet):
         for idx, operand in enumerate(cdlt.inputs):
+            print(f"{operand.name} - {operand.static_padding}")
             i = node.inputs[idx]
             data_size = np.prod(operand.shape)*operand.dtype.bits()
             if isinstance(i, pm.state):

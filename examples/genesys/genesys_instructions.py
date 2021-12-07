@@ -69,8 +69,8 @@ def loop_stride_instr():
 def group_instr():
     target = Field("COMPUTE_TARGET", 1, value_names={"SYSTOLIC_ARRAY": 0, "SIMD": 1})
     start_end = Field("START_END", 1, value_names={"START": 0, "END": 1})
-    group_num = Field("GROUP_NUM", 4)
-    loop_id = Field("LOOP_ID", 6)
+    group_num = Field("GROUP_NUM", 8)
+    loop_id = Field("LOOP_ID", 2)
     num_instr = Field("NUM_INSTR", 16)
     instr_temp = Instruction("INST_GROUP", 10, OPCODE_WIDTH,
                              (target, start_end, group_num, loop_id, num_instr))
@@ -162,11 +162,17 @@ def create_simd_op(op_name, opcode, function_code):
 
 def create_dtype_cfg_ops():
     instructions = []
-    for fn_code, fn_name in enumerate(DTYPE_CFG_NAMES):
-        imm_ns_idx = Field("IMM_NS_INDEX_ID", 24)
-        instr_temp = Instruction(fn_name, (4 << FUNCTION_CODE_WIDTH) + fn_code, OPCODE_WIDTH + FUNCTION_CODE_WIDTH,
-                                 (imm_ns_idx,))
-        instructions.append(instr_temp)
+
+    DTYPE_MAP = {k: i for i, k in enumerate(DTYPE_CFG_NAMES)}
+    dtype = Field("DTYPE", 4, value_names=DTYPE_MAP)
+    null_f = Field("NULL", 8)
+    null_f.set_value(0)
+    int_bits = Field("INT_BITS", 16)
+
+    instr_temp = Instruction("DTYPE_CFG", 4, OPCODE_WIDTH,
+                                 (dtype, null_f, int_bits,))
+    instructions.append(instr_temp)
+
     return instructions
 
 def create_lock_ns_op():
@@ -190,8 +196,10 @@ def create_lock_ns_op():
 def create_iterator_ops():
 
     instructions = []
+    LD_ST_NS = {"OBUF": 0, "IBUF": 1, "VMEM1": 2, "VMEM2": 3, "IMM": 4}
+
     for fn_code, fn_name in enumerate(ITER_CFG_NAMES):
-        ns_id = Field("NS_ID", 3)
+        ns_id = Field("NS_ID", 3, value_names=LD_ST_NS)
         ns_index_id = Field("NS_INDEX_ID", 5)
         imm = Field("IMM", 16)
         instr_temp = Instruction(fn_name, (6 << FUNCTION_CODE_WIDTH) + fn_code, OPCODE_WIDTH + FUNCTION_CODE_WIDTH,
@@ -259,8 +267,10 @@ def create_placeholder_simd_instruction(op_fn):
 def create_simd_ops():
     instructions = []
 
-    NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
-    NS_OP_CODES = {name: i for i, name in enumerate(NS_NAMES)}
+    # NS_NAMES = ["OBUF", "IBUF", "VMEM1", "IMM", "DRAM", "VMEM_RD", "VMEM_WR", "VMEM2"]
+    LD_ST_NS = {"OBUF": 0, "IBUF": 1, "VMEM1": 2, "VMEM2": 3, "IMM": 4}
+
+    NS_OP_CODES = LD_ST_NS
 
     # TODO: Ask soroush about src2 in calculus ops
     for op_type_list in [ALU_OPS, CALC_OPS, CMP_OPS, DTYPE_CAST_OPS]:
@@ -277,6 +287,13 @@ def create_simd_ops():
             src2_ns_idx = Field("SRC2_INDEX_ID", 5)
             if op_type == "DTYPE_CAST":
                 src2_ns.set_value_by_string("IMM")
+            if op_fn == "NOP":
+                dest_ns.set_value(0)
+                dest_ns_idx.set_value(0)
+                src1_ns.set_value(0)
+                src1_ns_idx.set_value(0)
+                src2_ns.set_value(0)
+                src2_ns_idx.set_value(0)
             op_fn_code = (op_code << FUNCTION_CODE_WIDTH) + fn_code
             op_fn_code_width = OPCODE_WIDTH + FUNCTION_CODE_WIDTH
             instr_fields = (dest_ns, dest_ns_idx, src1_ns, src1_ns_idx, src2_ns, src2_ns_idx)
@@ -299,7 +316,6 @@ def create_simd_ops():
             instr_temp = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
             instructions.append(instr_temp)
 
-    LD_ST_NS = {"VMEM1": 1, "VMEM2": 2, "OBUF": 3}
     for op_type_list in [LD_ST_OPS]:
         op_code = op_type_list[0]
         op_fnctions = op_type_list[1]
@@ -310,7 +326,7 @@ def create_simd_ops():
                 op_fn = f"{ld_st_type}_{op_fn_base}"
                 fields = []
                 lsb_msb = Field("LSB_MSB", 1, value_names={"LSB": 0, "MSB": 1})
-                if op_fn_base != "CONFIG_BASE_ADDR":
+                if op_fn_base not in ["CONFIG_BASE_LOOP_STRIDE", "CONFIG_TILE_LOOP_STRIDE","CONFIG_BASE_ADDR"]:
                     lsb_msb.set_value(0)
                 fields.append(lsb_msb)
 
@@ -383,7 +399,6 @@ def create_simd_ops():
             else:
                 assert op_fn == "SET_INST"
                 single_nested = Field("SINGLE_NESTED", 3, value_names={"SINGLE": 0, "NESTED": 1})
-                single_nested.set_value(0)
                 null_ns = Field("NULL_NS", 5)
                 null_ns.set_value(0)
                 num_instr = Field("NUM_INSTR", 16)
@@ -437,5 +452,5 @@ def create_simd_ops():
 
 GENESYS_INSTRUCTIONS = {
     "systolic_array": [specific_loop_instr(), loop_cfg_instr(), loop_stride_instr(), group_instr(), base_addr_instr(), block_instr(), load_store()],
-    "SIMD": create_simd_ops()
+    "SIMD": create_simd_ops() + create_dtype_cfg_ops() +  create_iterator_ops()
 }

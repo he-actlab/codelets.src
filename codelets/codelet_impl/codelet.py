@@ -132,6 +132,14 @@ class Codelet(object):
         return [i for i in self.inputs if i.used]
 
     @property
+    def read_operands(self):
+        return sum([c.sources for c in self.get_ops_by_type("compute")], start=[])
+
+    @property
+    def write_operands(self):
+        return sum([c.dests for c in self.get_ops_by_type("compute")], start=[])
+
+    @property
     def temps(self):
         return self._temps
 
@@ -245,6 +253,21 @@ class Codelet(object):
 
     def is_noop(self):
         return len(self.ops) == 0
+
+    def innermost_loop_ids(self) -> List[int]:
+        loops = []
+        max_loop = 0
+        max_level = 0
+        for o in self.ops:
+            if isinstance(o, Loop) and o.loop_level >= max_level:
+                max_loop = o.loop_id
+                max_level = o.loop_level
+            elif o.loop_level < max_level:
+                loops.append(max_loop)
+                if isinstance(o, Loop):
+                    max_level = o.loop_level
+                    max_loop = o.loop_id
+        return list(set(loops))
 
     def operand_dim_mapping(self):
         operands = self.inputs + self.outputs
@@ -378,7 +401,7 @@ class Codelet(object):
     def get_loop_order(self):
         operand_dim_map = self.operand_dim_mapping()
         loop_order = []
-        if len(self.domain_loop_map) == 0:
+        if len(self.domain_loop_map) == 0 or 0 not in self.domain_loop_map:
             return []
         for loop_name in self.domain_loop_map[0].keys():
             loop = self.op_map[str(loop_name)]

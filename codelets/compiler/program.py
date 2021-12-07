@@ -250,8 +250,28 @@ class CodeletProgram(object):
             for ft in o.instructions:
                 ft.evaluate(*args)
 
+    def get_template_shapes(self, t):
+        shapes = [len(i.shape_list) for i in t.inputs]
+        shapes += [len(o.shape_list) for o in t.outputs]
+        return shapes
+
+    def get_template_through_mapping(self, node):
+        shapes = [len(i.shape) for i in node.inputs]
+        shapes += [len(o.shape) for o in node.outputs]
+        print(len(self.codelet_templates.keys()))
+        for tname, t in self.codelet_templates.items():
+            # if "elem_cast" in tname:
+            #     print(self.get_template_shapes(t))
+            if "elem_cast" in node.op_name:
+                print(f"{tname}")
+            if node.op_name in tname and shapes == self.get_template_shapes(t):
+                return t
+        raise RuntimeError(f"Node: {node.op_name}, Shapes: {shapes}")
+
     def instantiate_codelet(self, node):
-        cdlt_template = self.codelet_templates[node.op_name]
+        print(self.get_template_through_mapping(node))
+        # cdlt_template = self.codelet_templates[node.op_name]
+        cdlt_template = self.get_template_through_mapping(node)
         assert isinstance(cdlt_template, CodeletTemplate), f"Invalid template: {cdlt_template}"
         cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
         self.add_codelet(cdlt)
@@ -556,7 +576,6 @@ class CodeletProgram(object):
                     node_list.append(node)
                 elif not isinstance(node, (pm.write, pm.placeholder)) and node.op_name not in missing_ops:
                     missing_ops.append(node.op_name)
-
             if len(missing_ops) > 0 and validate_lowered:
                 raise RuntimeError(
                     f"Input graph includes operations which are unsupported by the target architecture.\n"
@@ -609,7 +628,13 @@ class CodeletProgram(object):
 
     def get_required_templates(self, nodes: List[pm.Node]):
         node_ops = list(set([n.op_name for n in nodes]))
-        cdlt_templates = {name: self.hag.get_codelet_template(name) for name in node_ops}
+        cdlt_templates = {}
+        for name in node_ops:
+            cdlt_templates[name] = self.hag.get_codelet_template(name)
+            if self.hag.has_codelet(f"{name}2d"):
+                cdlt_templates[f"{name}2d"] = self.hag.get_codelet_template(f"{name}2d")
+
+        # cdlt_templates = {name: self.hag.get_codelet_template(name) for name in node_ops}
         return cdlt_templates
 
     def run_template_stages(self, node_sequence, verbose=False):
@@ -809,6 +834,7 @@ class CodeletProgram(object):
         # 2. Generate operands/operations within codelets
         # 3. Generate instruction templates within operations
         start = time()
+
         node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
         self.run_template_stages(node_sequence, verbose=verbose)
 
@@ -821,7 +847,6 @@ class CodeletProgram(object):
         codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
-
         if finalize:
             self.finalize_instructions(node_sequence, codelets, verbose=verbose)
             self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)

@@ -48,7 +48,8 @@ def convert_model_to_polymath(model_path):
     pm.pb_store(graph, f"{root_path}/srdfg/")
 
 
-def store_unique_model_layers(model_name, store_as_polymath=False):
+def store_unique_model_layers(model_name, store_as_polymath=False, name_mapping=None):
+    name_mapping = name_mapping or {}
     layers = {}
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
@@ -60,6 +61,8 @@ def store_unique_model_layers(model_name, store_as_polymath=False):
                 outputs = [n.output[0]]
 
             op_name = n.op_type.lower()
+            if op_name in name_mapping:
+                op_name = name_mapping[op_name]
             layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
             onnx.utils.extract_model(model_path, layer_path, inputs, outputs)
             if store_as_polymath:

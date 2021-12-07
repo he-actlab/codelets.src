@@ -19,12 +19,12 @@ SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias', 'matmul']
 
 # TODO: Update SIMD_CDLTS for dtypes
 SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization',
-              'sgd4', 'elem_add_grad', 'sgd4d', 'elem_tanh', 'avg_pool']
+              'sgd4', 'elem_add_grad', 'sgd4d', 'elem_tanh', 'avg_pool', "elem_cast2d", "elem_cast"]
 POOL_OPS = ['max_pool', 'global_avg_pool', 'avg_pool']
 BINARY_SIMD = ['elem_add', 'sgd4d', 'elem_add_grad', 'global_average_pool_grad', 'relu_grad', 'elem_tanh_grad',
                'sgd4d', 'max_pool_grad', 'average_pool_grad']
 
-UNARY_SIMD = ['relu', 'max_pool', 'global_avg_pool', 'elem_tanh', 'avg_pool', 'elem_tanh2d']
+UNARY_SIMD = ['relu', 'max_pool', 'global_avg_pool', 'elem_tanh', 'avg_pool', 'elem_tanh2d', "elem_cast2d", "elem_cast"]
 NOOPS = ['coarse_flatten']
 STANDARD_SHAPE_OPS = ['elem_add', 'relu', 'global_avg_pool', 'batch_norm', 'sgd4d',
                       'max_pool_grad', 'global_average_pool_grad', 'relu_grad', 'elem_add_grad', 'elem_tanh_grad',
@@ -37,6 +37,7 @@ INTERMEDIATE_INPUT_INDICES = {
     "relu": [0],
     "elem_tanh": [0],
     "elem_tanh2d": [0],
+    "elem_cast2d": [0],
     "max_pool": [0],
     "avg_pool": [0],
     "global_avg_pool": [0],
@@ -84,6 +85,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     if template.op_name in ["conv", "conv_bias"]:
         template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
         template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+
+    if template.op_name == "max_pool":
+        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
+        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
 
     if template.op_name in SA_OPS:
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]

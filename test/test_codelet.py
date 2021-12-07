@@ -15,6 +15,22 @@ LAYER_DIR = f"{BENCH_DIR}/layers/srdfg"
 MODEL_DIR = f"{BENCH_DIR}/models/srdfg"
 
 
+def test_graph_stuff():
+    import networkx as nx
+    g = nx.MultiDiGraph()
+    g.add_edge("DRAM", "Scratch")
+    g.add_edge("Scratch", "DRAM")
+
+    g.add_edge("Scratch", "scalar")
+    g.add_edge("scalar", "Scratch")
+
+    g.add_edge("Scratch", "vector")
+    g.add_edge("vector", "Scratch")
+
+    g.add_edge("Scratch", "matrix")
+    g.add_edge("matrix", "Scratch")
+    print(list(nx.node_degree_xy(g)))
+
 def test_shape_dummy_op():
     with pm.Node(name="test_transpose") as graph:
         inp = pm.input(name="data", shape=(3,4,5,6))

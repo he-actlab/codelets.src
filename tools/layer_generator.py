@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Iterable
-from benchmarks.model_generator import create_custom_conv, create_custom_gemm, create_custom_matmul
+from benchmarks.model_generator import create_custom_conv, create_custom_gemm, create_custom_matmul, create_custom_layer
 from benchmarks.load_onnx_model import store_unique_model_layers
 from examples.genesys import compile_genesys_layer, GENESYS_CFG
+from examples.genesys.genesys_qmodels import compute_existing_values
 from torch import nn
 import torch
 import torch.nn.functional as F
@@ -17,6 +18,15 @@ OUT_DIR = Path(f"{Path(__file__).parent}/compilation_output")
 BENCH_DIR = Path(f"{Path(__file__).parent}/../benchmarks")
 MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
 LAYER_DIR = Path(f"{Path(__file__).parent}/../benchmarks/layers")
+NAME_MAPPING = {
+    "relu2d": "relu",
+    "elem_sigmoid": "sigmoid",
+    "gemm_no_bias": "gemm",
+    "elem_add": "add",
+    "elem_mul": "mul",
+    "elem_tanh": "tanh",
+    "elem_tanh2d": "tanh"
+}
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 import os
 import shutil
@@ -175,6 +185,62 @@ def compute_im2col_dims(params, oh, ow):
 def check_conv_params(n, ic, oc, ih, iw, k, stride, pad):
     layer = nn.Conv2d(ic, oc, k, stride, pad)
 
+def compile_custom_layer(model_name, layer_name, params, store_compile=False, dir_ext=None,
+                              partials=False, added_constr=None):
+    create_custom_layer(layer_name, params, True, True, False, False, fname=model_name)
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    if layer_name in NAME_MAPPING:
+        store_unique_model_layers(model_name, store_as_polymath=True,
+                                  name_mapping={NAME_MAPPING[layer_name]: layer_name})
+    else:
+        store_unique_model_layers(model_name, store_as_polymath=True)
+    batch_size = 1
+    tile_method = "min_tiles"
+
+    update_cfg_dtypes = False
+    tiling_path = None
+    store_tiling = False
+    store_json_output = False
+    json_output_filename = None
+    full_layer_name = f"{model_name}_{layer_name}"
+
+    # This function returns
+    program = compile_genesys_layer(full_layer_name,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              store_tiling=store_tiling,
+                              store_checkpoint=False,
+                              store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default',
+                            batch_size=batch_size,
+                            do_hoist_stage=True,
+                            do_tile_stage=True,
+                            print_config=False,
+                            tiling_search_algorithm=tile_method,
+                                    do_compile=False
+                                    # relocation_offsets=reloc_offsets
+                              )
+    if store_compile:
+        if added_constr:
+            program = update_tile_constraints(program, added_constr, layer_name)
+        dir_ext = dir_ext or ''
+        # program.compile(verbose=False, finalize_instructions=True)
+
+        store_outputs("cc_layer1", layer_name, False,
+                      1,
+                      False,
+                      None,
+                      use_random=True,
+                      dir_ext=f"{dir_ext}",
+                      actual_data=False,
+                      store_partials=partials, program=program)
+    return program
+
+
+
 def compile_custom_gemm_layer(m, n, p, model_name, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None):
     # model_name = f"resnet50_{name_postfix}"
@@ -218,7 +284,7 @@ def compile_custom_gemm_layer(m, n, p, model_name, store_compile=False, dir_ext=
                               )
     if store_compile:
         if added_constr:
-            program = update_tile_constraints(program, added_constr)
+            program = update_tile_constraints(program, added_constr, "gemm")
         dir_ext = dir_ext or ''
         program.compile(verbose=False, finalize_instructions=True)
 
@@ -272,12 +338,13 @@ def compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name, sto
                                     do_compile=False
                                     # relocation_offsets=reloc_offsets
                               )
-
     if store_compile:
         if added_constr:
-            program = update_tile_constraints(program, added_constr)
+            program = update_tile_constraints(program, added_constr, 'conv_bias')
+
         dir_ext = dir_ext or ''
-        program.compile(verbose=False, finalize_instructions=True)
+        # program.compile(verbose=False, finalize_instructions=True)
+        print(f"Codelet length: {len(program.codelets)}")
 
         store_outputs("cc_layer1", "conv", False,
                       1,
@@ -301,7 +368,6 @@ def get_onnx_shape(tensor_dict, val_name):
 
 def get_all_unique_layer_params(model_name, layer_name, input_shape_params, out_shape_params, param_names):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
-    print(model_path)
     model = onnx.load_model(model_path)
     tensor_dict = {i.name: i for i in model.graph.input}
     tensor_dict.update({o.name: o for o in model.graph.output})
@@ -529,7 +595,7 @@ def compile_from_existing_program(dirname, dir_ext, json_name, added_constraint=
                                         json_name)
     program._name = json_name
     if added_constraint:
-        program = update_tile_constraints(program, added_constraint)
+        program = update_tile_constraints(program, added_constraint, "conv_bias")
     program.compile(verbose=False, finalize_instructions=True)
 
     store_outputs(dirname, None, False,
@@ -542,17 +608,17 @@ def compile_from_existing_program(dirname, dir_ext, json_name, added_constraint=
                   store_partials=False, program=program)
     return program
 
-def update_tile_constraints(program, constraint, orig_constraint=None):
+def update_tile_constraints(program, constraint, layer_type, orig_constraint=None):
     # if not orig_constraint:
     #     program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint'] = constraint
     # else:
     #     program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint'] = f"{orig_constraint} and {constraint}"
-    if 'LEVEL1_hint' not in program.hag.codelets['conv_bias'].compilation_params.keys():
-        program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint'] = constraint
-    elif constraint not in program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint']:
-        orig = program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint']
+    if 'LEVEL1_hint' not in program.hag.codelets[layer_type].compilation_params.keys():
+        program.hag.codelets[layer_type].compilation_params['LEVEL1_hint'] = constraint
+    elif constraint not in program.hag.codelets[layer_type].compilation_params['LEVEL1_hint']:
+        orig = program.hag.codelets[layer_type].compilation_params['LEVEL1_hint']
         new_constraint = f"{orig} and {constraint}"
-        program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint'] = new_constraint
+        program.hag.codelets[layer_type].compilation_params['LEVEL1_hint'] = new_constraint
     return program
 
 def collect_existing_params(base_dir_name, base_test_name):
@@ -706,10 +772,6 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 constraint = unique_splits_constraints(param_constraints[key])
                 program.hag.codelets[cdlt_type].compilation_params[
                     'LEVEL1_hint'] = f"{orig_constraint} and {constraint}"
-            # if len(layer_splits) > 0:
-            #     assert orig_conv_constraint is not None
-            #     constraint = unique_splits_constraints(layer_splits)
-            #     program.hag.codelets[cdlt_type].compilation_params['LEVEL1_hint'] = f"{orig_constraint} and {constraint}"
 
             if verbose:
                 layer_param_str = ", ".join([f"{k} = {v}" for k, v in new_layer_params.items()])
@@ -791,46 +853,61 @@ if __name__ == "__main__":
     attr_params = []
     attr_params.append("pads")
     attr_params.append("strides")
-    # programs_with_params("resnet50_1_conv", {"IC": lambda x: x > 512, "OC": lambda x: x > 512})
-    # check_programs()
-    # find_duplicates("test_fpga", "resnet50_custom_conv")
-    # params, dir_count = collect_existing_params()
-    # collect_existing_params("resnet50_custom_conv_asic", "resnet50_custom_conv")
 
-    # layer_params = get_all_unique_layer_params("resnet50", "Conv", inp_params, out_params, attr_params)
-    # #
-    # params = scale_and_compile_layers("resnet50", "fpga_cases", layer_params, [], 1,
-    #                                   verbose=True, im2col_layers=[0], added_constraint=f"np.prod(list(splits.values())) <= 16")
-    # asic 6
-    n = 1
-    oc = 64*2
-    ic = 64*2
-    ih = 56*2
-    iw = 56*2
-    stride = 1
-    pad = 1
-    k = 3
-    model_name = "scaled_asic_cases6"
-    program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
-                                        store_compile=True,
-                                        partials=False, added_constr="splits['OW'] == 4")
-    # print(f"")
-    # for o in program.codelets[0].ops:
-    #     if o.op_type == "transfer":
-    #         o.test_contig_strides()
-    # m = 12544//16
-    # n = 160
-    # p = 64
-    # print(m)
-    # model_name = "gemm_small"
-    # program = compile_custom_gemm_layer(m, n, p, model_name, partials=False, store_compile=True)
+
+    # ### Test 18
+    # n = 1
+    # oc = 128
+    # ic = 128
+    # ih = 10
+    # iw = 10
+    # stride = 1
+    # pad = 0
+    # k = 1
+    # model_name = "fpga_8x8_test2"
+    # # # tiling = {"N": 1, "KH": 1, "KW": 1, "OH": 1, "OW": 1, "IC": 1, "OC": 1}
+    # # # # tcstr = f"splits != {tiling}"
+    # tcstr = f"splits['OC'] > 1 and splits['OH'] > 1 and splits['IC'] > 1"
+    # # # # # #
+    # program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
+    #                                     store_compile=True,
+    #                                     partials=True,
+    #                                     added_constr=tcstr
+    #                                     )
+
+
+    # model_name = "fpga_small"
+    #
+    # params = {"N": 1, "C": 64, "IH": 112//4, "IW": 112//4, "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
+    # program = compile_custom_layer(model_name, "maxpool", params, store_compile=True)
     # print(program.emit("operations_idx"))
-    # # print(f"\n\n")
-    # # for o in program.codelets[0].ops:
-    # #     if o.op_type == "transfer":
-    # #         o.test_contig_strides()
-    # #     else:
-    # #         print(f"{o}")
+
+
+
+    # model_name = "fpga_small"
+    # #
+    # params = {"N": 1, "C": 64, "H": 64, "W": 64}
+    # program = compile_custom_layer(model_name, "elem_add", params, store_compile=True)
+    # print(program.emit("operations_idx"))
+
+    # model_name = "fpga_sigmoid1"
+    #
+    # params = {"N": 1, "C": 64, "H": 64, "W": 64}
+    # program = compile_custom_layer(model_name, "sigmoid", params, store_compile=True)
     # print(program.emit("operations_idx"))
     # print(program.emit("string_final"))
+    base_name = "fpga4"
+    # tests = ["large", "medium", "small"]
+    # ops = ["relu", "elem_add", "elem_mul", "maxpool", "sigmoid"]
+    tests = ["small"]
+    ops = ["sigmoid"]
 
+    for o in ops:
+        for i, n in enumerate(tests):
+            off = i + 2
+            model_name = f"{base_name}_{n}"
+            if o == "maxpool":
+                params = {"N": 1, "C": 64, "IH": 112//(2**off), "IW": 112//(2**off), "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
+            else:
+                params = {"N": 1, "C": 64, "H": 256//(2**off), "W": 256//(2**off)}
+            program = compile_custom_layer(model_name, o, params, store_compile=True)

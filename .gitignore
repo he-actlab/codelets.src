@@ -126,10 +126,14 @@ mldata/
 
 # Scratch code
 test/scratch/
+test/*.txt
+test/*.zip
 test/compilation_output
 tools/compilation_output
+tools/neuroweaver
 benchmarks/compilation_output
 benchmarks/layers/srdfg
+benchmarks/*.srdfg
 #benchmarks/models/srdfg
 
 codelets/templates_ssa

@@ -1,35 +1,67 @@
 import argparse
-from onnxsim import simplify
 import polymath as pm
 import torch
 import torch.nn as nn
-# from onnx_utils import extract_model
-import onnx
-import torch.nn.functional as F
-import torchvision.datasets as datasets
-import torch.optim as optim
 import torchvision
-import torchvision.transforms as transforms
 from torchvision import models
-from torch.utils.data import DataLoader
 import io
 from pathlib import Path
 from onnxsim import simplify
 from collections import namedtuple
 from torchvision.ops._register_onnx_ops import _onnx_opset_version
 from torchvision.models.detection.image_list import ImageList
-from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionProposalNetwork
-from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
-from torchvision.models.detection.roi_heads import RoIHeads
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor, TwoMLPHead
-from torchvision.models.detection.mask_rcnn import MaskRCNNHeads, MaskRCNNPredictor
+import sys
 import onnx
 import csv
 CWD = Path(f"{__file__}").parent
 
 Targets = namedtuple('Targets', ['boxes', 'masks', 'labels'])
 
+LAYER_FNS = {
+    "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
+    "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
+    "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+                                   kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], bias=False),
+    "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+                                     kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
+                                     bias=True),
+    "elem_add": lambda params: torch.add,
+    "elem_mul": lambda params: torch.mul,
+    "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
+    "reduce_sum": lambda params: torch.sum,
+    "relu": lambda params: torch.relu,
+    "relu2d": lambda params: torch.relu,
+    "sigmoid": lambda params: torch.sigmoid,
+    "elem_sigmoid": lambda params: torch.sigmoid,
+    "elem_tanh": lambda params: torch.tanh,
+    "elem_tanh2d": lambda params: torch.tanh,
+    "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+    "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+    "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+}
+
+LAYER_INPUT_GEN = {
+    "gemm": lambda params: torch.randn(params['M'], params['N']),
+    "gemm_no_bias": lambda params: torch.randn(params['M'], params['N']),
+    "conv": lambda params: torch.randn(params['N'], params['IC'], params['IH'], params['IW']),
+    "conv_bias": lambda params: torch.randn(params['N'], params['IC'], params['IH'], params['IW']),
+    "elem_add": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                torch.randn(params['N'], params['C'], params['H'], params['W'])),
+    "elem_mul": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                torch.randn(params['N'], params['C'], params['H'], params['W'])),
+    "batch_norm": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
+    "reduce_sum": lambda params: torch.randn(params['N'], params['C']),
+    "relu": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
+    "sigmoid": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
+    "elem_sigmoid": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
+    "relu2d": lambda params: torch.randn(params['N'], params['C']),
+    "elem_tanh": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
+    "elem_tanh2d": lambda params: torch.randn(params['N'], params['C']),
+    "max_pool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
+    "maxpool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
+    "avg_pool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
+}
 
 def get_image_from_url(url, size=None):
     import requests
@@ -255,6 +287,28 @@ def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_
     output = model(input_var)
     model.eval()
     convert_torch_model(input_var, model, "custom_matmul", optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
+
+def create_custom_layer(layer_name, params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
+    class CustomLayer(nn.Module):
+        def __init__(self):
+            super(CustomLayer, self).__init__()
+            self.layer = LAYER_FNS[layer_name](params)
+
+        def forward(self, *args):
+            x = self.layer(*args)
+            return x
+
+    model = CustomLayer()
+
+    input_var = LAYER_INPUT_GEN[layer_name](params)
+
+    if not isinstance(input_var, tuple):
+        input_var = (input_var,)
+    output = model(*input_var)
+    model.eval()
+    if fname is None:
+        fname = f"custom_{layer_name}"
+    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
 
 def create_custom_gemm(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, fname=None):
 
@@ -971,59 +1025,62 @@ def main():
     # create_maskrcnn_part(split_part, optimize_model, training_mode, data_format_convert, to_polymath)
 
 if __name__ == "__main__":
-    # main()
-    create_resnet50(True, False, False, False,
-                    batch_size=1)
-    # argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
-    # argparser.add_argument('-b', '--benchmark', required=True,
-    #                        help='Name of the benchmark to create. One of "resnet18", "lenet')
-    #
-    # argparser.add_argument('-o', '--optimize_model', type=str2bool, nargs='?', default=True,
-    #                        const=True, help='Optimize the model')
-    #
-    # argparser.add_argument('-t', '--training_mode', type=str2bool, nargs='?', default=False,
-    #                        const=True, help='Whether or not the model is in training mode')
-    #
-    # argparser.add_argument('-bs', '--batch_size', type=int, default=1, help='The batch size for the model')
-    #
-    # argparser.add_argument('-df', '--data_format_convert', type=str2bool, nargs='?', default=False,
-    #                        const=True, help='Whether or not the model is in training mode')
-    #
-    #
-    # argparser.add_argument('-pm', '--to_polymath', type=str2bool, nargs='?', default=False,
-    #                        const=True, help='Whether or not the model should be converted to PolyMath')
-    # args = argparser.parse_args()
-    # if args.benchmark == "lenet":
-    #     create_lenet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
-    # elif args.benchmark == "lenetbn":
-    #     create_lenet_bn(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
-    # elif args.benchmark == "resnet18":
-    #     create_resnet18(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "resnet50":
-    #     create_resnet50(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "vgg16":
-    #     create_vgg16(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "efficientnet":
-    #     create_efficientnet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "alexnet":
-    #     create_alexnet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "inception":
-    #     create_inception(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "mobilenet":
-    #     create_mobilenet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "maskrcnn":
-    #     create_maskrcnn(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
-    #                     batch_size=args.batch_size)
-    # elif args.benchmark == "maskrcnn_simplify":
-    #     simplify_mrcnn_zoo(batch_size=args.batch_size)
-    # else:
-    #     raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
-    #                        f"\"lenet\", \"resnet18\".")
+    if sys.stdin and sys.stdin.isatty():
+
+
+        argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
+        argparser.add_argument('-b', '--benchmark', required=True,
+                               help='Name of the benchmark to create. One of "resnet18", "lenet')
+
+        argparser.add_argument('-o', '--optimize_model', type=str2bool, nargs='?', default=True,
+                               const=True, help='Optimize the model')
+
+        argparser.add_argument('-t', '--training_mode', type=str2bool, nargs='?', default=False,
+                               const=True, help='Whether or not the model is in training mode')
+
+        argparser.add_argument('-bs', '--batch_size', type=int, default=1, help='The batch size for the model')
+
+        argparser.add_argument('-df', '--data_format_convert', type=str2bool, nargs='?', default=False,
+                               const=True, help='Whether or not the model is in training mode')
+
+
+        argparser.add_argument('-pm', '--to_polymath', type=str2bool, nargs='?', default=False,
+                               const=True, help='Whether or not the model should be converted to PolyMath')
+        args = argparser.parse_args()
+        if args.benchmark == "lenet":
+            create_lenet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
+        elif args.benchmark == "lenetbn":
+            create_lenet_bn(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
+        elif args.benchmark == "resnet18":
+            create_resnet18(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "resnet50":
+            create_resnet50(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "vgg16":
+            create_vgg16(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "efficientnet":
+            create_efficientnet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "alexnet":
+            create_alexnet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "inception":
+            create_inception(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "mobilenet":
+            create_mobilenet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "maskrcnn":
+            create_maskrcnn(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
+                            batch_size=args.batch_size)
+        elif args.benchmark == "maskrcnn_simplify":
+            simplify_mrcnn_zoo(batch_size=args.batch_size)
+        else:
+            raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
+                               f"\"lenet\", \"resnet18\".")
+    else:
+        create_resnet50(True, False, False, False,
+                        batch_size=1)
 #

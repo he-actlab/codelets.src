@@ -358,26 +358,38 @@ class Operand:
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
     def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=False):
+
         if movement_type == 'up':
-            prev_level = level - 1
-        else:
             prev_level = level + 1
+        else:
+            prev_level = level - 1
+
         assert prev_level >= 0
         target_movement = None
+
         for dm in self.data_moves:
 
-            if cdlt.get_tile_level(dm.dst_node) == level:
-
+            if movement_type == 'up' and cdlt.get_tile_level(dm.dst_node) == level:
                 target_movement = dm
                 break
-            elif cdlt.get_tile_level(dm.src_node) == level:
-                assert cdlt.get_tile_level(dm.dst_node) == prev_level, f"{self.name}: {dm.src_node} -> {dm.dst_node}"
+            elif movement_type == 'down' and cdlt.get_tile_level(dm.src_node) == level and cdlt.get_tile_level(dm.dst_node) == prev_level:
+                target_movement = dm
+                break
+            elif movement_type == 'up' and self in cdlt.outputs and cdlt.get_tile_level(dm.src_node) == level:
                 target_movement = dm
                 break
 
         if target_movement is None:
+            dm_info = "\n".join([str({"src": dm.src_node,
+                                      "dst": dm.dst_node,
+                                      "dst_lvl": cdlt.get_tile_level(dm.dst_node),
+                                      "src_lvl": cdlt.get_tile_level(dm.src_node)
+                                      }) for dm in self.data_moves])
             raise RuntimeError(f"Could not find data movement for level {level} in operand "
-                               f"{self.name}")
+                               f"{self.name}: {self.data_path}\n"
+                               f"Movement type: {movement_type}\n"
+                               f"Loop id: {loop_id}\n"
+                               f"Data movements: {dm_info}")
 
         if cdlt.get_tile_level(target_movement.src_node) > cdlt.get_tile_level(target_movement.dst_node):
             node_key = target_movement.src_node
@@ -437,26 +449,20 @@ class Operand:
             num_tiles = []
             for i, o in enumerate(target_movement.domain_offsets()):
                 tile_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
-                if i in acc_dims and i != offset_val.dim:
+
+                if o.dim in acc_dims and o.dim != offset_val.dim:
                     num_tiles.append(self.tiling[other_key][self.shape_list[i]]//tile_sizes[i])
             tile_size = np.prod([1] + tile_sizes)
             tot_tiles = np.prod([1] + num_tiles)
-            # stride_val = np.prod(other_sizes)*(offset_val.stride)
-            # stride_val = np.prod(other_sizes)
-            # stride_val = np.prod(other_sizes)*(loop.stride)
             stride_val = tile_size*tot_tiles
-            # print(f"Other sizes: {other_sizes}, Dim: {loop_name}, Stride: {offset_val.stride}/{loop.stride}\n"
-            #       f"Width: {width}, total: {stride_val}, actual total: {offset_val.dim_size}, {offset_val.offset}\n"
-            #       f"Acc dims: {acc_dims}, Total tiles: {tot_tiles}, tile size: {tile_size}\n")
-
         else:
             stride_val = offset_val.stride
 
         if outer_loop and dst_node.name != "WBUF":
             loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
             loop = cdlt.op_map[loop_str]
             stride_val *= loop.stride
-
         return np.ceil(stride_val/width).astype(np.int64)
 
 

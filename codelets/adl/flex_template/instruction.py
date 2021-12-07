@@ -258,7 +258,9 @@ class Instruction(object):
     def evaluate_fields(self, fn_args: tuple, iter_args: dict):
         fn_args = fn_args + (self,)
         for f in self.fields:
+
             if not f.isset and not f.lazy_eval:
+                assert f.param_fn is not None
                 f.set_value_from_param_fn(*fn_args, **iter_args)
 
     def evaluate_lazy_fields(self, fn_args: tuple, iter_args: dict):

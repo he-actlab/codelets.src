@@ -45,6 +45,9 @@ class FlexTemplate:
         if self.flex_tabs is not None:
             self.flex_tabs.reset_fn_args(self.arg_names)
             # self.flex_tabs.add_fn_arg(name)
+    @property
+    def instr_length(self):
+        return self.base_instructions[0].instr_length
 
     def get_flex_arg_names(self, include_instruction=False):
         if include_instruction:
