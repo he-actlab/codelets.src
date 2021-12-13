@@ -2,8 +2,13 @@ import torch
 
 from .numpy_layers import *
 from pathlib import Path
-
+from collections import Iterable
 from .genesys_model_utils import get_resnet18, get_resnet50
+from .datagen_functions import binary, unary
+from . import FXP_CONFIGS
+from fxpmath import Fxp
+import fxpmath
+from codelets import Datatype
 import numpy as np
 import json
 
@@ -59,7 +64,6 @@ def shuffle_weights(w_orig, layer_type="conv"):
         assert layer_type in ["linear", "gemm"]
        # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
         for ic in range(0, w_dim[0], tile_n):
-
             for oc in range(0, w_dim[1], tile_m):
                 for n in range(tile_n):
                     for m in range(tile_m):
@@ -131,6 +135,7 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         assert layer_type == 'conv'
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
+
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
                 for kh in range(w_dim[0]):
@@ -180,9 +185,6 @@ def dram_layout(weights, print_debug=False):
 
 
 
-
-
-
 def compute_existing_values(json_path):
     with open(f"{json_path}", "r") as f:
         params = json.load(f)
@@ -199,14 +201,38 @@ def compute_existing_values(json_path):
     res = manual_conv_from_existing(inpt_data, wgt_data, out_data, stride)
     np.testing.assert_allclose(res, out_data)
 
+def compute_range(fxp_dtype):
+    cfg = FXP_CONFIGS[fxp_dtype]
+    if cfg['signed']:
+        upper_val = (1 << (cfg['n_word'] - 1)) - 1
+        lower_val = -upper_val - 1
+    else:
+        upper_val = (1 << cfg['n_word']) - 1
+        lower_val = 0
 
-def numpy_datagen(shape, bitwidth, scale=2):
-    low = -(1 << (bitwidth // scale - 1))
-    high = (1 << (bitwidth // scale - 1)) - 1
+    upper = upper_val / 2.0 ** cfg['n_frac']
+    lower = lower_val / 2.0 ** cfg['n_frac']
+    return lower, upper
 
-    return np.random.randint(low=low, high=high,
-                               size=shape,
-                               dtype=np.int64)
+def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype=None):
+    if fxp_dtype:
+        low, high = compute_range(fxp_dtype)
+    else:
+        low = -(1 << (bitwidth // scale - 1))
+        high = (1 << (bitwidth // scale - 1)) - 1
+    v = np.random.randint(low=low, high=high,
+                          size=shape,
+                          dtype=np.int64)
+    if fxp_dtype:
+
+        v = Fxp(v * np.random.random(1),
+                **FXP_CONFIGS[fxp_dtype]
+                )
+    else:
+        if cast_to:
+            v = v.astype(cast_to)
+
+    return v
 
 
 def generate_random_values(cdlt, model_name, layer_name, **kwargs):
@@ -237,17 +263,9 @@ def generate_random_values_binary(cdlt, model_name, layer_name,
     dram_tiling = tiling_parameters[1]
 
     if use_random:
-        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits())
-        input2 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits())
-        # low = -(1 << (cdlt.inputs[0].dtype.bits()//2 - 1))
-        # high = (1 << (cdlt.inputs[0].dtype.bits()//2 - 1)) - 1
+        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}")
+        input2 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}")
 
-        # input1 = np.random.randint(low=low, high=high,
-        #                            size=input_dims,
-        #                            dtype=np.int64)
-        # input2 = np.random.randint(low=low, high=high,
-        #                            size=input_dims,
-        #                            dtype=np.int64)
     else:
         input1 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
         input2 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
@@ -259,56 +277,85 @@ def generate_random_values_binary(cdlt, model_name, layer_name,
         input2 = input2.reshape(input_dims)
 
     with open(f'{base_path}/input1_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in input1.flatten().tolist()]))
+        if isinstance(input1, Fxp):
+            f.write('\n'.join([str(i) for i in input1.val.flatten().tolist()]))
+        else:
+            f.write('\n'.join([str(i) for i in input1.flatten().tolist()]))
 
     with open(f'{base_path}/input2_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in input2.flatten().tolist()]))
+        if isinstance(input2, Fxp):
+            f.write('\n'.join([str(i) for i in input2.val.flatten().tolist()]))
+        else:
+            f.write('\n'.join([str(i) for i in input2.flatten().tolist()]))
 
     if format.lower() == "nhwc" and len(input1.shape) == 4:
-        input1 = input1.transpose(0, 3, 1, 2)
-        input2 = input2.transpose(0, 3, 1, 2)
+        input1 = input1.transpose((0, 3, 1, 2))
+        input2 = input2.transpose((0, 3, 1, 2))
 
-    if "add" in layer_name:
-        ref_fn = lambda a, b: a + b
-        # torch_ref = F.ad
-    elif "sub" in layer_name:
-        ref_fn = lambda a, b: a - b
-    elif "div" in layer_name:
-        ref_fn = lambda a, b: a / b
-    elif "mul" in layer_name:
-        ref_fn = lambda a, b: a * b
-    else:
-        raise RuntimeError
-    output = ref_fn(input1, input2)
+
+    output = binary(input1, input2, layer_name, f"{cdlt.inputs[0].dtype}")
     if len(output.shape) == 4:
-        output = output.transpose(0, 2, 3, 1)
+        output = output.transpose((0, 2, 3, 1))
 
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
-    # np.testing.assert_allclose(output, test_output)
-    output = output.clip(np.iinfo(np.int32).min, np.iinfo(np.int32).max)
-    # np.testing.assert_allclose(toutput, output)
-    output = output.flatten().tolist()
-
-    output = [str(x) for x in output]
-
     # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:
-        f.write('\n'.join(output))
+        if isinstance(output, Fxp):
+            f.write('\n'.join([str(i) for i in output.val.flatten().tolist()]))
+        else:
+            f.write('\n'.join([str(i) for i in output.flatten().tolist()]))
 
-def sigmoid_pw(x):
+def sigmoid_pw(xval):
+
+    if not isinstance(xval, Iterable):
+        xval = Fxp([xval], like=xval)
+
+    def inner(x):
+        if x < 0:
+            slope = -1.
+            start = 1.
+        elif (x >= 0) and (x < 1.0):
+            slope = 1/4.
+            start = 0.5
+        elif (x >= 1.0) and (x < 2.375):
+            slope = 1/8.
+            start = 0.625
+        elif (x >= 2.375) and (x < 5.0):
+            slope = 1 / 32.
+            start = 0.84375
+        else:
+            return Fxp(1.0, like=xval)
+
+        return slope*x + start
+
+    res = list(map(inner, xval.flatten().tolist()))
+    res = Fxp(res, like=xval)
+    res.val = res.val.reshape(xval.shape)
+    return res
+
+def test_sigmoid_pw(xval):
+
+    if not isinstance(xval, Iterable):
+        xval = Fxp([xval], like=xval, overflow='saturate')
+
     def inner(x, slope, start):
-        return x*slope + start
-    conds = [x < 1.0,
-             (x < 2.375),
-             (x < 5.0) ,
-             (x >= 5.0) ]
-    fns = [lambda x: inner(x, 1/4, 0.5),
+        return slope*x + start
+    conds = [xval < 0,
+             (xval >= 0) and (xval < 1.0),
+             (xval >= 1.0) and (xval < 2.375),
+             (xval >= 2.375) and (xval < 5.0),
+             (xval >= 5.0)
+             ]
+    fns = [lambda x: inner(x, -1.0, 1.0),
+            lambda x: inner(x, 1/4, 0.5),
            lambda x: inner(x, 1/8, 0.5),
            lambda x: inner(x, 1/32, 0.84375),
-           1.0]
-    return np.piecewise(x, conds, fns)
+           lambda x: Fxp(1.0, like=xval, overflow='saturate')
+           ]
+    res = np.piecewise(xval, conds, fns)
+    return res
 
 def generate_random_values_unary(cdlt, model_name, layer_name,
                                 base_path=".",
@@ -324,12 +371,7 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
     dram_tiling = tiling_parameters[1]
 
     if use_random:
-        # low = -(1 << (cdlt.inputs[0].dtype.bits() - 1))
-        # high = (1 << (cdlt.inputs[0].dtype.bits() - 1)) - 1
-        # input1 = np.random.randint(low=low, high=high,
-        #                            size=input_dims,
-        #                            dtype=np.int64)
-        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits())
+        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}")
 
     else:
         input1 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
@@ -339,35 +381,29 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
         input1 = input1.reshape(input_dims)
 
     with open(f'{base_path}/input1_raw.txt', 'w') as f:
-        f.write('\n'.join([str(i) for i in input1.flatten().tolist()]))
+        if isinstance(input1, Fxp):
+            f.write('\n'.join([str(i) for i in input1.val.flatten().tolist()]))
+        else:
+            f.write('\n'.join([str(i) for i in input1.flatten().tolist()]))
+
+
 
     if format.lower() == "nhwc" and len(input1.shape) == 4:
-        input1 = input1.transpose(0, 3, 1, 2)
+        input1 = input1.transpose((0, 3, 1, 2))
 
-    if "relu" in layer_name:
-        ref_fn = lambda a: np.maximum(a, 0, a)
-    elif "tanh" in layer_name:
-        ref_fn = lambda a: np.tanh(a)
-    elif "sigmoid" in layer_name:
-        # ref_fn = lambda a: 1/(1 + np.exp(-a))
-        ref_fn = sigmoid_pw
-    else:
-        raise RuntimeError
-    output = ref_fn(input1)
+    output = unary(input1, layer_name, f"{cdlt.inputs[0].dtype}")
+
     if len(output.shape) == 4:
-        output = output.transpose(0, 2, 3, 1)
+        output = output.transpose((0, 2, 3, 1))
 
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
-    # np.testing.assert_allclose(output, test_output)
-    output = output.clip(np.iinfo(np.int32).min, np.iinfo(np.int32).max)
-    output = output.flatten().tolist()
-    output = [str(x) for x in output]
-
-    # Write outputs to file
     with open(f'{base_path}/output.txt', 'w') as f:
-        f.write('\n'.join(output))
+        if isinstance(output, Fxp):
+            f.write('\n'.join([str(i) for i in output.val.flatten().tolist()]))
+        else:
+            f.write('\n'.join([str(i) for i in output.flatten().tolist()]))
 
 def generate_random_values_maxpool(cdlt, model_name, layer_name,
                                 base_path=".",
@@ -411,7 +447,7 @@ def generate_random_values_maxpool(cdlt, model_name, layer_name,
         f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
 
     if format.lower() == "nhwc":
-        input = input.transpose(0, 3, 1, 2)
+        input = input.transpose((0, 3, 1, 2))
 
     # test_output = manual_conv(input, weights, cdlt, layout="nchw")
     # tout = F.max_pool2d(torch)
@@ -421,13 +457,13 @@ def generate_random_values_maxpool(cdlt, model_name, layer_name,
     # tout = F.max_pool2d(torch.from_numpy(input.astype(np.float64)), stride=stride_y,
     #                     kernel_size=KH, padding=pad)
 
-    output = output.transpose(0, 2, 3, 1)
+    output = output.transpose((0, 2, 3, 1))
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
     # np.testing.assert_allclose(output, test_output)
     ## CLIP OUTPUTS
-    output = output.clip(np.iinfo(np.int32).min, np.iinfo(np.int32).max)
+    # output = output.clip(np.iinfo(np.int32).min, np.iinfo(np.int32).max)
     output = output.flatten().tolist()
     output = [str(x) for x in output]
 
@@ -485,8 +521,8 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         assert weights.shape == weight_dims
         assert output.shape == out_dims
     elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1)
-        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1)
+        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, cast_to=np.int8)
+        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1, cast_to=np.int8)
 
         # input = np.random.randint(low=-128, high=127, size=input_dims, dtype=np.int8)
         # weights = np.random.randint(low=-128, high=127, size=weight_dims, dtype=np.int8)
