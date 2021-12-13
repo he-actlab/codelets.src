@@ -103,6 +103,12 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
     weight_symbols = list(cdlt.inputs[1].shape_symbols.keys())
     w_dim = weights.shape
     loop_order = [i for i in cdlt.get_loop_order() if i in weight_symbols]
+    bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    systolic_array_row_size = weights.dtype.itemsize * tile_m
+    systolic_array_column_size = weights.dtype.itemsize * tile_n
+    interleave_factor = bw // systolic_array_column_size
+    assert interleave_factor >= 1
+    assert tile_n == tile_m
     if layer_type == 'gemm':
 
         # big_tile_size_oc = dram_tiling['P']
@@ -116,38 +122,42 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         w_dim_inner = weight_symbols.index(loop_order[1])
         big_tile_size_ic = dram_tiling[loop_order[1]]
 
+        assert tile_n * interleave_factor <= big_tile_size_oc
         for big_tile_oc in range(0, w_dim[w_dim_outer], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[w_dim_inner], big_tile_size_ic):  # Tile over IC
                 for ic in range(0, big_tile_size_ic, tile_m):  # IC
-                    for oc in range(0, big_tile_size_oc, tile_n):  # OC
+                    for oc in range(0, big_tile_size_oc, tile_n * interleave_factor):  # OC
                         for n in range(tile_n):  # Rows
                             for m in range(tile_m):  # Columns
                                 # src_coord = (big_tile_ic + ic + m, big_tile_oc + oc + n)
-                                src_coord = [None, None]
-                                src_coord[w_dim_outer] = big_tile_oc + oc + n
-                                src_coord[w_dim_inner] = big_tile_ic + ic + m
-                                src_coord = tuple(src_coord)
-                                dst_coord = np.unravel_index([len(result)], weights.shape)
-                                final_coords[rev_coords[src_coord]] = dst_coord
-                                # result.append(weights[big_tile_ic + ic + m][big_tile_oc + oc + n])
-                                result.append(weights[src_coord[0]][src_coord[1]])
+                                for k in range(interleave_factor):
+                                    src_coord = [None, None]
+                                    src_coord[w_dim_outer] = big_tile_oc + oc + n + (k*tile_n)
+                                    src_coord[w_dim_inner] = big_tile_ic + ic + m
+                                    src_coord = tuple(src_coord)
+                                    dst_coord = np.unravel_index([len(result)], weights.shape)
+                                    final_coords[rev_coords[src_coord]] = dst_coord
+                                    # result.append(weights[big_tile_ic + ic + m][big_tile_oc + oc + n])
+                                    result.append(weights[src_coord[0]][src_coord[1]])
     else:
         assert layer_type == 'conv'
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
 
+        assert tile_n * interleave_factor <= big_tile_size_oc
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
                 for kh in range(w_dim[0]):
                     for kw in range(w_dim[1]):
                         for ic in range(0, big_tile_size_ic, tile_m):  # IC
-                            for oc in range(0, big_tile_size_oc, tile_n):  # OC
+                            for oc in range(0, big_tile_size_oc, tile_n*interleave_factor):  # OC
                                 for n in range(tile_n):  # Rows
                                     for m in range(tile_m):  # Columns
-                                        src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n)
-                                        dst_coord = np.unravel_index([len(result)], weights.shape)
-                                        final_coords[rev_coords[src_coord]] = dst_coord
-                                        result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n])
+                                        for k in range(interleave_factor):
+                                            src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n + (k*tile_n))
+                                            dst_coord = np.unravel_index([len(result)], weights.shape)
+                                            final_coords[rev_coords[src_coord]] = dst_coord
+                                            result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)])
     absolute_coords = {np.ravel_multi_index(k, weights.shape): np.ravel_multi_index(v, weights.shape) for k,v in final_coords.items()}
     return np.array(result, weights.dtype)
 
