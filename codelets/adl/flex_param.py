@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 # END Module imports
 
-IMPORT_VALS = ["import numpy as np"]
+IMPORT_VALS = ["import numpy as np", "from fxpmath import Fxp"]
 flex_param_cnt = count()
 
 @dataclass
@@ -99,7 +99,7 @@ class FlexParam:
             raise RuntimeError(f"Error while trying to execute param func:\n"
                                f"Func: {self.name}: {self.fn_body_str}\n"
                                f"Arg names: {self.fn_args}\n"
-                               f"Args: {fn_args}\n"
+                               # f"Args: {fn_args}\n"
                                f"Error: {e}\n"
                                f"")
 

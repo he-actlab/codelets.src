@@ -74,7 +74,7 @@ class Field(object):
     def value(self, val):
         bin_rep = np.binary_repr(val, self.bitwidth)
         if len(bin_rep) != self.bitwidth:
-            raise RuntimeError(f"Field {self.field_name} has too many bits:\n"
+            raise RuntimeError(f"Field {self.field_name} with name {self.param_fn.name} has too many bits:\n"
                                f"Value: {val}\n"
                                f"Required bits: {len(bin_rep)}\n"
                                f"Field bits: {self.bitwidth}")

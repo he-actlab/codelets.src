@@ -41,3 +41,9 @@ class Datatype:
 
     def bits(self):
         return self.bitwidth
+
+    def nfrac(self):
+        return self.fractional
+
+    def nint(self):
+        return self.exp

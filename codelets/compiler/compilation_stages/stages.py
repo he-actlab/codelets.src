@@ -58,7 +58,7 @@ TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
-FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW']]
+FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'], ["C", "ONE", "KH", "KW"]]
 
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
@@ -82,7 +82,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     # if template.op_name == "mean_var":
     #     template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
 
-    if template.op_name in ["conv", "conv_bias"]:
+    if template.op_name in ["conv", "conv_bias", "depthwise_conv"]:
         template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
         template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
@@ -103,16 +103,35 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         updated_dims = []
         for idx, i in enumerate(template.inputs):
-            if i.shape_list_names[-1] not in updated_dims:
-                dim = i.shape_list[-1]
-                dummy_dim = template.node.inputs[idx].shape[-1]
+            if "IC" in i.shape_list_names:
+                dim = "IC"
+            elif "OC" in i.shape_list_names:
+                dim = "OC"
+            elif "C" in i.shape_list_names:
+                dim = "C"
+            else:
+                continue
+            dim_idx = i.shape_list_names.index(dim)
+            if i.shape_list_names[dim_idx] not in updated_dims:
+                dim = i.shape_list[dim_idx]
+                dummy_dim = template.node.inputs[idx].shape[dim_idx]
                 template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
                 updated_dims.append(dim.name)
 
         for idx, o in enumerate(template.outputs):
-            if o.shape_list_names[-1] not in updated_dims:
-                dim = o.shape_list[-1]
-                dummy_dim = template.node.outputs[idx].shape[-1]
+            if "IC" in o.shape_list_names:
+                dim = "IC"
+            elif "OC" in o.shape_list_names:
+                dim = "OC"
+            elif "C" in o.shape_list_names:
+                dim = "C"
+            else:
+                continue
+            dim_idx = o.shape_list_names.index(dim)
+
+            if o.shape_list_names[dim_idx] not in updated_dims:
+                dim = o.shape_list[dim_idx]
+                dummy_dim = template.node.outputs[idx].shape[dim_idx]
                 template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
                 updated_dims.append(dim.name)
     return template
@@ -220,7 +239,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
     outer_loop_map = {}
     loop_replacement_map = {}
-
     for start, end in bands:
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
@@ -232,6 +250,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             op_band = cdlt.ops[start: end + 1]
             offset = (end - start)
             num_splits = 0
+
             for op in op_band:
                 i = cdlt.ops.index(op)
                 target_idx = offset + i
@@ -247,6 +266,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     cdlt.insert_op(op, target_idx + num_splits - 1)
                     continue
                 elif op.op_type == 'transfer':
+
                     if len(op.path) <= 2:
                         dep_mapping[op.op_str] = op.op_str
                         outgoing = False
@@ -258,9 +278,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                             cdlt.insert_op(op, target_idx + num_splits - 1)
 
                         op.operand.update_transfer_access(op, outgoing=outgoing)
-
                         continue
                     elif cdlt.get_tile_level(op.path[0]) > cdlt.get_tile_level(op.path[1]):
+
                         outgoing = True
                         inner_path, outer_path = op.path[split: split + 2], op.path[split + 1:]
                         op._path = outer_path
@@ -280,7 +300,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                         # Update outer op
                         op._dependencies.append(inner_op.op_str)
                         cdlt.insert_op(op, target_idx)
+
                     else:
+
                         outgoing = False
                         outer_path, inner_path = op.path[split: split + 2], op.path[split + 1:]
                         op._path = outer_path
@@ -298,6 +320,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                         inner_idx = target_idx + 1
                         dep_mapping[op.op_str] = inner_op.op_str
+
 
                     num_splits += 1
 
@@ -341,6 +364,8 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
 
                     if cdlt.loop_param_map[op.op_str] not in outer_loop_map:
                         outer_loop_map[cdlt.loop_param_map[op.op_str]] = op.op_str
+
+
                 else:
                     assert op.op_type == 'compute', f"Invalid op type: {op.op_type}"
                     dep_mapping[op.op_str] = op.op_str
@@ -359,10 +384,16 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     num_splits += 1
                 cdlt.insert_op(inner_op, inner_idx)
                 if op.op_type == "loop" and outer_loop_map[cdlt.loop_param_map[op.op_str]] != op.op_str:
+
                     old_op = cdlt.ops.pop(cdlt.ops.index(op))
                     loop_replacement_map[old_op.op_str] = outer_loop_map[cdlt.loop_param_map[op.op_str]]
 
+
+
     for op in cdlt.ops:
+        if op.op_type == "config" and op.start_or_finish == "end":
+            if any([cdlt.ops[i].op_type != "config" for i in range(cdlt.ops.index(op) + 1, len(cdlt.ops))]):
+                cdlt.ops.insert(len(cdlt.ops)-1, cdlt.ops.pop(cdlt.ops.index(op)))
         new_deps = []
         for d in op.dependencies:
             if d in loop_replacement_map:
@@ -370,6 +401,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
             else:
                 new_deps.append(d)
         op._dependencies = new_deps
+
     for o in cdlt.operands:
         if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
             last_move = o.data_moves[-1]

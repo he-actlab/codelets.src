@@ -258,18 +258,12 @@ class CodeletProgram(object):
     def get_template_through_mapping(self, node):
         shapes = [len(i.shape) for i in node.inputs]
         shapes += [len(o.shape) for o in node.outputs]
-        print(len(self.codelet_templates.keys()))
         for tname, t in self.codelet_templates.items():
-            # if "elem_cast" in tname:
-            #     print(self.get_template_shapes(t))
-            if "elem_cast" in node.op_name:
-                print(f"{tname}")
             if node.op_name in tname and shapes == self.get_template_shapes(t):
                 return t
         raise RuntimeError(f"Node: {node.op_name}, Shapes: {shapes}")
 
     def instantiate_codelet(self, node):
-        print(self.get_template_through_mapping(node))
         # cdlt_template = self.codelet_templates[node.op_name]
         cdlt_template = self.get_template_through_mapping(node)
         assert isinstance(cdlt_template, CodeletTemplate), f"Invalid template: {cdlt_template}"
@@ -715,6 +709,7 @@ class CodeletProgram(object):
             # TODO: Check if certain optimizations are necessary
             codelets[n.name] = cdlt
 
+
         if verbose:
             print(f"\nCodelet instantiation took {time() - stage_start}")
         return codelets
@@ -738,6 +733,7 @@ class CodeletProgram(object):
                     if verbose:
                         print(f"Applying stage {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
                     cdlt = fn.run(self, n, cdlt)
+
 
                 codelets[n.name] = cdlt
 

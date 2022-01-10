@@ -5,6 +5,8 @@ from . import TEMPLATE_CLASS_ARG_MAP
 from itertools import count
 from typing import ClassVar
 import inspect
+from codelets import FXP_CONFIGS
+from fxpmath import Fxp
 
 
 from codelets.adl.flex_param import FlexParam
@@ -22,6 +24,7 @@ class DummyOp:
     template_types: List[str]
     flex_param: FlexParam
     obj_instance: Any = field(default=None)
+    dtype: str = field(default=None)
     op_count: ClassVar[int] = 0
 
     def __post_init__(self):
@@ -69,12 +72,19 @@ class DummyOp:
         return self
 
     def evaluate(self, instance_args):
+
         obj_instances = []
         for t in self.template_types:
             if instance_args[t] not in obj_instances:
                 obj_instances.append(instance_args[t])
         obj_instances = tuple(obj_instances)
-        return self.flex_param.evaluate_fn(*obj_instances, force_evaluate=True)
+
+        if self.dtype is not None:
+            assert isinstance(self.dtype, str)
+            self.flex_param.dtype_cast_func = lambda x: Fxp(x, **FXP_CONFIGS[self.dtype]).val.item()
+        res = self.flex_param.evaluate_fn(*obj_instances, force_evaluate=True)
+
+        return res
 
     def __mul__(self, other):
         return dummy_op(other, self, '*')
@@ -98,6 +108,9 @@ class DummyOp:
         return dummy_op(other, self, '/')
 
     def __rdiv__(self, other):
+        return dummy_op(other, self, '/', reflected=True)
+
+    def __rtruediv__(self, other):
         return dummy_op(other, self, '/', reflected=True)
 
     def __floordiv__(self, other):
@@ -157,21 +170,25 @@ def _(op1: DummyOp, op2: DummyOp, op_str: str, reflected=False):
     template_type_str = list(set(op1.template_types + op2.template_types))
     arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
     if reflected:
-        fp_name = f"({op1.name}{op_str}{op2.name})"
-        fn_str = f"({op1.flex_param.fn_body_str}{op_str}{op2.flex_param.fn_body_str})"
+        lhs = op1
+        rhs = op2
     else:
-        fp_name = f"({op2.name}{op_str}{op1.name})"
-        fn_str = f"({op2.flex_param.fn_body_str}){op_str}({op1.flex_param.fn_body_str})"
-
+        lhs = op2
+        rhs = op1
+    fp_name = f"({lhs.name}{op_str}{rhs.name})"
+    fn_str = f"({lhs.flex_param.fn_body_str}{op_str}{rhs.flex_param.fn_body_str})"
     fp = FlexParam(fp_name, arg_str, fn_str)
     return DummyOp(template_type_str, fp)
 
 @dummy_op.register(int)
 def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
     if reflected:
-        new_code = f"({op1}{op_str}{op2.flex_param.fn_body_str})"
+        lhs = op1
+        rhs = op2.flex_param.fn_body_str
     else:
-        new_code = f"({op2.flex_param.fn_body_str}{op_str}{op1})"
+        lhs = op2.flex_param.fn_body_str
+        rhs = op1
+    new_code = f"({lhs}{op_str}{rhs})"
     op2.flex_param.update_fn_code(new_code)
     return op2
 

@@ -10,3 +10,4 @@ pytools
 indexed
 onnx
 tqdm
+fxpmath

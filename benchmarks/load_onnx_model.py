@@ -1,6 +1,7 @@
 import argparse
 from onnx import ModelProto, GraphProto
 import onnx
+from onnx import helper
 from pathlib import Path
 import polymath as pm
 import numpy as np
@@ -53,6 +54,10 @@ def store_unique_model_layers(model_name, store_as_polymath=False, name_mapping=
     layers = {}
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
+    tensor_dict = {i.name: i for i in model.graph.input}
+    tensor_dict.update({o.name: o for o in model.graph.output})
+    tensor_dict.update({v.name: v for v in model.graph.value_info})
+
     for n in model.graph.node:
         if n.op_type not in layers:
             inputs = n.input
@@ -63,6 +68,17 @@ def store_unique_model_layers(model_name, store_as_polymath=False, name_mapping=
             op_name = n.op_type.lower()
             if op_name in name_mapping:
                 op_name = name_mapping[op_name]
+            if n.op_type == "Conv":
+                is_dw = False
+                inp_shape = get_onnx_shape(tensor_dict, n.input[0])
+                for a in n.attribute:
+                    if a.name == "group" and helper.get_attribute_value(a) == inp_shape[1]:
+                        is_dw = True
+                        break
+
+                if is_dw:
+                    op_name = f"depthwise_{op_name}"
+
             layer_path = f"{LAYER_DIR}/{model_name}_{op_name}.onnx"
             onnx.utils.extract_model(model_path, layer_path, inputs, outputs)
             if store_as_polymath:

@@ -26,12 +26,16 @@ LAYER_FNS = {
     "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
                                      kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
                                      bias=True),
+    "clip": lambda params: torch.clamp,
+    "elem_clip": lambda params: torch.clamp,
     "elem_add": lambda params: torch.add,
     "elem_mul": lambda params: torch.mul,
+    "elem_sub": lambda params: torch.sub,
     "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
     "reduce_sum": lambda params: torch.sum,
     "relu": lambda params: torch.relu,
     "relu2d": lambda params: torch.relu,
+    "leaky_relu": lambda params: torch.nn.LeakyReLU(),
     "sigmoid": lambda params: torch.sigmoid,
     "elem_sigmoid": lambda params: torch.sigmoid,
     "elem_tanh": lambda params: torch.tanh,
@@ -39,28 +43,40 @@ LAYER_FNS = {
     "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
     "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
     "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+    "global_avg_pool": lambda params: nn.AdaptiveAvgPool2d((1, 1)),
+    "depthwise_conv": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
+                                   kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], groups=params['C'], bias=False),
 }
 
 LAYER_INPUT_GEN = {
-    "gemm": lambda params: torch.randn(params['M'], params['N']),
-    "gemm_no_bias": lambda params: torch.randn(params['M'], params['N']),
-    "conv": lambda params: torch.randn(params['N'], params['IC'], params['IH'], params['IW']),
-    "conv_bias": lambda params: torch.randn(params['N'], params['IC'], params['IH'], params['IW']),
-    "elem_add": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                torch.randn(params['N'], params['C'], params['H'], params['W'])),
-    "elem_mul": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                torch.randn(params['N'], params['C'], params['H'], params['W'])),
-    "batch_norm": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
-    "reduce_sum": lambda params: torch.randn(params['N'], params['C']),
-    "relu": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
-    "sigmoid": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
-    "elem_sigmoid": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
-    "relu2d": lambda params: torch.randn(params['N'], params['C']),
-    "elem_tanh": lambda params: torch.randn(params['N'], params['C'], params['H'], params['W']),
-    "elem_tanh2d": lambda params: torch.randn(params['N'], params['C']),
-    "max_pool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
-    "maxpool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
-    "avg_pool": lambda params: torch.randn(params['N'], params['C'], params['IH'], params['IW']),
+    "gemm": lambda params: (torch.randn(params['M'], params['N']), {}),
+    "clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                            {"min": params['minval'], "max": params['maxval']}),
+    "elem_clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                            {"min": params['minval'], "max": params['maxval']}),
+    "gemm_no_bias": lambda params: (torch.randn(params['M'], params['N']), {}),
+    "conv": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+    "depthwise_conv": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+    "conv_bias": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+    "elem_add": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+    "elem_mul": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+    "elem_sub": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+    "batch_norm": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "reduce_sum": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "leaky_relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+    "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+    "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+    "avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+    "global_avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
 }
 
 def get_image_from_url(url, size=None):
@@ -290,17 +306,17 @@ def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_
 
 def create_custom_layer(layer_name, params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
     class CustomLayer(nn.Module):
-        def __init__(self):
+        def __init__(self, kwargs):
+            self.kwargs = kwargs
             super(CustomLayer, self).__init__()
             self.layer = LAYER_FNS[layer_name](params)
 
         def forward(self, *args):
-            x = self.layer(*args)
+            x = self.layer(*args, **self.kwargs)
             return x
+    input_var, kwargs = LAYER_INPUT_GEN[layer_name](params)
+    model = CustomLayer(kwargs)
 
-    model = CustomLayer()
-
-    input_var = LAYER_INPUT_GEN[layer_name](params)
 
     if not isinstance(input_var, tuple):
         input_var = (input_var,)

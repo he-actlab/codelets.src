@@ -406,7 +406,6 @@ def compile_genesys_layer(layer_file,
 
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
     graph = run_srdfg_passes(graph, train=False, batch_size=batch_size, verbose=verbose)
-
     if load_genesys_filename is None:
         genesys = define_genesys(def_cfg)
     else:
@@ -424,9 +423,10 @@ def compile_genesys_layer(layer_file,
         pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
-    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
-                                 dependencies=["template_layout_pass"])
+                                 )
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
@@ -538,9 +538,10 @@ def compile_extracted_genesys_layer(model_name,
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
-    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
                                  dependencies=["template_layout_pass"])
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})

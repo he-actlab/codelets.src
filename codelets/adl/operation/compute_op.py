@@ -68,9 +68,21 @@ class Compute(Operation):
                 count += 1
         return count
 
+
     @property
     def unique_operand_locations(self) -> List[str]:
         return list(sorted(list(set([self.get_operand_location(o.name) for o in self.operands]))))
+
+    @property
+    def operands_by_unique_location(self):
+        locs = []
+        operands = []
+        for i, o in enumerate(self.operands):
+            loc = self.get_operand_location(o.name)
+            if loc not in locs:
+                locs.append(loc)
+                operands.append(o)
+        return operands
 
     def get_operand(self, name):
         op = None
@@ -80,6 +92,7 @@ class Compute(Operation):
                 break
         assert op is not None
         return op
+
 
     def get_operand_location(self, operand_name: str) -> str:
         op = self.get_operand(operand_name)

@@ -222,7 +222,7 @@ class CodeletTemplate(object):
     def __repr__(self):
         return f"codelet_template {self.op_name}{self.codelet_id}"
 
-    def dummy_op(self, key: str, op: DummyOp, check_key=True):
+    def dummy_op(self, key: str, op: DummyOp, check_key=True, dtype=None):
         if key in self.dummy_ops:
             if check_key:
                 raise KeyError(f"Key {key} already exists in dummy ops:\n"
@@ -232,6 +232,7 @@ class CodeletTemplate(object):
                 return self.dummy_ops[key]
         assert isinstance(op, DummyOp)
         op.flex_param.name = key
+        op.dtype = dtype
         self._dummy_ops[key] = op
         return op
 
@@ -331,6 +332,8 @@ class CodeletTemplate(object):
         for key, do in self.dummy_ops.items():
             if not do.flex_param.is_set():
                 do.evaluate(instance_args)
+
+
             if key not in cdlt.required_params:
                 cdlt.add_required_param(key, do.value)
 

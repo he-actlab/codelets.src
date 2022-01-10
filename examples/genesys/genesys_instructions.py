@@ -165,12 +165,12 @@ def create_dtype_cfg_ops():
 
     DTYPE_MAP = {k: i for i, k in enumerate(DTYPE_CFG_NAMES)}
     dtype = Field("DTYPE", 4, value_names=DTYPE_MAP)
-    null_f = Field("NULL", 8)
-    null_f.set_value(0)
-    int_bits = Field("INT_BITS", 16)
+    dest_bits = Field("DST_BITS", 8)
+    src1_bits = Field("SRC1_BITS", 8)
+    src2_bits = Field("SRC2_BITS", 8)
 
     instr_temp = Instruction("DTYPE_CFG", 4, OPCODE_WIDTH,
-                                 (dtype, null_f, int_bits,))
+                                 (dtype, dest_bits, src1_bits, src2_bits,))
     instructions.append(instr_temp)
 
     return instructions

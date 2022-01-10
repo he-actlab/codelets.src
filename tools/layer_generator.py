@@ -2,12 +2,10 @@ from pathlib import Path
 from typing import Iterable
 from benchmarks.model_generator import create_custom_conv, create_custom_gemm, create_custom_matmul, create_custom_layer
 from benchmarks.load_onnx_model import store_unique_model_layers
+from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
 from examples.genesys import compile_genesys_layer, GENESYS_CFG
-from examples.genesys.genesys_qmodels import compute_existing_values
-from torch import nn
-import torch
-import torch.nn.functional as F
-import numpy as np
+import os
+import shutil
 import json
 import pprint
 from collections import defaultdict
@@ -25,165 +23,20 @@ NAME_MAPPING = {
     "elem_add": "add",
     "elem_mul": "mul",
     "elem_tanh": "tanh",
-    "elem_tanh2d": "tanh"
+    "elem_clip": "clip",
+    "elem_tanh2d": "tanh",
+    "elem_sub": "sub",
+    "leaky_relu": "leakyrelu",
+    "avg_pool": "averagepool",
+    "max_pool": "maxpool",
+    "global_avg_pool": "globalaveragepool",
+    "depthwise_conv": "depthwise_conv"
 }
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
-import os
-import shutil
 
 
-def get_indices(X_shape, HF, WF, stride, pad):
-    """
-        Returns index matrices in order to transform our input image into a matrix.
-
-        Parameters:
-        -X_shape: Input image shape.
-        -HF: filter height.
-        -WF: filter width.
-        -stride: stride value.
-        -pad: padding value.
-
-        Returns:
-        -i: matrix of index i.
-        -j: matrix of index j.
-        -d: matrix of index d.
-            (Use to mark delimitation for each channel
-            during multi-dimensional arrays indexing).
-    """
-    # get input size
-    m, n_C, n_H, n_W = X_shape
-
-    # get output size
-    out_h = int((n_H + 2 * pad - HF) / stride) + 1
-    out_w = int((n_W + 2 * pad - WF) / stride) + 1
-
-    # ----Compute matrix of index i----
-
-    # Level 1 vector.
-    level1 = np.repeat(np.arange(HF), WF)
-    # Duplicate for the other channels.
-    level1 = np.tile(level1, n_C)
-    # Create a vector with an increase by 1 at each level.
-    everyLevels = stride * np.repeat(np.arange(out_h), out_w)
-    # Create matrix of index i at every levels for each channel.
-    i = level1.reshape(-1, 1) + everyLevels.reshape(1, -1)
-
-    # ----Compute matrix of index j----
-
-    # Slide 1 vector.
-    slide1 = np.tile(np.arange(WF), HF)
-    # Duplicate for the other channels.
-    slide1 = np.tile(slide1, n_C)
-    # Create a vector with an increase by 1 at each slide.
-    everySlides = stride * np.tile(np.arange(out_w), out_h)
-    # Create matrix of index j at every slides for each channel.
-    j = slide1.reshape(-1, 1) + everySlides.reshape(1, -1)
-
-    # ----Compute matrix of index d----
-
-    # This is to mark delimitation for each channel
-    # during multi-dimensional arrays indexing.
-    d = np.repeat(np.arange(n_C), HF * WF).reshape(-1, 1)
-
-    return i, j, d
 
 
-def im2col(X, HF, WF, stride, pad):
-    """
-        Transforms our input image into a matrix.
-
-        Parameters:
-        - X: input image.
-        - HF: filter height.
-        - WF: filter width.
-        - stride: stride value.
-        - pad: padding value.
-
-        Returns:
-        -cols: output matrix.
-    """
-    # Padding
-    X_padded = np.pad(X, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode='constant')
-    i, j, d = get_indices(X.shape, HF, WF, stride, pad)
-    # Multi-dimensional arrays indexing.
-    cols = X_padded[:, d, i, j]
-    cols = np.concatenate(cols, axis=-1)
-    return cols
-
-def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
-    # First figure out what the size of the output should be
-    N, C, H, W = x_shape
-    print(f"H: {H}, Pad: {padding}, KH: {field_height}, Stride: {stride}")
-    assert (H + 2 * padding - field_height) % stride == 0
-    assert (W + 2 * padding - field_height) % stride == 0
-    out_height = np.int32((H + 2 * padding - field_height) / stride + 1)
-    out_width = np.int32((W + 2 * padding - field_width) / stride + 1)
-
-    i0 = np.repeat(np.arange(field_height), field_width)
-    i0 = np.tile(i0, C)
-    i1 = stride * np.repeat(np.arange(out_height), out_width)
-    j0 = np.tile(np.arange(field_width), field_height * C)
-    j1 = stride * np.tile(np.arange(out_width), out_height)
-    i = i0.reshape(-1, 1) + i1.reshape(1, -1)
-    j = j0.reshape(-1, 1) + j1.reshape(1, -1)
-
-    k = np.repeat(np.arange(C), field_height * field_width).reshape(-1, 1)
-
-    return (k, i, j)
-
-def im2col_indices(x, field_height, field_width, padding=1, stride=1):
-    """ An implementation of im2col based on some fancy indexing """
-    # Zero-pad the input
-    p = padding
-    x_padded = np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
-
-    k, i, j = get_im2col_indices(x.shape, field_height, field_width, padding,
-                                 stride)
-
-    cols = x_padded[:, k, i, j]
-    C = x.shape[1]
-    cols = cols.transpose(1, 2, 0).reshape(field_height * field_width * C, -1)
-    return cols
-
-def compute_im2col_dims(params, oh, ow):
-    if 'stride' in params:
-        stride = params['stride']
-    elif 'strides' in params:
-        stride = params['strides']
-    else:
-        raise KeyError(f"Could not find stride {list(params.keys())}")
-    if 'pads' in params:
-        pad = params['pads']
-    elif 'pad' in params:
-        pad = params['pad']
-    else:
-        raise KeyError(f"Could not find stride {list(params.keys())}")
-    input = np.random.randint(low=0, high=127, size=(params['N'], params['IC'], params['IH'], params['IW']), dtype=np.int32)
-    weights = np.random.randint(low=0, high=127, size=(params['OC'], params['IC'], params['KH'], params['KW']), dtype=np.int32)
-    bias = np.zeros(shape=params['OC'], dtype=np.int32)
-    tout = F.conv2d(torch.from_numpy(input.astype(np.float64)), torch.from_numpy(weights.astype(np.float64)),
-                    torch.from_numpy(bias.astype(np.float64)), stride=stride, padding=pad)
-    M = oh*ow
-    N = params['KH']*params['KW']*params['IC']
-    P = params['OC']
-    # x_cols = im2col_indices(input, weights.shape[2], weights.shape[3], 0, params['stride'])
-    # im2col(X, HF, WF, stride, pad)
-    x_cols = im2col(input, weights.shape[2], weights.shape[3], stride, pad)
-
-    assert M == x_cols.shape[1] and N == x_cols.shape[0]
-    torch_res = F.linear(torch.from_numpy(x_cols.transpose(1, 0).astype(np.float64)),
-                         torch.from_numpy(weights.reshape((weights.shape[0], -1)).astype(np.float64)),
-                    torch.from_numpy(bias.astype(np.float64)))\
-        .resize(oh, ow, params['N'], params['OC']).permute(2, 3, 0, 1)
-    res = weights.reshape((weights.shape[0], -1)).dot(x_cols) + bias.reshape(-1, 1)
-    out = res.reshape(params['OC'], oh, ow, params['N'])
-    out = out.transpose(3, 0, 1, 2)
-    torch.testing.assert_allclose(torch.from_numpy(out.astype(np.float64)), tout)
-    torch.testing.assert_allclose(torch_res, tout)
-    return M, N, P
-
-def check_conv_params(n, ic, oc, ih, iw, k, stride, pad):
-    layer = nn.Conv2d(ic, oc, k, stride, pad)
 
 def compile_custom_layer(model_name, layer_name, params, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None):
@@ -203,7 +56,6 @@ def compile_custom_layer(model_name, layer_name, params, store_compile=False, di
     store_json_output = False
     json_output_filename = None
     full_layer_name = f"{model_name}_{layer_name}"
-
     # This function returns
     program = compile_genesys_layer(full_layer_name,
                               update_cfg_dtypes=update_cfg_dtypes,
@@ -223,6 +75,7 @@ def compile_custom_layer(model_name, layer_name, params, store_compile=False, di
                                     do_compile=False
                                     # relocation_offsets=reloc_offsets
                               )
+
     if store_compile:
         if added_constr:
             program = update_tile_constraints(program, added_constr, layer_name)
@@ -619,6 +472,8 @@ def update_tile_constraints(program, constraint, layer_type, orig_constraint=Non
         orig = program.hag.codelets[layer_type].compilation_params['LEVEL1_hint']
         new_constraint = f"{orig} and {constraint}"
         program.hag.codelets[layer_type].compilation_params['LEVEL1_hint'] = new_constraint
+    # program.hag.codelets[layer_type].compilation_params['LEVEL2_hint'] = "splits['H'] == 1 and splits['W'] == 16 " \
+    #                                                                      "and splits['N'] == 2 and splits['C'] == 32"
     return program
 
 def collect_existing_params(base_dir_name, base_test_name):
@@ -779,14 +634,16 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 print(f"Generating permutation {nlayer_perm} for layer {idx}:\n"
                       f"layer params: {layer_param_str}\n"
                       f"Constraints: {constraint_str}")
-            try:
-                print(f"Compiling with split {scale_val}")
-                program.compile(verbose=False, finalize_instructions=True)
-            except Exception as e:
-                print(f"Unable to compile layer {e}")
-                scale_val += 1
-                # layer_splits = []
-                continue
+            program.compile(verbose=False, finalize_instructions=True)
+
+            # try:
+            #     print(f"Compiling with split {scale_val}")
+            #     program.compile(verbose=False, finalize_instructions=True)
+            # except Exception as e:
+            #     print(f"Unable to compile layer {e}")
+            #     scale_val += 1
+            #     # layer_splits = []
+            #     continue
             cparams = {}
 
             if idx in im2col_layers:
@@ -841,7 +698,79 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
 
     return updated_layer_params
 
-if __name__ == "__main__":
+
+def simd_benchmarks1(tests=None, layers=None):
+    base_name = "fpga11"
+
+    configs = {
+        "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
+        "t3" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
+    }
+    ops = ["relu", "elem_add", "elem_mul", "max_pool", "elem_sigmoid"]
+    if layers is None:
+        layers = ops
+    if tests is None:
+        tests = list(configs.keys())
+
+    for o in layers:
+        for n in tests:
+            assert n in configs
+            cfg = configs[n]
+            off = cfg['scale_factor']
+            model_name = f"{base_name}_{n}"
+            if o == "max_pool":
+                constraint = cfg['constraint'].replace("'H'", "'OH'").replace("'W'", "'OW'")
+                params = {"N": 2, "C": 128, "IH": 112//(2**off), "IW": 112//(2**off), "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
+            else:
+                constraint = cfg['constraint']
+                params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
+            program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
+
+
+
+def simd_benchmarks2(tests=None, layers=None, num=12):
+    base_name = f"fpga{num}"
+
+    configs = {
+        "t0": {"constraint": "True", "scale_factor": 1},
+        "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        # "t1" : {"constraint": "splits['H'] == 2 and splits['W'] == 2 and splits['C'] == 1", "scale_factor": 3},
+        "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1", "scale_factor": 2},
+        "t3" : {"constraint": "splits['C'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
+    }
+    ops = ["global_avg_pool", "elem_clip", "depthwise_conv", "leaky_relu", "elem_sub"]
+    if layers is None:
+        layers = ops
+    if tests is None:
+        configs.pop("t0")
+        tests = list(configs.keys())
+
+    for o in layers:
+        for n in tests:
+            assert n in configs
+            cfg = configs[n]
+            off = cfg['scale_factor']
+            model_name = f"{base_name}_{n}"
+            if o == "global_avg_pool":
+                # constraint = cfg['constraint'].replace("'H'", "'OH'").replace("'W'", "'OW'")
+                constraint = "True" if n != "t3" else "splits['C'] > 1"
+                params = {"N": 1, "C": 1024//off, "IH": 7, "IW": 7, "OH": 1, "OW": 1}
+            elif o == "depthwise_conv":
+                # constraint = cfg['constraint'].replace("'H'", "'OH'").replace("'W'", "'OW'")
+                constraint = "True"
+                params = {"N": 1, "C": 512//off, "IH": 28, "IW": 28, "OH": 14, "OW": 14, "KH": 3, "KW": 3, "stride": 2, "pad": 1}
+            else:
+                constraint = cfg['constraint']
+                params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
+
+            if o == "elem_clip":
+                params['maxval'] = 6
+                params['minval'] = 0
+            program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
+
+
+def systolic_array_bench():
     inp_params = []
     inp_params.append(["N", "IC", "IH", "IW"])
     inp_params.append(["OC", "IC", "KH", "KW"])
@@ -854,60 +783,47 @@ if __name__ == "__main__":
     attr_params.append("pads")
     attr_params.append("strides")
 
-
-    # ### Test 18
-    # n = 1
-    # oc = 128
-    # ic = 128
-    # ih = 10
-    # iw = 10
-    # stride = 1
-    # pad = 0
-    # k = 1
-    # model_name = "fpga_8x8_test2"
-    # # # tiling = {"N": 1, "KH": 1, "KW": 1, "OH": 1, "OW": 1, "IC": 1, "OC": 1}
-    # # # # tcstr = f"splits != {tiling}"
-    # tcstr = f"splits['OC'] > 1 and splits['OH'] > 1 and splits['IC'] > 1"
+    n = 1
+    oc = 128
+    ic = 128
+    ih = 10
+    iw = 10
+    stride = 1
+    pad = 0
+    k = 1
+    model_name = "fpga_8x8_test4"
+    tcstr = f"splits['OC'] > 1 and splits['OH'] > 1 and splits['IC'] == 1"
     # # # # # #
-    # program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
-    #                                     store_compile=True,
-    #                                     partials=True,
-    #                                     added_constr=tcstr
-    #                                     )
+    program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
+                                        store_compile=True,
+                                        partials=True,
+                                        added_constr=tcstr
+                                        )
 
+def resnet_benches(nunique=1):
+    model_name = "resnet50"
 
-    # model_name = "fpga_small"
-    #
-    # params = {"N": 1, "C": 64, "IH": 112//4, "IW": 112//4, "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
-    # program = compile_custom_layer(model_name, "maxpool", params, store_compile=True)
-    # print(program.emit("operations_idx"))
+    inp_params = []
+    inp_params.append(["N", "IC", "IH", "IW"])
+    inp_params.append(["OC", "IC", "KH", "KW"])
+    inp_params.append(["OC"])
 
+    out_params = []
+    out_params.append(["N", "OC", "OH", "OW"])
 
+    attr_params = []
+    attr_params.append("pads")
+    attr_params.append("strides")
+    tile_constraint = "np.prod(list(splits.values())) <= 10"
+    layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
+    scale_and_compile_layers(model_name, "8x8", layer_params[1:], [], nunique, added_constraint=tile_constraint)
 
-    # model_name = "fpga_small"
-    # #
-    # params = {"N": 1, "C": 64, "H": 64, "W": 64}
-    # program = compile_custom_layer(model_name, "elem_add", params, store_compile=True)
-    # print(program.emit("operations_idx"))
+if __name__ == "__main__":
+    # resnet_benches()
+    # systolic_array_bench()
+    # simd_benchmarks1()
+    # simd_benchmarks1(layers=['elem_sigmoid'])
+    # simd_benchmarks2(layers=["global_avg_pool", "elem_clip", "leaky_relu", "elem_sub"])
+    simd_benchmarks2(layers=["elem_clip"], tests=["t1"], num=17)
+    # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=13)
 
-    # model_name = "fpga_sigmoid1"
-    #
-    # params = {"N": 1, "C": 64, "H": 64, "W": 64}
-    # program = compile_custom_layer(model_name, "sigmoid", params, store_compile=True)
-    # print(program.emit("operations_idx"))
-    # print(program.emit("string_final"))
-    base_name = "fpga4"
-    # tests = ["large", "medium", "small"]
-    # ops = ["relu", "elem_add", "elem_mul", "maxpool", "sigmoid"]
-    tests = ["small"]
-    ops = ["sigmoid"]
-
-    for o in ops:
-        for i, n in enumerate(tests):
-            off = i + 2
-            model_name = f"{base_name}_{n}"
-            if o == "maxpool":
-                params = {"N": 1, "C": 64, "IH": 112//(2**off), "IW": 112//(2**off), "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
-            else:
-                params = {"N": 1, "C": 64, "H": 256//(2**off), "W": 256//(2**off)}
-            program = compile_custom_layer(model_name, o, params, store_compile=True)

@@ -231,6 +231,17 @@ class Codelet(object):
         return self._tile_levels
 
     @property
+    def all_oploc_indices(self):
+        indices = defaultdict(list)
+        all_operands = self.operands + self.temps
+        for o in all_operands:
+            for l in o.data_path:
+                if o.name in indices[l]:
+                    continue
+                indices[l].append(o.name)
+        return indices
+
+    @property
     def param_tiling(self):
         ptiling = {}
         for l, tiling in self.domain_loop_map.items():
@@ -508,6 +519,16 @@ class Codelet(object):
             self.global_op_map[op.global_op_id] = op
 
 
+    def get_operand_loc_index(self, opname: str, loc, output_idx=False) -> int:
+        if output_idx:
+            return 0
+        elif opname not in self.all_oploc_indices[loc]:
+            raise RuntimeError(f"Couldnt find opname: {opname} in all op indices:\n"
+                               f"Storage: {self.all_oploc_indices[loc]}")
+        else:
+            return self.all_oploc_indices[loc].index(opname)
+
+
     def add_required_param(self, key, value=None, check_key=True):
 
         if key in self.required_params:
@@ -537,7 +558,8 @@ class Codelet(object):
         else:
             raise TypeError(f"Invalid type for required param:\n"
                             f"Name: {key}\n"
-                            f"Value: {value}")
+                            f"Value: {value}\n"
+                            f"Value type: {type(value)}")
 
     def set_required_param(self, key: str, value: int):
 

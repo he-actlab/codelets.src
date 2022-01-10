@@ -309,10 +309,10 @@ class FlexTemplate:
         elif iter_idx >= len(self.iterables):
             for bi_idx in range(len(self.base_instructions)):
                 bi_instr = self.base_instructions[bi_idx]
-                instruction = self.instructions[instr_idx]
                 condition = self.evaluate_conditional(fn_args + (bi_instr,), iter_args)
 
                 if condition:
+                    instruction = self.instructions[instr_idx]
                     field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
                     instruction.evaluate_lazy_fields(fn_args, field_args)
                     self.evaluate_side_effects(fn_args, iter_args)

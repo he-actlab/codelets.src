@@ -354,6 +354,16 @@ class Operand:
             # TODO: Check if already set
             pass
 
+    def get_tile_size(self, src_loc, dst_loc):
+        move = None
+        for dm in self.data_moves:
+            if dm.dst_node == dst_loc and dm.src_node == src_loc:
+                move = dm
+
+        if move is None:
+            raise RuntimeError
+        stride_val = np.prod(move.shape_list)
+        return stride_val.astype(np.int64)
 
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
@@ -378,7 +388,8 @@ class Operand:
             elif movement_type == 'up' and self in cdlt.outputs and cdlt.get_tile_level(dm.src_node) == level:
                 target_movement = dm
                 break
-
+        if dm.src_node == "IMM" or dm.dst_node == "IMM":
+            return 0
         if target_movement is None:
             dm_info = "\n".join([str({"src": dm.src_node,
                                       "dst": dm.dst_node,

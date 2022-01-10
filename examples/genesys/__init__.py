@@ -5,7 +5,9 @@ SIMD_OP_READ_NS = ["OBUF", "VMEM", "IMM"]
 SIMD_OP_WRITE_NS = ["IBUF", "VMEM", "IMM"]
 SIMD_NS = ["OBUF", "IBUF", "VMEM", "IMM"]
 
-OP_DTYPES = [Datatype(type='FXP', bitwidth=8), Datatype(type='FXP', bitwidth=16), Datatype(type='FXP', bitwidth=32),
+OP_DTYPES = [Datatype(type='FXP', bitwidth=8, fractional=4, exp=4),
+             Datatype(type='FXP', bitwidth=16, fractional=8, exp=8),
+             Datatype(type='FXP', bitwidth=32, fractional=16, exp=16),
              Datatype(type='FP', bitwidth=16), Datatype(type='FP', bitwidth=32), Datatype(type='FXP', bitwidth=4)]
 
 DTYPE_MAP = {}
@@ -30,6 +32,9 @@ GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weigh
 GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
 GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
 GENESYS_CFG['INSTR_WIDTH'] = 32
+FXP_CONFIGS = {
+    "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32}
+}
 SMALL_CFG = False
 ASIC_CONFIG = False
 
