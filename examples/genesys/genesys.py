@@ -1,9 +1,8 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass, template_pad_pass, TilingInfo
-import inspect
+    add_simd_typecast, template_layout_pass, template_pad_pass
 from .genesys_instructions import GENESYS_INSTRUCTIONS
-from .genesys_templates import GENESYS_TEMPLATES
+from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
 from .genesys_codelets import GENESYS_CODELETS
@@ -14,8 +13,6 @@ from pathlib import Path
 import json
 from pprint import pprint
 from codelets.adl.serialization import deserialize_hag
-from . import SIMD_NS, SIMD_OPCODE_BITWIDTH, OP_DTYPES, \
-    OP_LOCATIONS, NS_BITWIDTH, NS_IDX_BITWIDTH
 import polymath as pm
 
 CWD = Path(f"{__file__}").parent
@@ -245,10 +242,8 @@ def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
 
 
 def compile_genesys(model_name,
-                    train=False,
                     update_cfg_dtypes=False,
                     tiling_path=None,
-                    batch_size=1,
                     store_tiling=False,
                     store_json_output=False,
                     json_output_filename=None,
@@ -259,8 +254,14 @@ def compile_genesys(model_name,
                     print_config=True,
                     store_ops=False,
                     factor_fn='default',
-                    relocation_offsets=None, model_dir=None,
-                    out_dir=None):
+                    batch_size=1,
+                    relocation_offsets=None,
+                    model_dir=None,
+                    out_dir=None,
+                    train=False,
+                    tiling_search_algorithm='valid_split',
+                    do_compile=True
+                    ):
     MODEL_DIR = model_dir or f"{benchmark_path}/models/srdfg"
     OUT_DIR = out_dir or f"{benchmark_path}/compiler_outputs"
 
@@ -271,8 +272,8 @@ def compile_genesys(model_name,
     else:
         def_cfg = GENESYS_CFG
 
-    if model_name not in VALID_MODELS:
-        raise RuntimeError(f"Invalid model name for compilation")
+    # if model_name not in VALID_MODELS:
+    #     raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
@@ -287,17 +288,28 @@ def compile_genesys(model_name,
         sizes_cfg['OBUF_SIZE'] = genesys.get_subgraph_node("OBUF").total_capacity
         sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").total_capacity
         pprint(sizes_cfg)
+
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
-    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
-                                 dependencies=["template_layout_pass"])
+                                 )
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    # program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+    # program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
+    #                              dependencies=["template_layout_pass"])
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
-                   'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+    # tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
+    #                'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+    if tiling_search_algorithm == 'min_tiles':
+        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
+                        'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+    else:
+        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
+                        'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
@@ -305,36 +317,39 @@ def compile_genesys(model_name,
     program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
                                  stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
                                  skip_noops=False)
-    if relocation_offsets:
-        program.set_relocation_ns_offsets(relocation_offsets)
 
-    if tiling_path is not None:
-        program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
-    else:
-        program.compile(verbose=verbose)
+    if do_compile:
 
-    if store_tiling:
-        program.store_tiling(f"{TILING_DIR}")
+    # if relocation_offsets:
+    #     program.set_relocation_ns_offsets(relocation_offsets)
 
-    if store_json_output:
-        out_type = "json" if store_ops else "json_no_ops"
-        res = program.emit(out_type)
-
-        if json_output_filename is not None:
-            with open(json_output_filename, "w") as outfile:
-                json.dump(res, outfile, indent=4)
+        if tiling_path is not None:
+            program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
         else:
-            store_dir = f"{OUT_DIR}/{model_name}_compiled"
-            p = Path(f"{store_dir}.json")
-            if p.exists():
-                count = 0
-                while Path(f"{store_dir}{count}.json").exists():
-                    count += 1
-                with open(f"{store_dir}{count}.json", "w") as outfile:
+            program.compile(verbose=verbose)
+
+        if store_tiling:
+            program.store_tiling(f"{TILING_DIR}")
+
+        if store_json_output:
+            out_type = "json" if store_ops else "json_no_ops"
+            res = program.emit(out_type)
+
+            if json_output_filename is not None:
+                with open(json_output_filename, "w") as outfile:
                     json.dump(res, outfile, indent=4)
             else:
-                with open(f"{store_dir}.json", "w") as outfile:
-                    json.dump(res, outfile, indent=4)
+                store_dir = f"{OUT_DIR}/{model_name}_compiled"
+                p = Path(f"{store_dir}.json")
+                if p.exists():
+                    count = 0
+                    while Path(f"{store_dir}{count}.json").exists():
+                        count += 1
+                    with open(f"{store_dir}{count}.json", "w") as outfile:
+                        json.dump(res, outfile, indent=4)
+                else:
+                    with open(f"{store_dir}.json", "w") as outfile:
+                        json.dump(res, outfile, indent=4)
     return program
 
 
@@ -462,7 +477,7 @@ def compile_genesys_layer(layer_file,
             program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
                             finalize_instructions=finalize_instructions)
         else:
-            program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
+            program.compile(verbose=verbose, finalize=finalize_instructions)
 
         if store_tiling:
             program.store_tiling(f"{TILING_DIR}")

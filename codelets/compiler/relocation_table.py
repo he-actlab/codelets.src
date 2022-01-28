@@ -35,6 +35,7 @@ class Relocation:
 class RelocationTable(object):
     MEM_LAYOUT = ['INSTR_MEM', 'STATE', 'INTERMEDIATE']
     def __init__(self, storage_node: StorageNode, mem_layout=None, offsets=None):
+        self._top_level_node = storage_node.name
         self._mem_layout = mem_layout or RelocationTable.MEM_LAYOUT
         if offsets:
             self._offset_type = "static"

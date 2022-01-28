@@ -280,6 +280,22 @@ class Codelet(object):
                     max_loop = o.loop_id
         return list(set(loops))
 
+    def get_level_loop_params(self, level):
+        loop_params = defaultdict(list)
+        for key, lp in self.loop_param_map.items():
+            loop_params[lp].append(key)
+        loop_params = {k: list(sorted(v, key=lambda x: int(x.split('loop')[1]))) for k,v in loop_params.items()}
+        out_params = {k: loop_params[k][level] for k in loop_params.keys()}
+        return out_params
+
+    def outermost_loop_ids(self) -> List[int]:
+        loops = []
+        inner_loops = self.innermost_loop_ids()
+        for o in self.ops:
+            if isinstance(o, Loop) and o.loop_id not in inner_loops:
+                loops.append(o.loop_id)
+        return list(set(loops))
+
     def operand_dim_mapping(self):
         operands = self.inputs + self.outputs
         operand_dims = {}
@@ -597,6 +613,7 @@ class Codelet(object):
             elif o.op_type == 'transfer' and hag_node in o.path and loop.op_str in o.dependencies:
                 return True
         return False
+
 
     def ordered_loop_ops(self):
         ops = []

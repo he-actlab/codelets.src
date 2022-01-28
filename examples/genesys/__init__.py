@@ -33,7 +33,8 @@ GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out
 GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
 GENESYS_CFG['INSTR_WIDTH'] = 32
 FXP_CONFIGS = {
-    "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32}
+    "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32},
+    "FXP8": {"signed": True, "n_int": 3, "n_frac": 4, "overflow": "saturate", "n_word": 8},
 }
 SMALL_CFG = False
 ASIC_CONFIG = False
@@ -52,6 +53,7 @@ if ASIC_CONFIG:
     GENESYS_CFG['OBUF_DEPTH'] = int(2097152*2 / (GENESYS_CFG['ARRAY_N']*GENESYS_CFG['ACC_WIDTH']))
     GENESYS_CFG['BBUF_DEPTH'] = int(32768 / (GENESYS_CFG['ARRAY_M']*GENESYS_CFG['ACC_WIDTH']))
 elif SMALL_CFG:
+    factor = 8
     GENESYS_CFG['ARRAY_N'] = 8
     GENESYS_CFG['ARRAY_M'] = 8
     GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512 // BIT
@@ -146,7 +148,7 @@ else:
 GENESYS_CFG['SIMD_WIDTH'] = GENESYS_CFG['ARRAY_M']
 GENESYS_CFG['INSTR_DEPTH'] = 1024
 GENESYS_CFG['IMM_DEPTH'] = 64
-GENESYS_CFG['DRAM_DEPTH'] = 100000
+GENESYS_CFG['DRAM_DEPTH'] = 10000000
 GENESYS_CFG['VMEM_DEPTH'] = GENESYS_CFG['OBUF_DEPTH']
 
 GENESYS_CFG['VMEM_BANKS'] = GENESYS_CFG['SIMD_WIDTH']

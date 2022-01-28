@@ -18,7 +18,8 @@ WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
 ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 BINARY_FNS = ["elem_add", "elem_sub", "elem_mul"]
-UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigmoid", "leaky_relu", "clip", "elem_clip"]
+UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigmoid", "leaky_relu", "clip", "elem_clip", "elem_ceil2d",
+             "elem_pow2d", "reduce_mean2d", "reduce_min2d"]
 # FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
@@ -86,19 +87,10 @@ def generate_random_values_binary(cdlt, model_name, layer_name,
         input2 = input2.reshape(input_dims)
 
     save_array(f'{base_path}/input1_raw.txt', input1)
-    # with open(f'{base_path}/input1_raw.txt', 'w') as f:
-    #     assert isinstance(input1[(0,)*len(input1.shape)], Decimal)
-    #     if isinstance(input1, Fxp):
-        # f.write('\n'.join([str(i.as_integer_ratio()[0]) for i in input1.flatten().tolist()]))
-        # else:
-            # f.write('\n'.join([str(i) for i in input1.flatten().tolist()]))
+
     save_array(f'{base_path}/input2_raw.txt', input2)
 
-    # with open(f'{base_path}/input2_raw.txt', 'w') as f:
-    #     if isinstance(input2, Fxp):
-    #         f.write('\n'.join([str(i) for i in input2.val.flatten().tolist()]))
-    #     else:
-    #         f.write('\n'.join([str(i) for i in input2.flatten().tolist()]))
+
 
     if format.lower() == "nhwc" and len(input1.shape) == 4:
         input1 = input1.transpose((0, 3, 1, 2))
@@ -159,8 +151,16 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
         minval = cdlt.required_params['min'].value
         maxval = cdlt.required_params['max'].value
         params = (minval, maxval)
+    elif "pow" in cdlt.op_name:
+        exp = cdlt.required_params['exp'].value
+        params = (exp,)
+    elif "reduce_mean" in cdlt.op_name:
+        axis = cdlt.required_params['axis'].value
+        params = (axis,)
     else:
         params = tuple([])
+
+
     output = unary(input1, layer_name, f"{cdlt.inputs[0].dtype}", *params)
 
     if len(output.shape) == 4:
@@ -337,7 +337,6 @@ def generate_random_values_dw_conv(cdlt, model_name, layer_name,
                                 fixed_values=None,
                                 actual_data=False,
                                 generate_partial_values=False):
-    print(f"Here")
     input_dims = cdlt.inputs[0].shape
     weight_dims = cdlt.inputs[1].shape
     out_dims = cdlt.outputs[0].shape
@@ -357,8 +356,8 @@ def generate_random_values_dw_conv(cdlt, model_name, layer_name,
         assert weights.shape == weight_dims
         assert output.shape == out_dims
     elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
-        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=2, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=2, fxp_dtype=f"{cdlt.inputs[0].dtype}")
 
         # input = np.random.randint(low=-128, high=127, size=input_dims, dtype=np.int8)
         # weights = np.random.randint(low=-128, high=127, size=weight_dims, dtype=np.int8)
@@ -398,29 +397,6 @@ def generate_random_values_dw_conv(cdlt, model_name, layer_name,
 
     save_array(f"{base_path}/input.txt", input)
     save_array(f"{base_path}/weights.txt", weights)
-    # with open(f'{base_path}/input_shuffled.txt', 'w') as f:
-    #     f.write("\n".join(transform_data(input, "input", "shuffled", cdlt)))
-
-        # f.write('\n'.join(dram_layout(input)))
-
-    # with open(f'{base_path}/input_raw.txt', 'w') as f:
-    #     f.write("\n".join(transform_data(input, "input", "raw", cdlt)))
-
-        # f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
-
-    # with open(f'{base_path}/weights_shuffled.txt', 'w') as f:
-    #     f.write("\n".join(transform_data(weights, "weights", "shuffled", cdlt)))
-    #
-    #
-    # with open(f'{base_path}/weights_shuffled_raw.txt', 'w') as f:
-    #     f.write("\n".join(transform_data(weights, "weights", "shuffled_raw", cdlt)))
-    #
-    #
-    # with open(f'{base_path}/weights_raw.txt', 'w') as f:
-    #     f.write("\n".join(transform_data(weights, "weights", "raw", cdlt)))
-
-
-
 
     if format.lower() == "nhwc":
         input = input.transpose(0, 3, 1, 2)
@@ -431,7 +407,7 @@ def generate_random_values_dw_conv(cdlt, model_name, layer_name,
 
     conv_param = {'stride': stride, 'pad': 0}
     # b = np.zeros(weights.shape[0], dtype=np.int32)
-    output = depthwise_conv2d(input, weights, stride, pad)
+    output = depthwise_conv2d(input, weights, stride, 0, f"{cdlt.inputs[0].dtype}")
     # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
 
@@ -443,7 +419,9 @@ def generate_random_values_dw_conv(cdlt, model_name, layer_name,
         tinput = input.transpose(*tuple(ACT_CF_TO_CL))
         tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
         coords = np.unravel_index(0, output.shape)
+
         partial_values_conv(cdlt, base_path, tinput, tweights, output, coords)
+
     if fixed_values is not None and "outputs" in fixed_values:
         np.testing.assert_allclose(output, fixed_values["outputs"])
 
@@ -489,12 +467,9 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         assert weights.shape == weight_dims
         assert output.shape == out_dims
     elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, cast_to=np.int8)
-        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1, cast_to=np.int8)
+        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
 
-        # input = np.random.randint(low=-128, high=127, size=input_dims, dtype=np.int8)
-        # weights = np.random.randint(low=-128, high=127, size=weight_dims, dtype=np.int8)
-        # bias = np.random.randint(low=0, high=127, size=out_dims[-1], dtype=np.int32)
     elif fixed_values is not None:
         if "input" in fixed_values:
             assert "input" in fixed_values and "weights" in fixed_values
@@ -517,7 +492,6 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
             with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
                 test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
     else:
-
         input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
         for i in range(np.prod(input_dims)):
             input[i] = i % 128
@@ -616,8 +590,8 @@ def generate_random_values_gemm(cdlt, model_name, layer_name,
         assert weights.shape == weight_dims
         assert output.shape == out_dims
     elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1)
-        weights = numpy_datagen(weight_dims, cdlt.inputs[1].dtype.bits(), scale=1)
+        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+        weights = numpy_datagen(weight_dims, cdlt.inputs[1].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[1].dtype}")
 
     elif fixed_values is not None:
         if "input" in fixed_values:

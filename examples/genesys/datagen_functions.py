@@ -19,11 +19,21 @@ def compute_range(fxp_dtype, scale=1):
 
     return lower_val, upper_val
 
-def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32'):
-    low, high = compute_range(fxp_dtype, scale)
+def from_fxp(v, dtype):
+    fp = Fxp(v, **FXP_CONFIGS[dtype])
+    fp.val = v
+    return fp
 
-    v = np.random.randint(low=low, high=high,
-                          size=shape, dtype=np.int64)
+
+def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None):
+    if constant_val is None:
+        low, high = compute_range(fxp_dtype, scale)
+        # print(f"high max: {high}, Low: {low}\n"
+        #       f"Float repr: {from_fxp(high, fxp_dtype)}, Low: {from_fxp(low, fxp_dtype)}")
+        v = np.random.randint(low=low, high=high,
+                              size=shape, dtype=np.int64)
+    else:
+        v = np.full(shape, constant_val, dtype=np.int64)
     # v = np.full(shape, fill_value=-135783, dtype=np.int64)
     return v
 
@@ -84,8 +94,29 @@ def quantize_np(d, dtype, inpt=None):
     return out
 
 def clipfn(data, minval, maxval, dtype):
+    return np.clip(data, maxval, minval)
 
-    return np.clip(data, minval, maxval)
+def ceilfn(data, dtype):
+    temp = Fxp(data, **FXP_CONFIGS[dtype])
+    temp.val = data
+    res = np.ceil(temp).like(temp)
+    return res.val
+
+def powfn(data, exp, dtype):
+    out = np.copy(data)
+    for _ in range(exp-1):
+        out = quantize_np(out*data, dtype)
+    return out
+
+def meanfn(data, axis, dtype):
+    out = np.sum(data, axis=(axis,), keepdims=True)
+    denom = Fxp(1.0/(data.shape[axis]), **FXP_CONFIGS[dtype]).val.item()
+    out = out*denom
+    out = quantize_np(out, dtype)
+    return out
+
+def minfn(data, axis, dtype):
+    return np.mean(data, axis)
 
 def unary(op1, layer_name, dtype, *params):
     quantize = False
@@ -103,6 +134,18 @@ def unary(op1, layer_name, dtype, *params):
         params = params + (dtype,)
     elif "clip" in layer_name:
         ref_fn = clipfn
+        params = params + (dtype,)
+    elif "ceil" in layer_name:
+        ref_fn = ceilfn
+        params = params + (dtype,)
+    elif "pow" in layer_name:
+        ref_fn = powfn
+        params = params + (dtype,)
+    elif "mean" in layer_name:
+        ref_fn = meanfn
+        params = params + (dtype,)
+    elif "min" in layer_name:
+        ref_fn = minfn
         params = params + (dtype,)
     else:
         raise RuntimeError
@@ -133,6 +176,16 @@ def binary(op1, op2, layer_name, dtype):
         output = quantize_np(output, dtype, op1)
     return output
 
+def partial_values_dw_conv(cdlt, base_path, x, w, ref_out, o_coord):
+
+    other_test, ic_vals = manual_conv(x, w, cdlt, o_coord, layout="nhwc")
+    with open(f'{base_path}/out_coords.csv', 'w') as f:
+        f.write(f'IC, (oc/n/ic/kh/kw/y/x), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+
+        for k, v in ic_vals.items():
+            for l in v:
+                f.write(f"IC={k}, " + "," + l + "\n")
+    np.testing.assert_allclose(other_test, ref_out)
 
 def maxpool2d(x, k, stride, padding=0):
     x_padded = np.pad(x, ((0, 0), (0, 0), (padding, padding), (padding, padding)), mode='constant')
@@ -220,6 +273,8 @@ def global_avg_pool(input_val, dtype):
     out = np.sum(input_val, axis=(2, 3), keepdims=True)
     denom = Fxp(1.0/(input_val.shape[2]*input_val.shape[3]), **FXP_CONFIGS[dtype]).val.item()
     out = out*denom
+    out = quantize_np(out, dtype)
+
     return out
 
 def maxpool(image, f=2, s=2):
@@ -307,7 +362,7 @@ def pad_gemm(layer_data):
         b = np.pad(b, padding, "constant")
     return x, wgt, b, out
 
-def depthwise_conv2d(input, w, stride, pad):
+def depthwise_conv2d(input, w, stride, pad, dtype):
     import numpy as np
     """Two-dimensional depthwise convolution.
 
@@ -319,17 +374,18 @@ def depthwise_conv2d(input, w, stride, pad):
 
     Returns a result with shape (height, width, in_depth).
     """
-
     padded_input = np.pad(input,
                           pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)),
                           mode='constant',
                           constant_values=0)
+    padded_input = padded_input.astype(np.int64)
+
     kh, kw = w.shape[2], w.shape[3]
     batch, in_depth, height, width = input.shape
     assert in_depth == w.shape[0]
     oh = int(1 + (height + 2*pad - kh) / stride)
     ow = int(1 + (width + 2*pad - kw) / stride)
-    output = np.zeros((batch, in_depth, oh, ow))
+    output = np.zeros((batch, in_depth, oh, ow)).astype(np.int64)
 
     for n in range(batch):
         for c in range(in_depth):
@@ -337,11 +393,13 @@ def depthwise_conv2d(input, w, stride, pad):
             # to the input.
             for i in range(oh):
                 for j in range(ow):
-                    for fi in range(w.shape[2]):
-                        for fj in range(w.shape[3]):
+                    for fi in range(kh):
+                        for fj in range(kw):
                             w_element = w[c, 0, fi, fj]
-                            output[n, c, i, j] += (
-                                padded_input[n, c, i*stride + fi, j*stride + fj] * w_element)
+                            mul_res = padded_input[n, c, i*stride + fi, j*stride + fj] * w_element
+                            mul_res_quant = quantize_np(mul_res, dtype)
+                            # mul_res_quant = mul_res
+                            output[n, c, i, j] += mul_res_quant
     return output
 
 def conv_forward_naive(x, w, b, conv_param):
@@ -434,7 +492,8 @@ def manual_conv_from_existing(inputs, weights, out, stride):
     assert N_ == N
     assert IC == IC_
     assert OC == OC_
-    outputs = np.zeros(out.shape, dtype=np.int32)
+
+    outputs = np.zeros(out.shape, dtype=np.int64)
     for oc in range(OC):
         for n in range(N):
             for ic in range(IC):
@@ -445,6 +504,45 @@ def manual_conv_from_existing(inputs, weights, out, stride):
                                 partial_sum = inputs[n, kh + y * stride, kw + x * stride, ic] * weights[kh, kw, ic, oc]
                                 outputs[n, y, x, oc] += partial_sum
     return outputs
+
+def manual_dw_conv(inputs, weights, cdlt, o_coord, dtype):
+
+    N, IC, IH, IW = inputs.shape
+    OC, IC_, KH, KW,  = weights.shape
+    N_, OH, OW, OC_ = cdlt.outputs[0].shape
+    out_shape = (N_, OC_, OH, OW)
+    assert isinstance(o_coord, tuple) and len(o_coord) == 4
+    assert N_ == N
+    assert IC == IC_
+    assert OC == OC_
+    outputs = np.zeros(out_shape, dtype=np.int64)
+    inputs = inputs.astype(np.int64)
+    weights = weights.astype(np.int64)
+    stride = cdlt.required_params['stride'].value
+
+    compilation_info = {i: [] for i in range(IC)}
+    for oc in range(OC):
+        for n in range(N):
+            for ic in range(IC):
+                for kh in range(KH):
+                    for kw in range(KW):
+                        for y in range(OH):
+                            for x in range(OW):
+
+
+                                partial_sum = quantize_np(inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc], dtype)
+                                outputs[n, y, x, oc] += partial_sum
+                                if (n, y, x, oc) == o_coord:
+                                    all_coords = (oc, n, ic, kh, kw, y, x)
+                                    icoord = (n, kh + y*stride, kw + x*stride, ic)
+                                    icoord_idx = np.ravel_multi_index([n, kh + y*stride, kw + x*stride, ic], inputs.shape)
+                                    wcoord = (kh, kw, ic, oc)
+                                    wcoord_idx = np.ravel_multi_index([kh, kw, ic, oc], weights.shape)
+                                    ocoord = (n, y, x, oc)
+                                    ocoord_idx = np.ravel_multi_index([n, y, x, oc], outputs.shape)
+                                    compilation_info[ic].append(f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+    return compilation_info
+
 
 def manual_conv(inputs, weights, cdlt, o_coord, layout="nhwc"):
     if layout == "nhwc":
@@ -462,10 +560,11 @@ def manual_conv(inputs, weights, cdlt, o_coord, layout="nhwc"):
     assert N_ == N
     assert IC == IC_
     assert OC == OC_
-    outputs = np.zeros(out_shape, dtype=np.int32)
-    inputs = inputs.astype(np.int32)
-    weights = weights.astype(np.int32)
+    outputs = np.zeros(out_shape, dtype=np.int64)
+    inputs = inputs.astype(np.int64)
+    weights = weights.astype(np.int64)
     stride = cdlt.required_params['stride'].value
+
     compilation_info = {i: [] for i in range(IC)}
     if layout == "nhwc":
         for oc in range(OC):

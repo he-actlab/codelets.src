@@ -72,7 +72,6 @@ class DummyOp:
         return self
 
     def evaluate(self, instance_args):
-
         obj_instances = []
         for t in self.template_types:
             if instance_args[t] not in obj_instances:

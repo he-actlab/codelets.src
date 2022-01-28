@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from copy import deepcopy
 
 from codelets.templates.operand_template import IndexOperandTemplate, OperandTemplate
 from codelets.templates.operation_template import OperationTemplate
@@ -155,6 +156,14 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
             o.reorder_shapes(FLIP_SHAPE_PERM)
             reordered_operands[o.name] = FLIP_SHAPE_PERM
 
+    for idx, t in enumerate(template.temps):
+        if t.shape_list_names in TRANSPOSED_SHAPES:
+            t.reorder_shapes(TRANSPOSE_PERM)
+            reordered_operands[t.name] = TRANSPOSE_PERM
+        elif t.shape_list_names in FLIP_SHAPES:
+            t.reorder_shapes(FLIP_SHAPE_PERM)
+            reordered_operands[t.name] = FLIP_SHAPE_PERM
+
     for o in template.ops:
         if o.op_type == 'transfer':
             operand = o.param_map['operand']
@@ -235,6 +244,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
 
     bands = cdlt.extract_bands()
+
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
 
     outer_loop_map = {}
@@ -431,6 +441,31 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                                f"Tiling keys: {list(o.tiling.keys())}\n"
                                f"Unique data path locations: {o.unique_data_locations()}\n"
                                f"Data path: {o.data_path}")
+    for t in cdlt.temps:
+        if len(t.data_path) > 2:
+
+            missing_tiles = [l for l in t.unique_data_locations() if l not in list(t.tiling.keys()) or
+                             all(i == 0 for i in t.tiling[l].values())]
+            supported_operands = [o for o in cdlt.operands if t.shape_list == o.shape_list]
+
+            for d in t.data_moves:
+                if d.unset_offsets:
+                    assert "compute" in d.op_name
+                    updated_offset = False
+                    for o in supported_operands:
+                        for dm in o.data_moves:
+                            if cdlt.get_tile_level(d.src_node) == cdlt.get_tile_level(dm.src_node) and \
+                                    cdlt.get_tile_level(d.dst_node) == cdlt.get_tile_level(dm.dst_node):
+                                d.reinit_offset_map(dm.offset_map)
+                                t.tiling[d.src_node] = o.tiling[dm.src_node].copy()
+                                d.resolve_offsets(cdlt)
+                                d.evaluated_domain_offsets = deepcopy(dm.evaluated_domain_offsets)
+                                updated_offset = True
+                                break
+                        if updated_offset:
+                            break
+                    assert updated_offset
+
     if checkpoint_file is not None:
         store_tile_checkpoint(cdlt, checkpoint_file)
 

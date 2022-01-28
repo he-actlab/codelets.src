@@ -742,6 +742,26 @@ class CodeletProgram(object):
 
         return codelets
 
+    def finalize_memory(self, node_sequence, codelets: List[Codelet], verbose=False):
+
+        for n in node_sequence:
+            cdlt = codelets[n.name]
+            locs = defaultdict(int)
+            loc_sizes = defaultdict(int)
+            for o in (cdlt.operands + cdlt.temps):
+                for ml in o.unset_mem_locations:
+                    mem_node = self.hag.get_subgraph_node(ml)
+                    if ml not in o.tiling or mem_node.node_type != "storage":
+                        continue
+                    assert ml not in o.mem_locations
+                    o.mem_locations[ml] = {"index": locs[ml], "offset": loc_sizes[ml]}
+                    locs[ml] += 1
+                    loc_sizes[ml] += o.dtype.bits()*np.prod(list(o.tiling[ml].values()))
+                    if loc_sizes[ml] > mem_node.size:
+                        raise RuntimeError(f"Invalid storage capacity for codelet\n"
+                                           f"Codelet: {cdlt.op_name}{cdlt.cdlt_uid} --> {ml}\n"
+                                           f"Input size: {cdlt.inputs[1].shape}")
+
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:
             print(f"\nFinalizing instruction templates")
@@ -822,6 +842,7 @@ class CodeletProgram(object):
 
         return codelets
 
+
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True,
                 **compile_kwargs):
@@ -844,6 +865,7 @@ class CodeletProgram(object):
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
         if finalize:
+            self.finalize_memory(node_sequence, codelets, verbose=verbose)
             self.finalize_instructions(node_sequence, codelets, verbose=verbose)
             self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
             self.finalize_flex_params(node_sequence, codelets, verbose=verbose)

@@ -44,6 +44,59 @@ def test_shape_dummy_op():
     result = op1_shape.evaluate(instance_args)
     assert result == test_op.inputs[0].shape[0]
 
+def depthwise_conv2d(input, w, stride, pad):
+    import numpy as np
+    """Two-dimensional depthwise convolution.
+
+    Uses SAME padding with 0s, a stride of 1 and no dilation. A single output
+    channel is used per input channel (channel_multiplier=1).
+
+    input: input array with shape (height, width, in_depth)
+    w: filter array with shape (fd, fd, in_depth)
+
+    Returns a result with shape (height, width, in_depth).
+    """
+
+    padded_input = np.pad(input,
+                          pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)),
+                          mode='constant',
+                          constant_values=0)
+    kh, kw = w.shape[2], w.shape[3]
+    batch, in_depth, height, width = input.shape
+    assert in_depth == w.shape[0]
+    oh = int(1 + (height + 2*pad - kh) / stride)
+    ow = int(1 + (width + 2*pad - kw) / stride)
+    output = np.zeros((batch, in_depth, oh, ow))
+
+    for n in range(batch):
+        for c in range(in_depth):
+            # For each input channel separately, apply its corresponsing filter
+            # to the input.
+            for i in range(oh):
+                for j in range(ow):
+                    for fi in range(w.shape[2]):
+                        for fj in range(w.shape[3]):
+                            w_element = w[c, 0, fi, fj]
+                            output[n, c, i, j] += (
+                                padded_input[n, c, i*stride + fi, j*stride + fj] * w_element)
+    return output
+
+def test_dw_conv():
+    import numpy as np
+    import torch.nn.functional as F
+    import torch
+    input_shape = (1,192,28,28)
+    w_shape = (192, 1, 3, 3)
+    stride = 2
+    pad = 1
+    inp = np.random.randint(-128, 128, input_shape).astype(np.float)
+    w = np.random.randint(-128, 128, w_shape).astype(np.float)
+
+    tout = F.conv2d(torch.from_numpy(inp), torch.from_numpy(w), stride=stride, padding=pad, groups=input_shape[1])
+    nout = depthwise_conv2d(inp, w, stride, pad)
+    torch.testing.assert_allclose(torch.from_numpy(nout.astype(np.float)), tout)
+
+
 def test_dummy_op_arithmetic():
     with pm.Node(name="test_transpose") as graph:
         inp = pm.input(name="data", shape=(3,4,5,6))

@@ -13,12 +13,14 @@ from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionProposalNetwork
 import sys
 import onnx
+from onnx.tools import update_model_dims
 import csv
 CWD = Path(f"{__file__}").parent
 
 Targets = namedtuple('Targets', ['boxes', 'masks', 'labels'])
 
 LAYER_FNS = {
+
     "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
     "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
     "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
@@ -40,6 +42,10 @@ LAYER_FNS = {
     "elem_sigmoid": lambda params: torch.sigmoid,
     "elem_tanh": lambda params: torch.tanh,
     "elem_tanh2d": lambda params: torch.tanh,
+    "elem_ceil2d": lambda params: torch.ceil,
+    "elem_pow2d": lambda params: torch.pow,
+    "reduce_mean2d": lambda params: torch.mean,
+    "reduce_min2d": lambda params: torch.min,
     "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
     "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
     "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
@@ -72,6 +78,10 @@ LAYER_INPUT_GEN = {
     "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
     "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
     "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
+    "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
+    "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']), {}),
     "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
     "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
     "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
@@ -307,14 +317,25 @@ def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_
 def create_custom_layer(layer_name, params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
     class CustomLayer(nn.Module):
         def __init__(self, kwargs):
+            if "const_inputs" in kwargs:
+                assert isinstance(kwargs['const_inputs'], tuple)
+                self.const_inputs = kwargs.pop('const_inputs')
+            else:
+                self.const_inputs = tuple([])
             self.kwargs = kwargs
+
             super(CustomLayer, self).__init__()
             self.layer = LAYER_FNS[layer_name](params)
 
         def forward(self, *args):
-            x = self.layer(*args, **self.kwargs)
+            x = self.layer(*(args + self.const_inputs), **self.kwargs)
             return x
     input_var, kwargs = LAYER_INPUT_GEN[layer_name](params)
+    if "opset" in kwargs:
+        opset = kwargs.pop("opset")
+    else:
+        opset = _onnx_opset_version
+
     model = CustomLayer(kwargs)
 
 
@@ -324,7 +345,7 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
     model.eval()
     if fname is None:
         fname = f"custom_{layer_name}"
-    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
+    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format, opset=opset)
 
 def create_custom_gemm(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, fname=None):
 
@@ -695,7 +716,7 @@ def print_nodes(model_proto):
           f"Total Operations: {num_nodes_total}")
 
 def convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath,
-                        convert_data_format=False, out_dir=None, verbose=False):
+                        convert_data_format=False, out_dir=None, opset=_onnx_opset_version, verbose=False):
     f = io.BytesIO()
     mode = torch.onnx.TrainingMode.TRAINING if training_mode else torch.onnx.TrainingMode.EVAL
     if 'mask_rcnn' not in model_name:
@@ -727,7 +748,7 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           input_names=["images_tensors"],
                           output_names=["boxes", "labels", "scores", "masks"],
                           dynamic_axes=dynamic_axes,
-                          opset_version=_onnx_opset_version,
+                          opset_version=opset,
                           verbose=False,
                           # export_params=True,  # store the trained parameter weights inside the model file
                           # keep_initializers_as_inputs=True,
@@ -752,6 +773,111 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
     if to_polymath:
         graph = pm.from_onnx(filepath)
         pm.pb_store(graph, f"{CWD}/full_dnns/")
+
+
+
+def optimize_bert_onnx(to_polymath, batch_size=1):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/bertsquad-12.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt.onnx"
+    inpt_shapes = {"unique_ids_raw_output___9:0": (batch_size,),
+              "segment_ids:0": (batch_size,256),
+              "input_mask:0": (batch_size,256),
+              "input_ids:0": (batch_size,256)
+              }
+    out_shapes = {"unstack:1": (batch_size,256),
+                  "unstack:0": (batch_size,256),
+                  "unique_ids:0": (batch_size,)
+                  }
+    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+
+
+
+def optimize_yolo_onnx(to_polymath, batch_size=1):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/yolov3.onnx"
+    store_path = f"{MODEL_DIR}/yolov3-opt.onnx"
+    n_candidates = 80
+    n_box = 40
+    inpt_shapes = {"input_1": (batch_size, 3, 416, 416),
+              "image_shape": (batch_size, 2),
+              }
+    out_shapes = {"yolonms_layer_1/ExpandDims_1:0": (batch_size, n_candidates, 4),
+                  "yolonms_layer_1/ExpandDims_3:0": (batch_size, 80, n_candidates),
+                  "yolonms_layer_1/concat_2:0": (n_box, 3)
+                  }
+    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+
+def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath):
+    model = onnx.load(load_path)
+    # for o in model.graph.output:
+    #     print(o)
+    #
+    # for o in model.graph.input:
+    #     print(o)
+    model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
+                                                         out_shapes)
+    model = onnx.shape_inference.infer_shapes(model)
+
+
+    model, check = simplify(model)
+    assert check
+    # model = update_node_names(model)
+    # model = update_edge_names(model)
+    with open(store_path, "wb") as f:
+        f.write(model.SerializeToString())
+
+    if to_polymath:
+        graph = pm.from_onnx(store_path)
+        pm.pb_store(graph, f"{CWD}/full_dnns/")
+
+def create_bert(optimize_model, training_mode, convert_data_format, to_polymath, batch_size=1):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+
+    input_keys = ["unique_ids_raw_output___9:0",
+                  "segment_ids:0",
+                  "input_mask:0",
+                  "input_ids:0"]
+    model = models.resnet18(pretrained=not training_mode)
+    input_var = torch.randn(batch_size, 3, 224, 224)
+    model_name = "resnet18"
+    if batch_size != 1:
+        model_name = f"{model_name}_batch{batch_size}"
+    if not training_mode:
+        output = model(input_var)
+        model.eval()
+    else:
+        model_name = f"{model_name}_train"
+    if convert_data_format:
+        input_var = input_var.contiguous(memory_format=torch.channels_last)
+        model = model.to(memory_format=torch.channels_last)
+        out = model(input_var)
+    convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
+
+    # output_keys = ["unstack:1","unstack:0","unique_ids:0"]
+    # assert all([k in input_shapes for k in input_keys])
+    # assert all([k in out_shapes for k in output_keys])
+    #
+    # load_path = f"{MODEL_DIR}/bertsquad-12.onnx"
+    # store_path = f"{MODEL_DIR}/bertsquad-12-opt1.onnx"
+    #
+    # model = onnx.load(load_path)
+    # static_shapes = update_model_dims.update_inputs_outputs_dims(model, input_shapes,
+    #                                                          out_shapes)
+    # model = onnx.shape_inference.infer_shapes(static_shapes)
+    #
+    # if optimize_model:
+    #     model, check = simplify(model)
+    #     assert check
+    # model = update_node_names(model)
+    # model = update_edge_names(model)
+    # with open(store_path, "wb") as f:
+    #     f.write(model.SerializeToString())
+    #
+    # if to_polymath:
+    #     graph = pm.from_onnx(store_path)
+    #     pm.pb_store(graph, f"{CWD}/full_dnns/")
+
 
 
 def str2bool(v):
@@ -1067,6 +1193,8 @@ if __name__ == "__main__":
             create_lenet(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
         elif args.benchmark == "lenetbn":
             create_lenet_bn(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
+        elif args.benchmark == "bert":
+            create_bert(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath)
         elif args.benchmark == "resnet18":
             create_resnet18(args.optimize_model, args.training_mode, args.data_format_convert, args.to_polymath,
                             batch_size=args.batch_size)
@@ -1097,6 +1225,8 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        create_resnet50(True, False, False, False,
-                        batch_size=1)
+        optimize_yolo_onnx(False)
+
+        # create_resnet50(True, False, False, False,
+        #                 batch_size=1)
 #

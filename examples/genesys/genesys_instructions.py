@@ -16,7 +16,7 @@ CALC_OP_NAMES = ["RELU", "LEAKY_RELU", "SIGMOID", "TANH", "EXP", "LN", "SQRT", "
 ALU_OP_NAMES = ["ADD", "SUB", "MUL", "MACC", "DIV", "MAX", "MIN", "RSHIFT", "LSHIFT", "MOVE", "COND_MOVE_TRUE",
                     "COND_MOVE_FALSE", "NOT", "AND", "OR", "NOP"]
 LD_ST_NAMES = ["CONFIG_BASE_ADDR", "CONFIG_BASE_LOOP_ITER", "CONFIG_BASE_LOOP_STRIDE",
-               "CONFIG_TILE_LOOP_ITER", "CONFIG_TILE_LOOP_STRIDE", "START"]
+               "CONFIG_TILE_LOOP_ITER", "CONFIG_TILE_LOOP_STRIDE", "START", "CONFIG_TILE_ADDR"]
 SIMD_LOOP_NAMES = ["SET_INDEX", "SET_ITER", "SET_INST"]
 PERM_OP_NAMES = ["START_PERMUTE", "LOOP_INDEX"]
 PLACEHOLDER_OP_NAMES = ["MULADD", "MEAN"]
@@ -32,6 +32,11 @@ ITER_CFG_OPS = (6, ITER_CFG_NAMES, "ITER_CONFIG")
 SIMD_LOOP_OPS = (7, SIMD_LOOP_NAMES, "LOOP")
 PERM_OPS = (8, PERM_OP_NAMES, "PERMUTATION")
 
+
+# def tile_base_addr():
+#     types = ["LD", "ST"]
+#     for t in types:
+#         fn_code =
 
 # LOOP INSTR
 def loop_cfg_instr():
@@ -326,7 +331,7 @@ def create_simd_ops():
                 op_fn = f"{ld_st_type}_{op_fn_base}"
                 fields = []
                 lsb_msb = Field("LSB_MSB", 1, value_names={"LSB": 0, "MSB": 1})
-                if op_fn_base not in ["CONFIG_BASE_LOOP_STRIDE", "CONFIG_TILE_LOOP_STRIDE","CONFIG_BASE_ADDR"]:
+                if op_fn_base not in ["CONFIG_BASE_LOOP_STRIDE", "CONFIG_TILE_LOOP_STRIDE","CONFIG_BASE_ADDR", "CONFIG_TILE_ADDR"]:
                     lsb_msb.set_value(0)
                 fields.append(lsb_msb)
 
@@ -339,10 +344,16 @@ def create_simd_ops():
                      imm_field = Field("REQUEST_SIZE", 16)
                      fields.append(imm_field)
                 else:
-                    loop_index_id = Field(f"LOOP_INDEX_ID", 5)
-                    fields.append(loop_index_id)
+                    if op_fn_base != "CONFIG_TILE_ADDR":
+                        loop_index_id = Field(f"LOOP_INDEX_ID", 5)
+                        fields.append(loop_index_id)
+                    else:
+                        null_idx = Field("NULL_NS", 5)
+                        null_idx.set_value(0)
+                        fields.append(null_idx)
 
-                    if op_fn_base == "CONFIG_BASE_ADDR":
+
+                    if op_fn_base in ["CONFIG_BASE_ADDR", "CONFIG_TILE_ADDR"]:
                         imm_name = "BASE_ADDR"
                     elif op_fn_base[-4:] == "ITER":
                         imm_name = "NUM_ITERS"

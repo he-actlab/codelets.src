@@ -37,6 +37,12 @@ class Compute(Operation):
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies and dep != self.op_str]
             d.dependencies.append(self.op_str)
             self._dests.append(d)
+            if "temp" in d.name and all("transfer" not in dep for dep in d.dependencies):
+                for s in self.sources:
+                    if s.shape_list == d.shape_list:
+                        loop_deps = [dep for dep in s.dependencies if "loop" in dep]
+                        d.dependencies = list(set(d.dependencies + loop_deps))
+                        break
 
     def source_names(self):
         return [s.name for s in self.sources]
@@ -75,12 +81,14 @@ class Compute(Operation):
 
     @property
     def operands_by_unique_location(self):
-        locs = []
+        keys = []
         operands = []
         for i, o in enumerate(self.operands):
             loc = self.get_operand_location(o.name)
-            if loc not in locs:
-                locs.append(loc)
+            idx = o.get_mem_index(loc)
+            key = (loc, idx)
+            if key not in keys:
+                keys.append(key)
                 operands.append(o)
         return operands
 

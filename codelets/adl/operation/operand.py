@@ -139,6 +139,7 @@ class DataMovement:
 
     def get_size_from_splits(self, cdlt, splits):
         sizes = {}
+
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = self.get_symbol_atoms(o)
@@ -282,6 +283,7 @@ class Operand:
     data_path: List[str] = field(default_factory=list)
     dtype: Datatype = field(default=None)
     node_name: str = field(default=None)
+    mem_locations: Dict[str, Dict[str, int]] = field(default_factory=dict)
     write_destination: str = field(default=None)
     evaluated_tiling: List[Tuple[str, List]] = field(default_factory=list, init=False)
     dependencies: List[str] = field(default_factory=list)
@@ -293,6 +295,18 @@ class Operand:
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
+
+    @property
+    def mem_locations_set(self) -> bool:
+        return all([loc in self.mem_locations for loc in set(self.data_path)])
+
+    @property
+    def unset_mem_locations(self) -> List[str]:
+        return [loc for loc in set(self.data_path) if loc not in self.mem_locations]
+
+    @property
+    def unique_dependencies(self) -> List[str]:
+        return list(set(self.dependencies))
 
     def add_padding(self, dimension, pad_size, symmetric=False, dynamic=False):
         if isinstance(dimension, str):
@@ -365,10 +379,11 @@ class Operand:
         stride_val = np.prod(move.shape_list)
         return stride_val.astype(np.int64)
 
+
+
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
     def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=False):
-
         if movement_type == 'up':
             prev_level = level + 1
         else:
@@ -388,8 +403,10 @@ class Operand:
             elif movement_type == 'up' and self in cdlt.outputs and cdlt.get_tile_level(dm.src_node) == level:
                 target_movement = dm
                 break
+
         if dm.src_node == "IMM" or dm.dst_node == "IMM":
             return 0
+
         if target_movement is None:
             dm_info = "\n".join([str({"src": dm.src_node,
                                       "dst": dm.dst_node,
@@ -410,15 +427,20 @@ class Operand:
             other_key = target_movement.src_node
 
         offset_val = None
+
         other_offsets = []
-        for o in target_movement.domain_offsets():
+        if all([o.loop_id == -1 for o in target_movement.domain_offsets()]):
+            raise RuntimeError
+        else:
+            dom_offsets = target_movement.domain_offsets()
+
+        for o in dom_offsets:
             if o.loop_id == loop_id:
                 offset_val = o
                 # break
             # TODO: Check to make sure other loops are nested
             elif o.loop_id > loop_id:
                 other_offsets.append(o)
-
 
         if offset_val is None:
             if zero_not_found:
@@ -430,11 +452,10 @@ class Operand:
         other_sizes = [1]
         acc_dims = [offset_val.dim]
 
-        for o in target_movement.domain_offsets():
+        for o in dom_offsets:
             if o.loop_id > loop_id and o.dim not in acc_dims:
                 other_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
                 acc_dims.append(o.dim)
-
 
         src_node = hag.get_subgraph_node(target_movement.src_node)
         dst_node = hag.get_subgraph_node(target_movement.dst_node)
@@ -458,7 +479,7 @@ class Operand:
             loop = cdlt.op_map[loop_str]
             tile_sizes = []
             num_tiles = []
-            for i, o in enumerate(target_movement.domain_offsets()):
+            for i, o in enumerate(dom_offsets):
                 tile_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
 
                 if o.dim in acc_dims and o.dim != offset_val.dim:
@@ -554,7 +575,7 @@ class Operand:
         offsets = offsets or []
         self.add_dependency(op_name)
         pairs = pairwise(path)
-
+        all_pairs = []
 
         for i, (src, dst) in enumerate(pairs):
             if self.current_location != src:
@@ -570,8 +591,10 @@ class Operand:
                     else:
                         self.data_moves[-1].dst_node = src
 
+
             if len(self.data_moves) > 0 and self.data_moves[-1].unset_offsets:
                 self.data_moves[-1].reinit_offset_map(self.get_access_offsets(offsets))
+                all_pairs.append((self.data_moves[-1].src_node, self.data_moves[-1].dst_node))
 
             dm_offsets = self.get_access_offsets(offsets)
             shape = self.get_shape_map(sizes[i])
@@ -579,7 +602,28 @@ class Operand:
             movement = DataMovement(src, dst, self.name, self.shape_list.copy(), op_name, shape, dm_offsets)
             self.data_moves.append(movement)
 
+        if len(all_pairs) == 1 and len(self.data_moves) > 2:
+            last_idx = len(self.data_moves) - 2
+            last_move = self.data_moves[last_idx]
+            src, dst = all_pairs[0]
+
+            while last_idx >= 0 and (src, dst) == (last_move.src_node, last_move.dst_node) or \
+                    (dst, src) == (last_move.src_node, last_move.dst_node):
+
+                if last_move.unset_offsets:
+                    last_move.reinit_offset_map(self.get_access_offsets(offsets))
+                last_idx -= 1
+                last_move = self.data_moves[last_idx]
+
         return self
+
+    def get_mem_index(self, loc) -> int:
+        assert loc in self.mem_locations, f"Not a valid location for this operand"
+        return self.mem_locations[loc]['index']
+
+    def get_mem_offset(self, loc) -> int:
+        assert loc in self.mem_locations, f"Not a valid location for this operand"
+        return self.mem_locations[loc]['offset']
 
     def add_compute_access(self, target, op_name, operand_type, offsets=None):
 
@@ -822,6 +866,7 @@ class Operand:
                           dependencies=self.dependencies.copy(),
                           tiling=deepcopy(self.tiling),
                           data_path=self.data_path.copy(),
+                          mem_locations=self.mem_locations.copy(),
                           dtype=self.dtype,
                           node_name=self.node_name,
                           permutation=self.permutation,
