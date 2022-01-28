@@ -1,7 +1,23 @@
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.flex_param import FlexParam
 from codelets.adl.graph import ArchitectureNode
-from . import OP_DTYPES, ASIC_CONFIG
+from . import OP_DTYPES, ASIC_CONFIG, FXP_CONFIGS
+from fxpmath import Fxp
+
+def range_from_cfg(cfg, as_int=True):
+    if cfg['signed']:
+        upper_val = (1 << (cfg['n_word'] - 1)) - 1
+        lower_val = -upper_val - 1
+    else:
+        upper_val = (1 << cfg['n_word']) - 1
+        lower_val = 0
+
+    if not as_int:
+        upper_val = upper_val / 2.0 ** cfg['n_frac']
+        lower_val = lower_val / 2.0 ** cfg['n_frac']
+    # precision = 1 / 2.0 ** cfg['n_frac']
+
+    return (lower_val, upper_val)
 
 def gemm(hag: ArchitectureNode):
 
@@ -1599,9 +1615,10 @@ def maxpool2d(hag: ArchitectureNode):
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
+        min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=min_val, index=0)
         pad = cdlt.dummy_op("pad", cdlt.node.pad[0])
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
@@ -1904,18 +1921,16 @@ def reduce_min2d(hag: ArchitectureNode):
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[1]), dtype="FXP32")
         axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        _, max_val = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
 
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=max_val, index=0)
+
         with cdlt.loop(ONE) as o:
             with cdlt.loop(C) as c:
                 with cdlt.loop(N) as n:
@@ -1923,8 +1938,7 @@ def reduce_min2d(hag: ArchitectureNode):
                     # TODO: Zero out output data at compile time
                     cdlt.transfer(out[n, o], ["DRAM", "VMEM2"])
                     out.set_write_destination("VMEM2")
-                    cdlt.compute("ADD", [data, out], [out], target="SIMD")
-                    cdlt.compute("MUL", [out, denom_op], [out], target="SIMD")
+                    cdlt.compute("MIN", [data, out], [out], target="SIMD")
                 cdlt.transfer(out[n, o], ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     simd_dims = hag.get_subgraph_node("pe_array").dimensions
