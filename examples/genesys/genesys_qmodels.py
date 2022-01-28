@@ -154,7 +154,7 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
     elif "pow" in cdlt.op_name:
         exp = cdlt.required_params['exp'].value
         params = (exp,)
-    elif "reduce_mean" in cdlt.op_name:
+    elif "reduce_mean" in cdlt.op_name or "reduce_min" in cdlt.op_name:
         axis = cdlt.required_params['axis'].value
         params = (axis,)
     else:

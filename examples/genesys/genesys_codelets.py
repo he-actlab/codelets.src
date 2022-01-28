@@ -1851,7 +1851,51 @@ def reduce_mean2d(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[1])
 
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, ONE], default_dtype=OP_DTYPES[2])
 
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        # Change this to be the reciprocal as a FXP value
+
+        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[1]), dtype="FXP32")
+        axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.configure("start", "SIMD")
+        ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
+        # This is a temporary hotfix to enable IMM value indexing during instruction generation
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+
+        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        with cdlt.loop(ONE) as o:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(N) as n:
+                    cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                    # TODO: Zero out output data at compile time
+                    cdlt.transfer(out[n, o], ["DRAM", "VMEM2"])
+                    out.set_write_destination("VMEM2")
+                    cdlt.compute("ADD", [data, out], [out], target="SIMD")
+                    cdlt.compute("MUL", [out, denom_op], [out], target="SIMD")
+                cdlt.transfer(out[n, o], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("LEVEL1_hint", "splits['C'] == 1")
+    cdlt.add_compilation_param("N_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def reduce_min2d(hag: ArchitectureNode):
+    #
+
+    # # TODO: Add option to create operand
+    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
+    with CodeletTemplate("reduce_min2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[1])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, ONE], default_dtype=OP_DTYPES[2])
@@ -1963,7 +2007,7 @@ def clip(hag: ArchitectureNode):
 GENESYS_CODELETS = {
     "max_pool": maxpool2d,
     "reduce_mean2d": reduce_mean2d,
-    # "reduce_min2d": reduce_min2d,
+    "reduce_min2d": reduce_min2d,
     "elem_ceil2d": elem_ceil2d,
     "elem_pow2d": elem_pow2d,
     "avg_pool": averagepool2d,

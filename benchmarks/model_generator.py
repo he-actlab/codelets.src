@@ -81,7 +81,11 @@ LAYER_INPUT_GEN = {
     "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
     "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
     "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
-    "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+    "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"],
+                                                                             "const_inputs": (params['axis'],),
+                                                                             "extraction_args": {"input_names": ["input"],
+                                                                                                 "output_names": ["output"]
+                                                                                                 }}),
     "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
     "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
     "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
@@ -336,6 +340,11 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
     else:
         opset = _onnx_opset_version
 
+    if "extraction_args" in kwargs:
+        extraction_args = kwargs.pop("extraction_args")
+    else:
+        extraction_args = None
+
     model = CustomLayer(kwargs)
 
 
@@ -345,7 +354,10 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
     model.eval()
     if fname is None:
         fname = f"custom_{layer_name}"
-    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format, opset=opset)
+    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath,
+                        convert_data_format=convert_data_format,
+                        opset=opset,
+                        extraction_args=extraction_args)
 
 def create_custom_gemm(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, fname=None):
 
@@ -716,9 +728,14 @@ def print_nodes(model_proto):
           f"Total Operations: {num_nodes_total}")
 
 def convert_torch_model(input_var, model, model_name, optimize_model, training_mode, to_polymath,
-                        convert_data_format=False, out_dir=None, opset=_onnx_opset_version, verbose=False):
+                        convert_data_format=False, out_dir=None,
+                        opset=_onnx_opset_version,
+                        verbose=False,
+                        extraction_args=None):
     f = io.BytesIO()
     mode = torch.onnx.TrainingMode.TRAINING if training_mode else torch.onnx.TrainingMode.EVAL
+    filepath = f"{CWD}/models/{model_name}.onnx"
+
     if 'mask_rcnn' not in model_name:
         torch.onnx.export(model,  # model being run
                           input_var,  # model input (or a tuple for multiple inputs)
@@ -729,7 +746,7 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           training=mode,
                           input_names=['input'],  # the model's input names
                           output_names=['output'],
-                          opset_version=12)
+                          opset_version=opset)
     else:
         model.eval()
         # input_var = [(input_var,)]
@@ -754,14 +771,24 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           # keep_initializers_as_inputs=True,
                           # operator_export_type=torch.onnx.OperatorExportTypes.ONNX_ATEN,
                           )
+
     model_proto = onnx.ModelProto.FromString(f.getvalue())
+
+    if extraction_args is not None:
+        assert "input_names" in extraction_args and "output_names" in extraction_args
+        input_names = extraction_args.pop("input_names")
+        output_names = extraction_args.pop("output_names")
+        with open(filepath, "wb") as f:
+            f.write(model_proto.SerializeToString())
+        onnx.utils.extract_model(filepath, filepath, input_names, output_names)
+        model_proto = onnx.load(filepath)
+
     if verbose:
         print_nodes(model_proto)
     onnx.checker.check_model(model_proto)
     add_value_info_for_constants(model_proto)
     model_proto = onnx.shape_inference.infer_shapes(model_proto)
 
-    filepath = f"{CWD}/models/{model_name}.onnx"
     if optimize_model:
         model_proto, check = simplify(model_proto)
         assert check

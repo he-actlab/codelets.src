@@ -76,7 +76,7 @@ def sigmoid_pw(xval, dtype):
             lambda x: pw1.val]
 
     res = np.piecewise(xval, conds, fns)
-    # res = np.piecewise(Fxp(xval, **FXP_CONFIGS[dtype]).val, conds, fns)
+    # res = np.piecewise(Fxp(xval, **FXP_CONFIGS[dtype]).val, LOOP_CONDS, fns)
 
     return res
 
@@ -116,7 +116,7 @@ def meanfn(data, axis, dtype):
     return out
 
 def minfn(data, axis, dtype):
-    return np.mean(data, axis)
+    return np.min(data, axis)
 
 def unary(op1, layer_name, dtype, *params):
     quantize = False
