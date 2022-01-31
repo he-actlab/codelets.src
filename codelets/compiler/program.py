@@ -842,6 +842,12 @@ class CodeletProgram(object):
 
         return codelets
 
+    def finalize_program(self, node_sequence, codelets, verbose=False):
+        self.finalize_memory(node_sequence, codelets, verbose=verbose)
+        self.finalize_instructions(node_sequence, codelets, verbose=verbose)
+        self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
+        self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
+
 
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True,
@@ -853,6 +859,7 @@ class CodeletProgram(object):
         start = time()
 
         node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+
         self.run_template_stages(node_sequence, verbose=verbose)
 
         codelets = self.instantiate_all_codelets(node_sequence, verbose=verbose)
@@ -865,10 +872,7 @@ class CodeletProgram(object):
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
         if finalize:
-            self.finalize_memory(node_sequence, codelets, verbose=verbose)
-            self.finalize_instructions(node_sequence, codelets, verbose=verbose)
-            self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
-            self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
+            self.finalize_program(node_sequence, codelets, verbose=verbose)
 
         self.run_instruction_stages(codelets, verbose=verbose)
 

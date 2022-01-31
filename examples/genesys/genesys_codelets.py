@@ -1425,9 +1425,9 @@ def elem_ceil2d(hag: ArchitectureNode):
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 cdlt.transfer(op1[n, c], ["DRAM", "VMEM1"])
-                out.set_write_destination("VMEM1")
+                out.set_write_destination("VMEM2")
                 cdlt.compute("CEIL", [op1], [out], target="SIMD")
-                cdlt.transfer(out[n, c], ["VMEM1", "DRAM"])
+                cdlt.transfer(out[n, c], ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
         cdlt.add_compilation_param("LOOP_TILE_ORDER", ["N", "C"])
         simd_dims = hag.get_subgraph_node("pe_array").dimensions

@@ -131,9 +131,12 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
     if use_random:
         if "sigmoid" in cdlt.op_name:
             scale = 1.5
+        elif "tanh" in cdlt.op_name:
+            scale = 7
         else:
             scale = 1
         input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}", scale=scale)
+
 
     else:
         input1 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
@@ -528,6 +531,7 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
 
     if format.lower() == "nhwc":
         input = input.transpose(0, 3, 1, 2)
+
         # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
         weights = weights.transpose(*tuple(WEIGHTS_CL_TO_CF))
 

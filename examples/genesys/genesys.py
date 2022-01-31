@@ -254,16 +254,19 @@ def compile_genesys(model_name,
                     print_config=True,
                     store_ops=False,
                     factor_fn='default',
+                    store_checkpoint=False,
+                    do_tile_stage=True,
+                    do_hoist_stage=True,
                     batch_size=1,
+                    save_genesys_filename=None,
+                    load_genesys_filename=None,
                     relocation_offsets=None,
-                    model_dir=None,
-                    out_dir=None,
                     train=False,
                     tiling_search_algorithm='valid_split',
                     do_compile=True
                     ):
-    MODEL_DIR = model_dir or f"{benchmark_path}/models/srdfg"
-    OUT_DIR = out_dir or f"{benchmark_path}/compiler_outputs"
+    MODEL_DIR = f"{benchmark_path}/models/srdfg"
+    OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
     dtypes = dtypes or GENESYS_DTYPES
@@ -272,10 +275,9 @@ def compile_genesys(model_name,
     else:
         def_cfg = GENESYS_CFG
 
-    # if model_name not in VALID_MODELS:
-    #     raise RuntimeError(f"Invalid model name for compilation")
     if train:
         model_name = f"{model_name}_train"
+
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
     graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
 
@@ -292,17 +294,14 @@ def compile_genesys(model_name,
     mode = "training" if train else "inference"
     # Codelet compilation starts here
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
                                  )
-    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
-    # program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
-    # program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
-    #                              dependencies=["template_layout_pass"])
+
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    # tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
-    #                'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
     if tiling_search_algorithm == 'min_tiles':
         tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
                         'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}
@@ -312,17 +311,24 @@ def compile_genesys(model_name,
 
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
-    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
-    program.add_compilation_step("hoist", hoist, dependencies=["tile"])
-    program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
+    finalize_instructions = True
+    if do_tile_stage:
+        program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    else:
+        finalize_instructions = False
+
+    if do_hoist_stage:
+        program.add_compilation_step("hoist", hoist, dependencies=["tile"])
+        program.add_compilation_step("simd_typecast", add_simd_typecast, dependencies=["hoist"],
                                  stage_kwargs={"dtype_map": {}, "codelet_output_map": {}},
                                  skip_noops=False)
+    else:
+        finalize_instructions = False
+
+    if relocation_offsets:
+        program.set_relocation_ns_offsets(relocation_offsets)
 
     if do_compile:
-
-    # if relocation_offsets:
-    #     program.set_relocation_ns_offsets(relocation_offsets)
-
         if tiling_path is not None:
             program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
         else:
@@ -399,10 +405,10 @@ def compile_genesys_layer(layer_file,
                           dtypes=None,
                           print_config=True,
                           store_ops=False,
+                          factor_fn='default',
                           store_checkpoint=False,
                           do_tile_stage=True,
                           do_hoist_stage=True,
-                          factor_fn='default',
                           batch_size=1,
                           save_genesys_filename=None,
                           load_genesys_filename=None,
@@ -425,6 +431,7 @@ def compile_genesys_layer(layer_file,
         genesys = define_genesys(def_cfg)
     else:
         genesys = deserialize_hag(load_genesys_filename)
+
     if save_genesys_filename is not None:
         with open(save_genesys_filename, 'w') as f:
             json.dump(genesys.to_json(), f, indent=4)
@@ -438,9 +445,10 @@ def compile_genesys_layer(layer_file,
         pprint(sizes_cfg)
     mode = "inference"
     program = initialize_program(graph, genesys, mode=mode)
+    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
+
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
                                  )
-    program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
 
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,

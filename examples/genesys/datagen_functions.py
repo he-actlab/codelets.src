@@ -28,8 +28,6 @@ def from_fxp(v, dtype):
 def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None):
     if constant_val is None:
         low, high = compute_range(fxp_dtype, scale)
-        # print(f"high max: {high}, Low: {low}\n"
-        #       f"Float repr: {from_fxp(high, fxp_dtype)}, Low: {from_fxp(low, fxp_dtype)}")
         v = np.random.randint(low=low, high=high,
                               size=shape, dtype=np.int64)
     else:
@@ -564,7 +562,6 @@ def manual_conv(inputs, weights, cdlt, o_coord, layout="nhwc"):
     inputs = inputs.astype(np.int64)
     weights = weights.astype(np.int64)
     stride = cdlt.required_params['stride'].value
-
     compilation_info = {i: [] for i in range(IC)}
     if layout == "nhwc":
         for oc in range(OC):
