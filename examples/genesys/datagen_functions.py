@@ -28,6 +28,7 @@ def from_fxp(v, dtype):
 def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None):
     if constant_val is None:
         low, high = compute_range(fxp_dtype, scale)
+        print(f"Low: {low}, High: {high}")
         v = np.random.randint(low=low, high=high,
                               size=shape, dtype=np.int64)
     else:

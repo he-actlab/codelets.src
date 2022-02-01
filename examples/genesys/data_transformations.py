@@ -167,15 +167,16 @@ def dram_layout(weights, print_debug=False):
     if i + 3 < n:
         concat_weights += flat_weights[i + 3] << 24
     dram_weights.append(concat_weights)
-    dram_weights = [str(x) for x in dram_weights]
-    return dram_weights
+    # dram_weights = [str(x) for x in dram_weights]
+    return np.asarray(dram_weights)
 
 def transform_data(data, operand_type, transformation, cdlt):
     if operand_type == "input":
         if transformation == "shuffled":
             return dram_layout(data)
         elif transformation == "raw":
-            return [str(i) for i in data.flatten().tolist()]
+            return data
+            # return [str(i) for i in data.flatten().tolist()]
         else:
             raise RuntimeError
     elif operand_type == "weights":
@@ -190,10 +191,11 @@ def transform_data(data, operand_type, transformation, cdlt):
         elif transformation == "shuffled_raw":
             shuffled_data = shuffle_weights(data, layer_type=cdlt.op_name)
             tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, layer_type=cdlt.op_name)
-            raw_data = [str(i) for i in tiled_data]
-            return raw_data
+            # raw_data = [str(i) for i in tiled_data]
+            return tiled_data
         elif transformation == "raw":
-            return [str(i) for i in data.flatten().tolist()]
+            return data
+            # return [str(i) for i in data.flatten().tolist()]
         else:
             raise RuntimeError
 

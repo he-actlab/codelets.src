@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 from codelets.compiler.program import CodeletProgram
 from examples.genesys.genesys_qmodels import generate_random_values
+from examples.genesys.datagen_functions import save_array
 from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 import sys
@@ -76,12 +77,30 @@ def store_values(program, model_name, base_path, load_path=None, use_random=True
         fixed_values = {"folder_path": f"{CWD}/compilation_output/{load_path}"}
     else:
         fixed_values = None
-    generate_random_values(cdlt, model_name, cdlt.op_name,
+    inouts = generate_random_values(cdlt, model_name, cdlt.op_name,
                            base_path=base_path,
                            use_random=use_random,
                            fixed_values=fixed_values,
                            actual_data=actual_data,
                            generate_partial_values=store_partials)
+
+    for i, v in inouts["inputs"].items():
+        if isinstance(v, dict):
+            for format_name, val in v.items():
+                save_array(f'{base_path}/{i}_{format_name}.txt', val)
+        elif not isinstance(v, np.ndarray):
+            raise RuntimeError(f"Invalid type for storage: name: {i}, type: {type(v)}")
+        else:
+            save_array(f'{base_path}/{i}.txt', v)
+
+    for o, v in inouts["outputs"].items():
+        if isinstance(v, dict):
+            for format_name, val in v.items():
+                save_array(f'{base_path}/{o}_{format_name}.txt', val)
+        elif not isinstance(v, np.ndarray):
+            raise RuntimeError(f"Invalid type for storage: name: {o}, type: {type(v)}")
+        else:
+            save_array(f'{base_path}/{o}.txt', v)
 
 
 def store_outputs(model_name,

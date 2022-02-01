@@ -24,7 +24,7 @@ NAME_MAPPING = {
     "elem_add": "add",
     "elem_ceil2d": "ceil",
     "elem_pow2d": "pow",
-    "reduce_min2d": "min",
+    "reduce_min2d": "reducemin",
     "reduce_mean2d": "reducemean",
     "elem_mul": "mul",
     "elem_tanh": "tanh",
@@ -575,13 +575,13 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
 
             n = ceildiv(layer['N'], scale_val)
             new_layer_params['N'] = n
-            if layer['IC'] > GENESYS_CFG['ARRAY_M']:
+            if layer['IC'] > GENESYS_CFG['ARRAY_M'] and scale_val > 1:
                 ic = ceildiv(layer['IC'], scale_val)
             else:
                 ic = layer['IC']
             new_layer_params['IC'] = ic
 
-            if layer['OC'] > GENESYS_CFG['ARRAY_N']:
+            if layer['OC'] > GENESYS_CFG['ARRAY_N'] and scale_val > 1:
                 oc = ceildiv(layer['OC'], scale_val)
             else:
                 oc = layer['OC']
@@ -604,7 +604,6 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 all_shapes.append(new_layer_params.copy())
             new_layer_params['pads'] = pad
             new_layer_params['strides'] = stride
-
             if idx in im2col_layers:
 
                 oh = int((h + 2 * pad - ksize) / stride) + 1
@@ -650,7 +649,6 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 print(f"Generating permutation {nlayer_perm} for layer {idx}:\n"
                       f"layer params: {layer_param_str}\n"
                       f"Constraints: {constraint_str}")
-
             try:
                 print(f"Compiling with split {scale_val}")
                 program.compile(verbose=False, finalize=True)
@@ -740,7 +738,7 @@ def systolic_array_bench():
     # # # # # #
     program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
                                         store_compile=True,
-                                        partials=True,
+                                        partials=False,
                                         added_constr=tcstr
                                         )
 
@@ -759,7 +757,8 @@ def resnet_benches(nunique=1, layers=None, debug_output=False, ext=None,
     attr_params = []
     attr_params.append("pads")
     attr_params.append("strides")
-    tile_constraint = "np.prod(list(splits.values())) <= 100"
+    # tile_constraint = "True"
+    tile_constraint = "np.prod(list(splits.values())) < 100"
     ext = ext or ""
     layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
     scale_and_compile_layers(model_name, f"8x8_{ext}", layer_params[1:], [], nunique,
@@ -876,20 +875,19 @@ def simd_benchmarks3(tests=None, layers=None, num=12):
 
             if o == "elem_pow2d":
                 params['exp'] = np.float64(3.0)
-            elif o == "reduce_mean2d":
+            elif o in ["reduce_mean2d", "reduce_min2d"]:
                 params['keepdim'] = True
-                params['axis'] = (1,)
+                params['axis'] = 1
 
             constraint = cfg['constraint']
             program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
-            print(program.hag.get_subgraph_node("WBUF").addressable_elements)
-            print(program.hag.get_subgraph_node("WBUF").num_elements)
+
 
 if __name__ == "__main__":
-    # simd_benchmarks3(layers=["reduce_mean2d"], tests=["t1"], num=46)
-    # simd_benchmarks3(layers=["elem_ceil2d"], tests=["t1"], num=47)
+    # simd_benchmarks3(layers=["reduce_min2d"], tests=["t1"], num=49)
+    simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
     # simd_benchmarks1(layers=["relu"], tests=["t1"], num=40)
-    resnet_benches(debug_output=False, ext="t3_", layers=[2], verbose=True)
+    # resnet_benches(debug_output=False, ext="t5_", layers=[0], verbose=False)
     # systolic_array_bench()
     # simd_benchmarks1(layers=["elem_sigmoid"], tests=["t1"], num=17)
     # simd_benchmarks1(num=21)

@@ -22,8 +22,12 @@ def store_model_values(program: CodeletProgram,  model_name, base_path, use_rand
                   "outputs": {}
                   }
     for c in program.codelets:
+        inouts = {"inputs": {}, "outputs": {}}
+
         for i in c.inputs:
             assert i.node_name in program.operand_mapping
+
+
 
     operand_map = {}
     # for c in program.codelets:

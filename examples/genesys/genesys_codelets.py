@@ -1942,8 +1942,8 @@ def reduce_min2d(hag: ArchitectureNode):
                 cdlt.transfer(out[n, o], ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LEVEL1_hint", "splits['C'] == 1")
-    cdlt.add_compilation_param("N_hint2", f"size == {simd_dims[0]}")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['C'] == 1")
+    cdlt.add_compilation_param("N_hint2", f"size > {simd_dims[0]}")
 
     return cdlt
 
