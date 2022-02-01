@@ -1,11 +1,14 @@
 import numpy as np
 from fxpmath import Fxp
-from collections import Iterable
+from collections import Iterable, namedtuple
 from . import FXP_CONFIGS
 from . import GENESYS_CFG
 import torch.nn.functional as F
 import torch
 from torch import nn
+
+OperandData = namedtuple('OperandData', ['data', 'node_name', 'opname', 'idx', 'fmt'], defaults=[None])
+
 
 
 def save_array(path, data):
@@ -28,12 +31,10 @@ def from_fxp(v, dtype):
 def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None):
     if constant_val is None:
         low, high = compute_range(fxp_dtype, scale)
-        print(f"Low: {low}, High: {high}")
         v = np.random.randint(low=low, high=high,
                               size=shape, dtype=np.int64)
     else:
         v = np.full(shape, constant_val, dtype=np.int64)
-    # v = np.full(shape, fill_value=-135783, dtype=np.int64)
     return v
 
 def sigmoid_pw(xval, dtype):

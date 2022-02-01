@@ -1,37 +1,110 @@
+from typing import Dict, List
 from pathlib import Path
 from examples.genesys import compile_genesys, get_arch
+from examples.genesys.datagen_functions import OperandData, save_array
+from examples.genesys.genesys_qmodels import generate_random_values
 from tools.compile_layer import store_compilation_output
 from codelets.compiler.program import CodeletProgram
 from pprint import pprint
 import os
+import json
 CWD = Path(f"{__file__}").parent
 
 BENCH_DIR = Path(f"{Path(__file__).parent}/../../benchmarks")
 MODEL_DIR = Path(f"{Path(__file__).parent}/../../benchmarks/models")
 
-def generate_inputs(inputs):
-    pass
 
-def generate_values(cdlt, layer_name, inputs=None):
-    pass
+def create_dirs(fpath, dir_ext):
+    cwd = Path(f"{__file__}").parent
+    base_path = Path(f"{cwd}/compilation_output/{Path(fpath).stem}{dir_ext}")
+
+    if not Path(f"{base_path}").exists():
+        try:
+            os.makedirs(base_path)
+        except OSError as e:
+            print(f"Creation of directory {base_path} failed:\n {e}")
+        else:
+            print(f"Successfully created of directory {base_path}")
+    else:
+        print(f"Directory {base_path} already exists.")
+    return base_path
 
 def store_model_values(program: CodeletProgram,  model_name, base_path, use_random=True, format="nhwc",
                        load_path=None, actual_data=None, store_partials=None):
-    value_dict = {"inputs": {},
+    formatted: List[OperandData] = []
+    value_dict: Dict[str, Dict[str,OperandData]] = {"inputs": {},
                   "intermediate": {},
                   "outputs": {}
                   }
+    storage_info = {}
+    data_path = f"{base_path}/data"
+    if not Path(data_path).exists():
+        os.makedirs(data_path)
+
     for c in program.codelets:
-        inouts = {"inputs": {}, "outputs": {}}
+        inouts = {"inputs": [], "outputs": []}
+        for i, op in enumerate(c.inputs):
+            assert op.node_name in program.operand_mapping
 
-        for i in c.inputs:
-            assert i.node_name in program.operand_mapping
+            if op.node_name in value_dict['outputs']:
+                operand = value_dict['outputs'].pop(op.node_name)
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+                value_dict['intermediate'][op.node_name] = operand
+            elif op.node_name in value_dict['intermediate']:
+                operand = value_dict['intermediate'][op.node_name]
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+        inouts = generate_random_values(c, inouts=inouts)
+
+        for i in inouts['inputs']:
+
+            if i.fmt is None and i.node_name not in value_dict['inputs'] and i.node_name not in value_dict['intermediate']:
+                value_dict['inputs'][i.node_name] = i
+                storage_info[i.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+
+            elif i.fmt is not None:
+                formatted.append(i)
+
+        for o in inouts['outputs']:
+            if o.fmt is None:
+                value_dict['outputs'][o.node_name] = o
+                storage_info[o.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+
+    for f in formatted:
+        if f.node_name in value_dict['inputs']:
+            assert f.fmt is not None
+            if not Path(f"{data_path}/{f.node_name}").exists():
+                os.makedirs(f"{data_path}/{f.node_name}")
+            save_array(f'{data_path}/{f.node_name}/{f.node_name}_{f.fmt}.txt', f.data)
+
+    for n, i in value_dict['inputs'].items():
+        assert n in program.operand_mapping
+        assert i.node_name in storage_info
+
+        if Path(f"{data_path}/{i.node_name}").exists():
+            save_array(f'{data_path}/{i.node_name}/{i.node_name}.txt', i.data)
+            storage_info[i.node_name]['path'] = f'{data_path}/{i.node_name}/'
+        else:
+            save_array(f'{data_path}/{i.node_name}.txt', i.data)
+            storage_info[i.node_name]['path'] = f'{data_path}/{i.node_name}.txt'
 
 
+    for n, o in value_dict['outputs'].items():
+        assert n in program.operand_mapping
+        assert o.node_name in storage_info
 
-    operand_map = {}
-    # for c in program.codelets:
-    #     print(c.op_name)
+        if Path(f"{data_path}/{o.node_name}").exists():
+            save_array(f'{data_path}/{o.node_name}/{o.node_name}.txt', o.data)
+            storage_info[o.node_name]['path'] = f'{data_path}/{o.node_name}/'
+        else:
+            save_array(f'{data_path}/{o.node_name}.txt', o.data)
+            storage_info[o.node_name]['path'] = f'{data_path}/{o.node_name}.txt'
+
+    with open(f"{base_path}/data_locations.json", "w") as outf:
+        outf.write(json.dumps(storage_info, indent=2))
+
+
 
 def store_model_outputs(model_name,
                   training_mode,

@@ -1,10 +1,11 @@
 
 from pathlib import Path
 from collections import Iterable
+from typing import Dict, List
 from .genesys_model_utils import get_resnet18, get_resnet50
 from .datagen_functions import binary, unary, numpy_datagen, manual_conv_from_existing, \
     maxpool2d, avgpool2d,  manual_conv, manual_gemm, conv_forward_naive, pad_conv, \
-    pad_gemm, save_array, global_avg_pool, depthwise_conv2d
+    pad_gemm, save_array, global_avg_pool, depthwise_conv2d, OperandData
 from .data_transformations import transform_data
 from decimal import Decimal
 from . import FXP_CONFIGS
@@ -23,6 +24,21 @@ UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigm
 # FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
+def create_operand_data(data, operand, idx, fmt=None):
+    return OperandData(data=data, opname=operand.name, node_name=operand.node_name, idx=idx, fmt=fmt)
+
+
+def retrieve_input_data(inouts: Dict[str, List[OperandData]], idx, cdlt,
+                        scale=2, constant_val=None):
+    for i in inouts['inputs']:
+        if i.opname == cdlt.inputs[idx].name:
+            return i
+
+    data = numpy_datagen(cdlt.inputs[idx].shape, cdlt.inputs[idx].dtype.bits(),
+                         fxp_dtype=f"{cdlt.inputs[idx].dtype}",
+                         scale=scale, constant_val=constant_val)
+    op = create_operand_data(data, cdlt.inputs[idx], idx)
+    return op
 
 def compute_existing_values(json_path):
     with open(f"{json_path}", "r") as f:
@@ -42,60 +58,48 @@ def compute_existing_values(json_path):
 
 
 
-def generate_random_values(cdlt, model_name, layer_name, **kwargs):
-    if "depthwise_conv" in layer_name:
-        inouts = generate_random_values_dw_conv(cdlt, model_name, layer_name, **kwargs)
-    elif "conv" in layer_name:
-        inouts = generate_random_values_conv(cdlt, model_name, layer_name, **kwargs)
-    elif "maxpool" in layer_name or "max_pool" in layer_name:
-        inouts = generate_random_values_maxpool(cdlt, model_name, layer_name, **kwargs)
-    elif "global_avgpool" in layer_name or "global_avg_pool" in layer_name:
-        inouts = generate_random_values_global_avgpool(cdlt, model_name, layer_name, **kwargs)
-    elif layer_name in BINARY_FNS:
-        inouts = generate_random_values_binary(cdlt, model_name, layer_name, **kwargs)
-    elif layer_name in UNARY_FNS:
-        inouts = generate_random_values_unary(cdlt, model_name, layer_name, **kwargs)
+def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
+    if "depthwise_conv" in cdlt.op_name:
+        inouts = generate_random_values_dw_conv(cdlt, **kwargs)
+    elif "conv" in cdlt.op_name:
+        inouts = generate_random_values_conv(cdlt,  **kwargs)
+    elif "maxpool" in cdlt.op_name or "max_pool" in cdlt.op_name:
+        inouts = generate_random_values_maxpool(cdlt, **kwargs)
+    elif "global_avgpool" in cdlt.op_name or "global_avg_pool" in cdlt.op_name:
+        inouts = generate_random_values_global_avgpool(cdlt,**kwargs)
+    elif cdlt.op_name in BINARY_FNS:
+        inouts = generate_random_values_binary(cdlt, **kwargs)
+    elif cdlt.op_name in UNARY_FNS:
+        inouts = generate_random_values_unary(cdlt, **kwargs)
     else:
-        assert "gemm" in layer_name
-        inouts = generate_random_values_gemm(cdlt, model_name, layer_name, **kwargs)
+        assert "gemm" in cdlt.op_name
+        inouts = generate_random_values_gemm(cdlt, **kwargs)
 
     assert inouts is not None
     return inouts
 
 
-def generate_random_values_binary(cdlt, model_name, layer_name,
-                                base_path=".",
+def generate_random_values_binary(cdlt,
+                                  inouts=None,
+                                  base_path=".",
+                                  generate_partial_values=False,
                                 format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
-                                generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
+                                fixed_values=None):
+    inouts = inouts or {"inputs": [], "outputs": []}
 
-    input_dims = cdlt.inputs[0].shape
 
     tiling_parameters = cdlt.param_tiling
     # DRAM tiling is in level 1.
-    dram_tiling = tiling_parameters[1]
 
-    if use_random:
-        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}")
-        input2 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}")
-    else:
-        input1 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
-        input2 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
-        bits = (1 << (cdlt.inputs[0].dtype.bits() - 1)) - 1
-        for i in range(np.prod(input_dims)):
-            input1[i] = i % (bits)
-            input2[i] = i % (bits)
-        input1 = input1.reshape(input_dims)
-        input2 = input2.reshape(input_dims)
-    inouts["inputs"][cdlt.inputs[0].name] = input1
-    inouts["inputs"][cdlt.inputs[1].name] = input2
+    input1_op = retrieve_input_data(inouts, 0, cdlt)
+    input2_op = retrieve_input_data(inouts, 1, cdlt)
 
-    # save_array(f'{base_path}/input1_raw.txt', input1)
-    #
-    # save_array(f'{base_path}/input2_raw.txt', input2)
+    inouts["inputs"].append(input1_op)
+    inouts["inputs"].append(input2_op)
+
+    input1 = input1_op.data.copy()
+    input2 = input2_op.data.copy()
+
 
 
 
@@ -104,7 +108,7 @@ def generate_random_values_binary(cdlt, model_name, layer_name,
         input2 = input2.transpose((0, 3, 1, 2))
 
 
-    output = binary(input1, input2, layer_name, f"{cdlt.inputs[0].dtype}")
+    output = binary(input1, input2, cdlt.op_name, f"{cdlt.inputs[0].dtype}")
     if len(output.shape) == 4:
         output = output.transpose((0, 2, 3, 1))
 
@@ -113,47 +117,32 @@ def generate_random_values_binary(cdlt, model_name, layer_name,
 
     # Write outputs to file
     # save_array(f'{base_path}/output.txt', output)
-    inouts["outputs"][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
+
 
     return inouts
 
 
 
-def generate_random_values_unary(cdlt, model_name, layer_name,
-                                base_path=".",
+def generate_random_values_unary(cdlt,
+                                 base_path=".",
+                                 generate_partial_values=False,
                                 format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
-                                generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
-
-    input_dims = cdlt.inputs[0].shape
-
-    tiling_parameters = cdlt.param_tiling
-    # DRAM tiling is in level 1.
-    dram_tiling = tiling_parameters[1]
-
-    if use_random:
-        if "sigmoid" in cdlt.op_name:
-            scale = 1.5
-        elif "tanh" in cdlt.op_name:
-            scale = 1.6
-        else:
-            scale = 1
-        input1 = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), fxp_dtype=f"{cdlt.inputs[0].dtype}", scale=scale)
+                                 inouts=None):
+    inouts = inouts or {"inputs": [], "outputs": []}
 
 
+    if "sigmoid" in cdlt.op_name:
+        scale = 1.5
+    elif "tanh" in cdlt.op_name:
+        scale = 1.6
     else:
-        input1 = np.zeros(input_dims, dtype=np.int64).reshape(-1)
-        bits = (1 << (cdlt.inputs[0].dtype.bits() - 1)) - 1
-        for i in range(np.prod(input_dims)):
-            input1[i] = i % (bits)
-        input1 = input1.reshape(input_dims)
+        scale = 1
+    input1_op = retrieve_input_data(inouts, 0, cdlt, scale=scale)
 
-    inouts["outputs"][cdlt.inputs[0].name] = input1
+    inouts["inputs"].append(input1_op)
+    input1 = input1_op.data.copy()
 
-    # save_array(f'{base_path}/input1_raw.txt', input1)
 
 
     if format.lower() == "nhwc" and len(input1.shape) == 4:
@@ -172,52 +161,36 @@ def generate_random_values_unary(cdlt, model_name, layer_name,
         params = tuple([])
 
 
-    output = unary(input1, layer_name, f"{cdlt.inputs[0].dtype}", *params)
+    output = unary(input1, cdlt.op_name, f"{cdlt.inputs[0].dtype}", *params)
 
     if len(output.shape) == 4:
         output = output.transpose((0, 2, 3, 1))
 
-    if fixed_values is not None and "outputs" in fixed_values:
-        np.testing.assert_allclose(output, fixed_values["outputs"])
-    # save_array(f'{base_path}/output.txt', output)
 
-    inouts["outputs"][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
     return inouts
 
 
 
 
 
-def generate_random_values_maxpool(cdlt, model_name, layer_name,
-                                base_path=".",
+def generate_random_values_maxpool(cdlt,
                                 format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
-                                generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
+                                   base_path=".",
+                                   generate_partial_values=False,
+                                   inouts=None):
+    inouts = inouts or {"inputs": [], "outputs": []}
 
 
     input_dims = tuple(cdlt.inputs[0].tiling['DRAM'].values())
     KH = cdlt.required_params['KH'].value
 
     stride_x = cdlt.required_params['sx'].value
-    # DRAM tiling is in level 1.
 
-    if use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits())
+    input1_op = retrieve_input_data(inouts, 0, cdlt)
 
-    else:
-        input = np.zeros(input_dims, dtype=np.int64).reshape(-1)
-        bits = (1 << (cdlt.inputs[0].dtype.bits() - 1)) - 1
-        for i in range(np.prod(input_dims)):
-            input[i] = i % bits
-        input = input.reshape(input_dims)
-
-
-    # with open(f'{base_path}/input_raw.txt', 'w') as f:
-    #     f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
-    inouts['inputs'][cdlt.inputs[0].name] = input
+    inouts["inputs"].append(input1_op)
+    input = input1_op.data.copy()
 
     if format.lower() == "nhwc":
         input = input.transpose((0, 3, 1, 2))
@@ -227,44 +200,23 @@ def generate_random_values_maxpool(cdlt, model_name, layer_name,
 
 
     output = output.transpose((0, 2, 3, 1))
-    if fixed_values is not None and "outputs" in fixed_values:
-        np.testing.assert_allclose(output, fixed_values["outputs"])
 
-    inouts['outputs'][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
     return inouts
-    # output = output.flatten().tolist()
-    # output = [str(x) for x in output]
 
-    # Write outputs to file
-    # with open(f'{base_path}/output.txt', 'w') as f:
-    #     f.write('\n'.join(output))
 
-def generate_random_values_global_avgpool(cdlt, model_name, layer_name,
+def generate_random_values_global_avgpool(cdlt,
+                                          inouts=None,
                                           base_path=".",
-                                          format="nhwc",
-                                          use_random=True,
-                                          fixed_values=None,
-                                          actual_data=False,
-                                          generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
-    input_dims = tuple(cdlt.inputs[0].tiling['DRAM'].values())
+                                          generate_partial_values=False,
+                                          format="nhwc"):
+    inouts = inouts or {"inputs": [], "outputs": []}
 
-    # DRAM tiling is in level 1.
 
-    if use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits())
+    input1_op = retrieve_input_data(inouts, 0, cdlt)
 
-    else:
-        input = np.zeros(input_dims, dtype=np.int64).reshape(-1)
-        bits = (1 << (cdlt.inputs[0].dtype.bits() - 1)) - 1
-        for i in range(np.prod(input_dims)):
-            input[i] = i % bits
-        input = input.reshape(input_dims)
-
-    inouts['inputs'][cdlt.inputs[0].name] = input
-
-    # with open(f'{base_path}/input_raw.txt', 'w') as f:
-    #     f.write('\n'.join([str(i) for i in input.flatten().tolist()]))
+    inouts["inputs"].append(input1_op)
+    input = input1_op.data.copy()
 
     if format.lower() == "nhwc":
         input = input.transpose((0, 3, 1, 2))
@@ -272,217 +224,72 @@ def generate_random_values_global_avgpool(cdlt, model_name, layer_name,
 
     output = global_avg_pool(input.astype(np.int64), f"{cdlt.inputs[0].dtype}")
 
-
     output = output.transpose((0, 2, 3, 1))
-    if fixed_values is not None and "outputs" in fixed_values:
-        np.testing.assert_allclose(output, fixed_values["outputs"])
 
-    inouts['inputs'][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
     return inouts
 
 
 
-def partial_values_gemm(cdlt, base_path, x, w, ref_out, o_coord):
-    other_test, ic_vals = manual_gemm(x, w, o_coord)
-    with open(f'{base_path}/out_coords.csv', 'w') as f:
-        for k, v in ic_vals.items():
-            # f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+def generate_random_values_dw_conv(cdlt,
+                                   inouts=None,
+                                   base_path=".",
+                                   generate_partial_values=False,
+                                format="nhwc"):
+    inouts = inouts or {"inputs": [], "outputs": []}
 
-            f.write(f'IC={k}, (m/n/p), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
-            for l in v:
-                f.write(f"IC={k}, " + "," + l + "\n")
-    np.testing.assert_allclose(other_test, ref_out)
-
-
-def partial_values_conv(cdlt, base_path, x, w, ref_out, o_coord):
-
-    other_test, ic_vals = manual_conv(x, w, cdlt, o_coord, layout="nhwc")
-    with open(f'{base_path}/out_coords.csv', 'w') as f:
-        f.write(f'IC, (oc/n/ic/kh/kw/y/x), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
-
-        for k, v in ic_vals.items():
-            for l in v:
-                f.write(f"IC={k}, " + "," + l + "\n")
-    np.testing.assert_allclose(other_test, ref_out)
-
-def generate_random_values_dw_conv(cdlt, model_name, layer_name,
-                                base_path=".",
-                                format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
-                                generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
-
-    input_dims = cdlt.inputs[0].shape
-    weight_dims = cdlt.inputs[1].shape
-    out_dims = cdlt.outputs[0].shape
     stride = cdlt.required_params['stride'].value
-    pad = cdlt.required_params['pad'].value
 
-    tiling_parameters = cdlt.param_tiling
-    # DRAM tiling is in level 1.
-    dram_tiling = tiling_parameters[1]
-    bias = np.zeros(shape=out_dims[-1], dtype=np.int32)
 
-    if actual_data:
-        layer_num = 0
-        layer_name = "conv"
-        input, weights, bias, output = get_model_values(model_name, layer_name, layer_num)
-        assert input.shape == input_dims
-        assert weights.shape == weight_dims
-        assert output.shape == out_dims
-    elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=2, fxp_dtype=f"{cdlt.inputs[0].dtype}")
-        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=2, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+    input_op = retrieve_input_data(inouts, 0, cdlt, scale=2)
+    inouts["inputs"].append(input_op)
+    input = input_op.data.copy()
 
-        # input = np.random.randint(low=-128, high=127, size=input_dims, dtype=np.int8)
-        # weights = np.random.randint(low=-128, high=127, size=weight_dims, dtype=np.int8)
-        # bias = np.random.randint(low=0, high=127, size=out_dims[-1], dtype=np.int32)
-    elif fixed_values is not None:
-        if "input" in fixed_values:
-            assert "input" in fixed_values and "weights" in fixed_values
-            input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-            for i in range(np.prod(input_dims)):
-                input[i] = fixed_values['input']
-            input = input.reshape(input_dims)
+    weight_op = retrieve_input_data(inouts, 1, cdlt, scale=2)
+    inouts["inputs"].append(weight_op)
+    weights = weight_op.data.copy()
 
-            weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
-            for j in range(np.prod(weight_dims)):
-                weights[j] = fixed_values['weights']
-            weights = weights.reshape(weight_dims)
-        else:
-            assert "folder_path" in fixed_values
-            with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
-                input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
-
-            with open(f'{fixed_values["folder_path"]}/weights_raw.txt', 'r') as f:
-                weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
-            with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
-                test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
-    else:
-
-        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-        for i in range(np.prod(input_dims)):
-            input[i] = i % 128
-        input = input.reshape(input_dims)
-        cf_weight_dims = [weight_dims[i] for i in WEIGHTS_CL_TO_CF]
-        weights = np.zeros(cf_weight_dims, dtype=np.int8).reshape(-1)
-        for j in range(np.prod(weight_dims)):
-            weights[j] = j % 128
-        weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
-
-    inouts["inputs"][cdlt.inputs[0].name] = input
-    inouts["inputs"][cdlt.inputs[1].name] = weights
-
-    # save_array(f"{base_path}/input.txt", input)
-    # save_array(f"{base_path}/weights.txt", weights)
 
     if format.lower() == "nhwc":
         input = input.transpose(0, 3, 1, 2)
         # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
         weights = weights.transpose(*tuple(WEIGHTS_CL_TO_CF))
 
-    # test_output = manual_conv(input, weights, cdlt, layout="nchw")
 
-    conv_param = {'stride': stride, 'pad': 0}
-    # b = np.zeros(weights.shape[0], dtype=np.int32)
     output = depthwise_conv2d(input, weights, stride, 0, f"{cdlt.inputs[0].dtype}")
-    # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
-
-
-    # output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
 
     output = output.transpose(0, 2, 3, 1)
-    if generate_partial_values:
-        tinput = input.transpose(*tuple(ACT_CF_TO_CL))
-        tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
-        coords = np.unravel_index(0, output.shape)
-
-        partial_values_conv(cdlt, base_path, tinput, tweights, output, coords)
-
-    if fixed_values is not None and "outputs" in fixed_values:
-        np.testing.assert_allclose(output, fixed_values["outputs"])
 
 
-    # Write outputs to file
-    # save_array(f"{base_path}/output.txt", output)
-    inouts["outputs"][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data( output, cdlt.outputs[0], 0))
     return inouts
 
 
-def generate_random_values_conv(cdlt, model_name, layer_name,
+def generate_random_values_conv(cdlt,
                                 base_path=".",
+                                inouts=None,
                                 format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
                                 generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
+    inouts = inouts or {"inputs": [], "outputs": []}
 
-    input_dims = cdlt.inputs[0].shape
-    weight_dims = cdlt.inputs[1].shape
-    out_dims = cdlt.outputs[0].shape
     stride = cdlt.required_params['stride'].value
-    pad = cdlt.required_params['pad'].value
 
-    tiling_parameters = cdlt.param_tiling
-    # DRAM tiling is in level 1.
-    dram_tiling = tiling_parameters[1]
-    bias = np.zeros(shape=out_dims[-1], dtype=np.int32)
 
-    if actual_data:
-        layer_num = 0
-        layer_name = "conv"
-        input, weights, bias, output = get_model_values(model_name, layer_name, layer_num)
-        assert input.shape == input_dims
-        assert weights.shape == weight_dims
-        assert output.shape == out_dims
-    elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
-        weights = numpy_datagen(weight_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
+    input_op = retrieve_input_data(inouts, 0, cdlt, scale=1)
+    inouts["inputs"].append(input_op)
+    input = input_op.data.copy()
 
-    elif fixed_values is not None:
-        if "input" in fixed_values:
-            assert "input" in fixed_values and "weights" in fixed_values
-            input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-            for i in range(np.prod(input_dims)):
-                input[i] = fixed_values['input']
-            input = input.reshape(input_dims)
+    weight_op = retrieve_input_data(inouts, 1, cdlt, scale=1)
+    inouts["inputs"].append(weight_op)
+    weights = weight_op.data.copy()
 
-            weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
-            for j in range(np.prod(weight_dims)):
-                weights[j] = fixed_values['weights']
-            weights = weights.reshape(weight_dims)
-        else:
-            assert "folder_path" in fixed_values
-            with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
-                input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
+    inouts["inputs"].append(create_operand_data(transform_data(input, "input", "shuffled", cdlt), cdlt.inputs[0], 0, fmt='shuffled'))
+    inouts["inputs"].append(create_operand_data(transform_data(input, "input", "raw", cdlt), cdlt.inputs[0], 0,  fmt='raw'))
 
-            with open(f'{fixed_values["folder_path"]}/weights_raw.txt', 'r') as f:
-                weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
-            with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
-                test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
-    else:
-        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-        for i in range(np.prod(input_dims)):
-            input[i] = i % 128
-        input = input.reshape(input_dims)
-        cf_weight_dims = [weight_dims[i] for i in WEIGHTS_CL_TO_CF]
-        weights = np.zeros(cf_weight_dims, dtype=np.int8).reshape(-1)
-        for j in range(np.prod(weight_dims)):
-            weights[j] = j % 128
-        weights = weights.reshape(cf_weight_dims).transpose(*(WEIGHTS_CF_TO_CL))
-
-    inouts['inputs'][cdlt.inputs[0].name] = {}
-    inouts['inputs'][cdlt.inputs[0].name]['shuffled'] = transform_data(input, "input", "shuffled", cdlt)
-    inouts['inputs'][cdlt.inputs[0].name]['raw'] = transform_data(input, "input", "raw", cdlt)
-
-    inouts['inputs'][cdlt.inputs[1].name] = {}
-    inouts['inputs'][cdlt.inputs[1].name]['shuffled'] = transform_data(weights, "weights", "shuffled", cdlt)
-    inouts['inputs'][cdlt.inputs[1].name]['shuffled_raw'] = transform_data(weights, "weights", "shuffled_raw", cdlt)
-    inouts['inputs'][cdlt.inputs[1].name]['raw'] = transform_data(weights, "weights", "raw", cdlt)
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "shuffled", cdlt), cdlt.inputs[1], 1, fmt='shuffled'))
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "shuffled_raw", cdlt), cdlt.inputs[1],1,  fmt='shuffled_raw'))
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "raw", cdlt), cdlt.inputs[1], 1, fmt='raw'))
 
 
 
@@ -493,13 +300,12 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         # Need to flip from (KH, KW, IC, OC) to (OC, IC, KH, KW)
         weights = weights.transpose(*tuple(WEIGHTS_CL_TO_CF))
 
-    # test_output = manual_conv(input, weights, cdlt, layout="nchw")
 
     conv_param = {'stride': stride, 'pad': 0}
-    b = np.zeros(weights.shape[0], dtype=np.int32)
-
-    # output, _ = conv_forward_im2col(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
-
+    assert len(cdlt.inputs) == 3
+    bias_op = retrieve_input_data(inouts, 2, cdlt, scale=1, constant_val=0)
+    inouts["inputs"].append(bias_op)
+    b = bias_op.data.copy()
 
     output, _ = conv_forward_naive(input.astype(np.int32), weights.astype(np.int32), b, conv_param)
 
@@ -510,97 +316,50 @@ def generate_random_values_conv(cdlt, model_name, layer_name,
         tweights = weights.transpose(*tuple(WEIGHTS_CF_TO_CL))
         coords = np.unravel_index(0, output.shape)
         partial_values_conv(cdlt, base_path, tinput, tweights, output, coords)
-    if fixed_values is not None and "outputs" in fixed_values:
-        np.testing.assert_allclose(output, fixed_values["outputs"])
 
-    inouts['outputs'][cdlt.outputs[0].name] = output
-    inouts['inputs'][cdlt.inputs[2].name] = bias
+
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
 
     return inouts
 
 
-def generate_random_values_gemm(cdlt, model_name, layer_name,
+def generate_random_values_gemm(cdlt,
+                                inouts=None,
                                 base_path=".",
-                                format="nhwc",
-                                use_random=True,
-                                fixed_values=None,
-                                actual_data=False,
                                 generate_partial_values=False):
-    inouts = {"inputs": {}, "outputs": {}}
-    input_dims = cdlt.inputs[0].shape
-    weight_dims = cdlt.inputs[1].shape
-    out_dims = cdlt.outputs[0].shape
-    tiling_parameters = cdlt.param_tiling
-    # DRAM tiling is in level 1.
-    dram_tiling = tiling_parameters[1]
-    output = None
-    bias = np.zeros(shape=out_dims[-1], dtype=np.int32)
-    if actual_data:
-        layer_num = 0
-        layer_name = "linear"
-        input, weights, bias, output = get_model_values(model_name, layer_name, layer_num)
-        assert input.shape == input_dims
-        assert weights.shape == weight_dims
-        assert output.shape == out_dims
-    elif use_random:
-        input = numpy_datagen(input_dims, cdlt.inputs[0].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[0].dtype}")
-        weights = numpy_datagen(weight_dims, cdlt.inputs[1].dtype.bits(), scale=1, fxp_dtype=f"{cdlt.inputs[1].dtype}")
+    inouts = inouts or {"inputs": [], "outputs": []}
 
-    elif fixed_values is not None:
-        if "input" in fixed_values:
-            assert "input" in fixed_values and "weights" in fixed_values
-            input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-            for i in range(np.prod(input_dims)):
-                input[i] = fixed_values['input']
-            input = input.reshape(input_dims)
+    input_op = retrieve_input_data(inouts, 0, cdlt, scale=1)
+    inouts["inputs"].append(input_op)
+    input = input_op.data.copy()
 
-            weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
-            for j in range(np.prod(weight_dims)):
-                weights[j] = fixed_values['weights']
-            weights = weights.reshape(weight_dims)
-        else:
-            assert "folder_path" in fixed_values
-            with open(f'{fixed_values["folder_path"]}/input_raw.txt', 'r') as f:
-                input = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(input_dims)
+    weight_op = retrieve_input_data(inouts, 1, cdlt, scale=1)
+    inouts["inputs"].append(weight_op)
+    weights = weight_op.data.copy()
 
-            with open(f'{fixed_values["folder_path"]}/weights_raw.txt', 'r') as f:
-                weights = np.asarray([np.int8(l) for l in f.read().splitlines()], dtype=np.int8).reshape(weight_dims)
-            with open(f'{fixed_values["folder_path"]}/output.txt', 'r') as f:
-                test_outputs = np.asarray([np.int32(l) for l in f.read().splitlines()], dtype=np.int32).reshape(out_dims)
-
-    else:
-
-        input = np.zeros(input_dims, dtype=np.int8).reshape(-1)
-        for i in range(np.prod(input_dims)):
-            input[i] = i % 128
-        input = input.reshape(input_dims)
-        weights = np.zeros(weight_dims, dtype=np.int8).reshape(-1)
-        for j in range(np.prod(weight_dims)):
-            weights[j] = j % 128
-        weights = weights.reshape(weight_dims)
-
-    inouts['inputs'][cdlt.inputs[0].name] = {}
-    inouts['inputs'][cdlt.inputs[0].name]['shuffled'] = transform_data(input, "input", "shuffled", cdlt)
-    inouts['inputs'][cdlt.inputs[0].name]['raw'] = transform_data(input, "input", "raw", cdlt)
+    bias_op = retrieve_input_data(inouts, 2, cdlt, scale=1)
+    inouts['inputs'].append(bias_op)
+    bias = bias_op.data.copy()
 
 
-    inouts['inputs'][cdlt.inputs[1].name] = {}
-    inouts['inputs'][cdlt.inputs[1].name]['shuffled'] = transform_data(weights, "weights", "shuffled", cdlt)
-    inouts['inputs'][cdlt.inputs[1].name]['shuffled_raw'] = transform_data(weights, "weights", "shuffled_raw", cdlt)
-    inouts['inputs'][cdlt.inputs[1].name]['raw'] = transform_data(weights, "weights", "raw", cdlt)
+    inouts["inputs"].append(create_operand_data(transform_data(input, "input", "shuffled", cdlt), cdlt.inputs[0], 0, fmt='shuffled'))
+    inouts["inputs"].append(create_operand_data(transform_data(input, "input", "raw", cdlt), cdlt.inputs[0], 0,  fmt='raw'))
 
-    bias = np.zeros(weights.shape[0], dtype=np.int32)
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "shuffled", cdlt), cdlt.inputs[1], 1, fmt='shuffled'))
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "shuffled_raw", cdlt), cdlt.inputs[1],1,  fmt='shuffled_raw'))
+    inouts["inputs"].append(create_operand_data(transform_data(weights, "weights", "raw", cdlt), cdlt.inputs[1], 1, fmt='raw'))
 
-    if bias is not None:
-        inouts['inputs'][cdlt.inputs[2].name] = bias
+    # assert len(cdlt.inputs) == 3
+    # bias_op = retrieve_input_data(inouts, 2, cdlt, scale=1, constant_val=0)
+    # inouts["inputs"].append(bias_op)
+    # b = bias_op.data.copy()
 
-    if output is None:
-        output = np.dot(np.int32(input), np.int32(weights))
+    output = np.dot(np.int32(input), np.int32(weights)) + bias
 
     if generate_partial_values:
 
         partial_values_gemm(cdlt, base_path, input, weights, output, (0, 0))
-    inouts['outputs'][cdlt.outputs[0].name] = output
+    inouts["outputs"].append(create_operand_data(output, cdlt.outputs[0], 0))
 
     return inouts
 
@@ -640,3 +399,27 @@ def get_model_values(model_name, layer_name, layer_num, write_data=False):
             f.write('\n'.join(b))
     else:
         return x, wgt, b, out
+
+
+def partial_values_gemm(cdlt, base_path, x, w, ref_out, o_coord):
+    other_test, ic_vals = manual_gemm(x, w, o_coord)
+    with open(f'{base_path}/out_coords.csv', 'w') as f:
+        for k, v in ic_vals.items():
+            # f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {inputs[icoord]}, {weights[wcoord]}, {partial_sum}')
+
+            f.write(f'IC={k}, (m/n/p), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+            for l in v:
+                f.write(f"IC={k}, " + "," + l + "\n")
+    np.testing.assert_allclose(other_test, ref_out)
+
+
+def partial_values_conv(cdlt, base_path, x, w, ref_out, o_coord):
+
+    other_test, ic_vals = manual_conv(x, w, cdlt, o_coord, layout="nhwc")
+    with open(f'{base_path}/out_coords.csv', 'w') as f:
+        f.write(f'IC, (oc/n/ic/kh/kw/y/x), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+
+        for k, v in ic_vals.items():
+            for l in v:
+                f.write(f"IC={k}, " + "," + l + "\n")
+    np.testing.assert_allclose(other_test, ref_out)
