@@ -36,7 +36,8 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     macro_instr.add_condition(imm_operand_cond)
     macro_instr.set_field_by_name('NS_ID', buffer_name)
     macro_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
-    macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
+    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
+    macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits() + 1")
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)
@@ -96,17 +97,17 @@ def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
 
     ####
     ## LOADS FOR INPUT OPERANDS
+    base_addr_str = f"op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()) + 1"
 
     if ld_st == "LD":
         imm_operand_cond = f"op.operand in cdlt.outputs"
         not_imm_operand_cond = f"op.operand not in cdlt.outputs"
-
         base_addr_instr_lsb = hag.get_primitive_template(f"{ld_st}_CONFIG_TILE_ADDR")
         base_addr_instr_lsb.add_condition(not_imm_operand_cond)
         base_addr_instr_lsb.set_field_by_name("NS_ID", buffer_name)
         base_addr_instr_lsb.set_field_by_name("LSB_MSB", f"LSB")
         base_addr_instr_lsb.set_field_flex_param("BASE_ADDR",
-                                                 f"program.extract_bits(op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()), 16,0)")
+                                                 f"program.extract_bits({base_addr_str}, 16,0)")
         instructions.append(base_addr_instr_lsb)
 
         base_addr_instr_msb = hag.get_primitive_template(f"{ld_st}_CONFIG_TILE_ADDR")
@@ -114,7 +115,7 @@ def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
         base_addr_instr_msb.set_field_by_name("NS_ID", buffer_name)
         base_addr_instr_msb.set_field_by_name("LSB_MSB", f"MSB")
         base_addr_instr_msb.set_field_flex_param("BASE_ADDR",
-                                                 f"program.extract_bits(op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()), 16,16)")
+                                                 f"program.extract_bits({base_addr_str}, 16,16)")
         instructions.append(base_addr_instr_msb)
 
         macro_instr = hag.get_primitive_template(f"{ld_st}_CONFIG_TILE_LOOP_ITER")
@@ -162,14 +163,14 @@ def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
         base_addr_instr_lsb.set_field_by_name("NS_ID", buffer_name)
         base_addr_instr_lsb.set_field_by_name("LSB_MSB", f"LSB")
         base_addr_instr_lsb.set_field_flex_param("BASE_ADDR",
-                                                 f"program.extract_bits(op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()), 16,0)")
+                                                 f"program.extract_bits({base_addr_str}, 16,0)")
         instructions.append(base_addr_instr_lsb)
 
         base_addr_instr_msb = hag.get_primitive_template(f"{ld_st}_CONFIG_TILE_ADDR")
         base_addr_instr_msb.set_field_by_name("NS_ID", buffer_name)
         base_addr_instr_msb.set_field_by_name("LSB_MSB", f"MSB")
         base_addr_instr_msb.set_field_flex_param("BASE_ADDR",
-                                                 f"program.extract_bits(op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()), 16,16)")
+                                                 f"program.extract_bits({base_addr_str}, 16,16)")
         instructions.append(base_addr_instr_msb)
 
         macro_instr = hag.get_primitive_template(f"{ld_st}_CONFIG_TILE_LOOP_ITER")

@@ -163,7 +163,7 @@ if __name__ == "__main__":
     #                        help='Name of the benchmark to create. One of "resnet18", "lenet')
     # argparser.add_argument('-q', '--quantized', type=str2bool, nargs='?', default=True,
     #                        const=True, help='Whether or not to retreive a quantized model')
-    # argparser.add_argument('-l', '--layer_type', required=True, help='The layer type to extract from the model')
+    # argparser.add_argument('-l', '--layer_id', required=True, help='The layer type to extract from the model')
     # argparser.add_argument('-ln', '--layer_number', type=int, default=0, help='The nth layer of type "layer-type" '
     #                                                                           'to extract. Default is 0.')
     # args = argparser.parse_args()
@@ -172,7 +172,7 @@ if __name__ == "__main__":
 
 
     # if args.model_name == "resnet18":
-    #     _ = get_resnet18(args.quantized, args.layer_type, args.layer_number)
+    #     _ = get_resnet18(args.quantized, args.layer_id, args.layer_number)
     # elif args.model_name == "resnet50":
-    #     _ = get_resnet50(args.quantized, args.layer_type, args.layer_number)
+    #     _ = get_resnet50(args.quantized, args.layer_id, args.layer_number)
     # raise RuntimeError(f"Model {args.model_name} is not currently supported")

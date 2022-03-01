@@ -17,7 +17,7 @@ BUFFER_ID_MAP = {'LD': {'IBUF': 0, 'WBUF': 1, 'OBUF': 2, 'BBUF': 3},
                  }
 
 
-SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES + ["POW"]
+SIMD_OP_NAMES = ALU_OP_NAMES + CALC_OP_NAMES + CMP_OP_NAMES + DTYPE_CAST_NAMES + ["POW", "TRANSPOSE"]
 
 
 # Only need group id for INST_GROUP end, and need 1 for last group

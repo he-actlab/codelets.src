@@ -920,6 +920,37 @@ class Codelet(object):
             deps += self.all_dependencies(self.op_map[l].dependencies)
         return list(set(deps))
 
+    def inner_stride(self, operand, loop, loop_idx):
+
+        loop_tile_level = self.get_loop_tile_level(loop.loop_level)
+        loop_param = self.loop_param_map[loop.op_str]
+        level_tile_size = self.param_tiling[loop_tile_level]
+        tgt_tile_size = np.prod(list(self.param_tiling[loop_tile_level + 1].values()))
+        operand_tile_size = tuple([level_tile_size[s] for s in operand.shape_list])
+        stride = loop.stride * np.prod(operand_tile_size[operand.shape_list.index(loop_param) + 1:], dtype=np.int32)
+        stride = np.ceil(stride/tgt_tile_size).astype(np.int32)
+        return stride
+
+    def inner_iter(self, operand, loop, loop_idx):
+        loop_tile_level = self.get_loop_tile_level(loop.loop_level)
+        loop_param = self.loop_param_map[loop.op_str]
+        tgt_tile_size = np.prod(list(self.param_tiling[loop_tile_level + 1].values()))
+
+        rel_idx = operand.shape_list.index(loop_param) - len(operand.shape_list)
+        loop_iters = loop.iter_count
+        if abs(rel_idx) <=1:
+            loop_iters = np.ceil(loop_iters/tgt_tile_size).astype(np.int32)
+        return loop_iters
+
+    def get_loop_tile_level(self, loop_id):
+        tile_levels = len(self.domain_tiling) - 1
+        loops_per_level = self.num_loops // tile_levels
+        return loop_id // loops_per_level
+
+    @property
+    def num_loops(self):
+        return len(self.loop_param_map)
+
     def instantiate_operations(self, node: pm.Node, hag):
         # First initialize shapes and symbols for operands, as well as datatypes
         self.instantiate_operands(node)

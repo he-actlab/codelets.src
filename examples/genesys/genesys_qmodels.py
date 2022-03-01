@@ -20,7 +20,7 @@ ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 BINARY_FNS = ["elem_add", "elem_sub", "elem_mul"]
 UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigmoid", "leaky_relu", "clip", "elem_clip", "elem_ceil2d",
-             "elem_pow2d", "reduce_mean2d", "reduce_min2d"]
+             "elem_pow2d", "reduce_mean2d", "reduce_min2d", "tensor_transpose2d"]
 # FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
@@ -29,14 +29,14 @@ def create_operand_data(data, operand, idx, fmt=None):
 
 
 def retrieve_input_data(inouts: Dict[str, List[OperandData]], idx, cdlt,
-                        scale=2, constant_val=None):
+                        scale=2, constant_val=None, print_range=False):
     for i in inouts['inputs']:
         if i.opname == cdlt.inputs[idx].name:
             return i
 
     data = numpy_datagen(cdlt.inputs[idx].shape, cdlt.inputs[idx].dtype.bits(),
                          fxp_dtype=f"{cdlt.inputs[idx].dtype}",
-                         scale=scale, constant_val=constant_val)
+                         scale=scale, constant_val=constant_val, print_range=print_range)
     op = create_operand_data(data, cdlt.inputs[idx], idx)
     return op
 
@@ -91,8 +91,9 @@ def generate_random_values_binary(cdlt,
     tiling_parameters = cdlt.param_tiling
     # DRAM tiling is in level 1.
 
-    input1_op = retrieve_input_data(inouts, 0, cdlt)
-    input2_op = retrieve_input_data(inouts, 1, cdlt)
+    scale = 2
+    input1_op = retrieve_input_data(inouts, 0, cdlt, scale=scale)
+    input2_op = retrieve_input_data(inouts, 1, cdlt, scale=scale)
 
     inouts["inputs"].append(input1_op)
     inouts["inputs"].append(input2_op)
@@ -136,29 +137,43 @@ def generate_random_values_unary(cdlt,
         scale = 1.5
     elif "tanh" in cdlt.op_name:
         scale = 1.6
+    elif "reduce_mean2d" in cdlt.op_name:
+        scale = 3.5
+    elif "pow" in cdlt.op_name:
+        scale = 1.5
     else:
         scale = 1
     input1_op = retrieve_input_data(inouts, 0, cdlt, scale=scale)
-
-    inouts["inputs"].append(input1_op)
     input1 = input1_op.data.copy()
 
-
-
-    if format.lower() == "nhwc" and len(input1.shape) == 4:
-        input1 = input1.transpose((0, 3, 1, 2))
     if "clip" in cdlt.op_name:
         minval = cdlt.required_params['min'].value
         maxval = cdlt.required_params['max'].value
         params = (minval, maxval)
+    elif "tensor_transpose2d" in cdlt.op_name:
+        axes = (1,0)
+        params = (axes,)
     elif "pow" in cdlt.op_name:
         exp = cdlt.required_params['exp'].value
         params = (exp,)
     elif "reduce_mean" in cdlt.op_name or "reduce_min" in cdlt.op_name:
         axis = cdlt.required_params['axis'].value
         params = (axis,)
+        # input1_op = OperandData(data=input1_op.data.transpose(1,0),
+        #                         node_name=input1_op.node_name,
+        #                         opname=input1_op.opname,
+        #                         idx=input1_op.idx,
+        #                         fmt=input1_op.fmt,)
     else:
         params = tuple([])
+
+    inouts["inputs"].append(input1_op)
+
+
+
+    if format.lower() == "nhwc" and len(input1.shape) == 4:
+        input1 = input1.transpose((0, 3, 1, 2))
+
 
 
     output = unary(input1, cdlt.op_name, f"{cdlt.inputs[0].dtype}", *params)
@@ -354,7 +369,7 @@ def generate_random_values_gemm(cdlt,
     # inouts["inputs"].append(bias_op)
     # b = bias_op.data.copy()
 
-    output = np.dot(np.int32(input), np.int32(weights)) + bias
+    output = np.dot(np.int32(input), np.int32(weights))
 
     if generate_partial_values:
 

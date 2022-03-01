@@ -1866,16 +1866,16 @@ def reduce_mean2d(hag: ArchitectureNode):
     with CodeletTemplate("reduce_mean2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[1])
+        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, ONE], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[1]), dtype="FXP32")
+        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
         axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
@@ -1892,17 +1892,18 @@ def reduce_mean2d(hag: ArchitectureNode):
                 with cdlt.loop(N) as n:
                     cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                     # TODO: Zero out output data at compile time
-                    cdlt.transfer(out[n, o], ["DRAM", "VMEM2"])
+                    cdlt.transfer(out[o,c], ["DRAM", "VMEM2"])
                     out.set_write_destination("VMEM2")
                     cdlt.compute("ADD", [data, out], [out], target="SIMD")
                     cdlt.compute("MUL", [out, denom_op], [out], target="SIMD")
-                cdlt.transfer(out[n, o], ["VMEM2", "DRAM"])
+                cdlt.transfer(out[o, c], ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LEVEL1_hint", "splits['C'] == 1")
-    cdlt.add_compilation_param("N_hint2", f"size == {simd_dims[0]}")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
 
     return cdlt
+
 
 def reduce_min2d(hag: ArchitectureNode):
     #
@@ -1912,10 +1913,10 @@ def reduce_min2d(hag: ArchitectureNode):
     with CodeletTemplate("reduce_min2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[1])
+        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, ONE], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
@@ -1936,14 +1937,49 @@ def reduce_min2d(hag: ArchitectureNode):
                 with cdlt.loop(N) as n:
                     cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
                     # TODO: Zero out output data at compile time
-                    cdlt.transfer(out[n, o], ["DRAM", "VMEM2"])
+                    cdlt.transfer(out[o, c], ["DRAM", "VMEM2"])
                     out.set_write_destination("VMEM2")
                     cdlt.compute("MIN", [data, out], [out], target="SIMD")
-                cdlt.transfer(out[n, o], ["VMEM2", "DRAM"])
+                cdlt.transfer(out[o, c], ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['C'] == 1")
-    cdlt.add_compilation_param("N_hint2", f"size > {simd_dims[0]}")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+
+    return cdlt
+
+def tensor_transpose2d(hag: ArchitectureNode):
+    #
+
+    # # TODO: Add option to create operand
+    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
+    with CodeletTemplate("tensor_transpose2d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [C, N], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        # Change this to be the reciprocal as a FXP value
+
+        # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
+                cdlt.transfer(data[n, c], ["DRAM", "VMEM1"])
+                # TODO: Zero out output data at compile time
+                out.set_write_destination("VMEM2")
+                cdlt.compute("TRANSPOSE", [data], [out], target="SIMD")
+            cdlt.transfer(out[c, n], ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
+    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
 
     return cdlt
 
@@ -2067,7 +2103,8 @@ GENESYS_CODELETS = {
     'relu_grad': relu_grad,
     'relu_grad2d': relu_grad2d,
     'global_average_pool_grad': global_average_pool_grad,
-    'tensor_transpose': tensor_transpose,
+    # 'transpose2d': transpose2d,
+    'tensor_transpose2d': tensor_transpose2d,
     'tensor_reshape': tensor_reshape,
     'tensor_flip': tensor_flip,
     'tensor_pad': tensor_pad,

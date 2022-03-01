@@ -4,6 +4,7 @@ from benchmarks.model_generator import create_custom_conv, create_custom_gemm, c
 from benchmarks.load_onnx_model import store_unique_model_layers
 from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
 from examples.genesys import compile_genesys_layer, GENESYS_CFG
+import torch
 import numpy as np
 import os
 import shutil
@@ -30,6 +31,7 @@ NAME_MAPPING = {
     "elem_tanh": "tanh",
     "elem_clip": "clip",
     "elem_tanh2d": "tanh",
+    "tensor_transpose2d": "transpose",
     "elem_sub": "sub",
     "leaky_relu": "leakyrelu",
     "avg_pool": "averagepool",
@@ -477,7 +479,7 @@ def update_tile_constraints(program, constraint, layer_type, orig_constraint=Non
         orig = program.hag.codelets[layer_type].compilation_params['LEVEL1_hint']
         new_constraint = f"{orig} and {constraint}"
         program.hag.codelets[layer_type].compilation_params['LEVEL1_hint'] = new_constraint
-    # program.hag.codelets[layer_type].compilation_params['LEVEL2_hint'] = "splits['H'] == 1 and splits['W'] == 16 " \
+    # program.hag.codelets[layer_id].compilation_params['LEVEL2_hint'] = "splits['H'] == 1 and splits['W'] == 16 " \
     #                                                                      "and splits['N'] == 2 and splits['C'] == 32"
     return program
 
@@ -712,7 +714,7 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
 
     return updated_layer_params
 
-def systolic_array_bench():
+def sys_array_bench_old():
     inp_params = []
     inp_params.append(["N", "IC", "IH", "IW"])
     inp_params.append(["OC", "IC", "KH", "KW"])
@@ -726,21 +728,33 @@ def systolic_array_bench():
     attr_params.append("strides")
 
     n = 1
-    oc = 128
+    oc = 64
     ic = 128
-    ih = 10
-    iw = 10
+    ih = 12
+    iw = 12
     stride = 1
     pad = 0
-    k = 1
-    model_name = "fpga_8x8_test4"
-    tcstr = f"splits['OC'] > 1 and splits['OH'] > 1 and splits['IC'] == 1"
+    k = 3
+    model_name = "fpga_8x8_tile2_ic_oh_ow"
+    # tcstr = f"splits['OC'] > 1 and splits['OH'] > 1 and splits['IC'] == 1"
+
+
+    # tcstr = "np.prod(list(splits.values())) <= 20 " \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+    tcstr = "np.prod(list(splits.values())) < 16 " \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
     # # # # # #
     program = compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name,
                                         store_compile=True,
-                                        partials=False,
+                                        partials=True,
                                         added_constr=tcstr
                                         )
+
 
 def resnet_benches(nunique=1, layers=None, debug_output=False, ext=None,
                    verbose=False):
@@ -758,7 +772,16 @@ def resnet_benches(nunique=1, layers=None, debug_output=False, ext=None,
     attr_params.append("pads")
     attr_params.append("strides")
     # tile_constraint = "True"
-    tile_constraint = "np.prod(list(splits.values())) < 100"
+    # tile_constraint = "np.prod(list(splits.values())) < 64"
+    tile_constraint = "np.prod(list(splits.values())) < 20 " \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    # tile_constraint = "np.prod(list(splits.values())) < 16 " \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
     ext = ext or ""
     layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
     scale_and_compile_layers(model_name, f"8x8_{ext}", layer_params[1:], [], nunique,
@@ -853,10 +876,12 @@ def simd_benchmarks3(tests=None, layers=None, num=12):
     base_name = f"fpga{num}"
 
     configs = {
-        "t0": {"constraint": "True", "scale_factor": 1},
-        "t1" : {"constraint": "splits['N'] > 1", "scale_factor": 3},
-        "t2" : {"constraint": "splits['N'] > 1 and splits['C'] > 1", "scale_factor": 2},
-        "t3" : {"constraint": "splits['C'] != 0", "scale_factor": 1},
+        "t0": {"constraint": "True", "scale_factor": 1, "reduce": "True"},
+        "t1" : {"constraint": "splits['N'] > 1", "scale_factor": 3, "reduce": "splits['C'] > 1", "exp": np.float64(3.0)},
+        "t2" : {"constraint": "splits['N'] > 1 and splits['C'] > 1", "reduce": "splits['C'] > 1 and splits['C'] > 1", "scale_factor": 2,
+                "exp": np.float64(4.0)},
+        "t3" : {"constraint": "splits['C'] != 0", "scale_factor": 1, "reduce": "splits['C'] != 0",
+                "exp": np.float64(5.0)},
     }
     ops = ["elem_tanh2d", "elem_ceil2d", "elem_pow2d", "reduce_min2d", "reduce_mean2d"]
     if layers is None:
@@ -872,23 +897,221 @@ def simd_benchmarks3(tests=None, layers=None, num=12):
             off = cfg['scale_factor']
             model_name = f"{base_name}_{n}"
             params = {"N": 256, "C": 3072//off}
+            constraint = cfg['constraint']
 
             if o == "elem_pow2d":
                 params['exp'] = np.float64(3.0)
             elif o in ["reduce_mean2d", "reduce_min2d"]:
                 params['keepdim'] = True
-                params['axis'] = 1
+                params['axis'] = 0
+                constraint = cfg['reduce']
 
-            constraint = cfg['constraint']
             program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
 
 
+def simd_benchmarks4(tests=None, layers=None, num=0):
+    base_name = f"fpga{num}"
+
+    configs = {
+        "t1" : {"constraint": "True", "scale_factor": 3},
+        "t2" : {"constraint": "True", "scale_factor": 2},
+        "t3" : {"constraint": "True", "scale_factor": 1},
+    }
+    ops = ["tensor_transpose2d"]
+    if layers is None:
+        layers = ops
+    if tests is None:
+        tests = list(configs.keys())
+
+    for o in layers:
+        for n in tests:
+            assert n in configs
+            cfg = configs[n]
+            off = cfg['scale_factor']
+            model_name = f"{base_name}_{n}"
+            assert o == "tensor_transpose2d"
+            constraint = cfg['constraint']
+            # params = {"N": 256, "C": 128, 'axis': (1,0)}
+            params = {"N": 256, "C": 3072//(2**off), 'axis': (1,0)}
+            # params = {"N": 2, "C": 128, "H": 256 // (2 ** off), "W": 256 // (2 ** off)}
+
+            program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
+
+
+def systolic_array_gemm_bench(num=2):
+    base_test_name = f"fpga_8x8_tile{num}"
+
+    layer_configs = []
+    layer_configs.append({"m": 1, "n": 128, "p": 128})
+
+    constraints = {}
+    # constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 20 " \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+    # constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 20 and splits['OC'] == 1" \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+    # constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 20 and splits['IC'] == 1" \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+
+    for test_id, lc in enumerate(layer_configs):
+        # for name, cstr in constraints.items():
+        test_name = f"{base_test_name}_case{test_id}"
+        program = compile_custom_gemm_layer(lc['m'], lc['n'], lc['p'], test_name,
+                                            store_compile=True,
+                                            partials=True)
+
+def systolic_array_conv_bench(sys_array_size=8, num=2):
+
+    base_test_name = f"fpga_{sys_array_size}x{sys_array_size}_tile{num}"
+    scale_factor = sys_array_size//8
+    inp_params = []
+    inp_params.append(["N", "IC", "IH", "IW"])
+    inp_params.append(["OC", "IC", "KH", "KW"])
+    inp_params.append(["OC"])
+
+    out_params = []
+    out_params.append(["N", "OC", "OH", "OW"])
+
+    attr_params = []
+    attr_params.append("pads")
+    attr_params.append("strides")
+    layer_configs = []
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 1}) # Case 0
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
+    constraints = {}
+    constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 " \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['OC'] == 1" \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['IC'] == 1" \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+
+    for test_id, lc in enumerate(layer_configs):
+
+        for name, cstr in constraints.items():
+            test_name = f"{base_test_name}_case{test_id}_{name}"
+            program = compile_custom_conv_layer(lc['n'], lc['ic'], lc['oc'], lc['ih'], lc['iw'], lc['k'], lc['stride'], lc['pad'], test_name,
+                                                store_compile=True,
+                                                partials=True,
+                                                added_constr=cstr)
+
+def conv_out_size(dims):
+    ow = (dims['iw'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
+    oh = (dims['ih'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
+
+    return (dims['n'], dims['oc'], oh, ow)
+
+def from_target_out_size(dims, ohw):
+    ihw = ((ohw - 1) * dims['stride']) - 2*dims['pad'] + dims['k']
+    return ihw
+
+def systolic_array_conv_scaled(layer_id=None, num=2, case_num=0):
+    if layer_id is not None:
+        assert isinstance(layer_id, int)
+        assert layer_id == case_num
+    base_test_name = f"fpga_8x8_tile{num}"
+    inp_params = []
+    inp_params.append(["N", "IC", "IH", "IW"])
+    inp_params.append(["OC", "IC", "KH", "KW"])
+    inp_params.append(["OC"])
+
+    out_params = []
+    out_params.append(["N", "OC", "OH", "OW"])
+
+    attr_params = []
+    attr_params.append("pads")
+    attr_params.append("strides")
+    scales = [2, 3, 4, 5]
+    layer_configs = []
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 1}) # Case 0
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
+    constraints = {}
+
+    tile_cases = []
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 5, 'OW': 5}) # Case 0
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 3, 'OW': 3}) # Case 1
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 6, 'OW': 6}) # Case 2
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 2, 'OW': 2}) # Case 3
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 2, 'OW': 2}) # Case 4
+    tile_cases.append({'N': 1, 'IC': 128, 'OC': 64, 'OH': 5, 'OW': 5}) # Case 5
+    tile_cases.append({'N': 4, 'IC': 128, 'OC': 64, 'OH': 4, 'OW': 4}) # Case 6
+    tile_cases.append({'N': 4, 'IC': 128, 'OC': 64, 'OH': 2, 'OW': 2}) # Case 7
+    tile_cases.append({'N': 4, 'IC': 128, 'OC': 64, 'OH': 3, 'OW': 3}) # Case 8
+    tile_cases.append({'N': 4, 'IC': 128, 'OC': 64, 'OH': 2, 'OW': 2}) # Case 9
+
+    tile_sizes = tile_cases[case_num]
+
+
+
+
+    tile_size_constraint = " and ".join([f"sizes['{k}'] == {v}" for k, v in tile_sizes.items()])
+    # tile_size_constraint = "True"
+
+    constraints['oc_oh_ow'] = "splits['IC'] == 1 " \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      f"and splits['OW'] > 1 and {tile_size_constraint}"
+
+    for test_id, lc in enumerate(layer_configs):
+        if layer_id is not None and layer_id != test_id:
+            continue
+        # init_ohw = conv_out_size(lc)[2]
+        for s in scales:
+            test_name = f"{base_test_name}_case{test_id}_{s}x_scale"
+            # scaled_ihw = from_target_out_size(lc, init_ohw*s)
+            # scaled_ihw = init_ohw
+            if s % 2 == 0:
+                program = compile_custom_conv_layer(lc['n'], lc['ic'], lc['oc']*s, lc['ih'], lc['iw'], lc['k'], lc['stride'], lc['pad'], test_name,
+                                                    store_compile=True,
+                                                    partials=False,
+                                                    added_constr=constraints['oc_oh_ow'])
+            else:
+                program = compile_custom_conv_layer(lc['n']*s, lc['ic'], lc['oc']*s, lc['ih'], lc['iw'], lc['k'], lc['stride'], lc['pad'], test_name,
+                                                    store_compile=True,
+                                                    partials=False,
+                                                    added_constr=constraints['oc_oh_ow'])
+
+
 if __name__ == "__main__":
-    # simd_benchmarks3(layers=["reduce_min2d"], tests=["t1"], num=49)
-    simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
+    # transpose_test()
+    # simd_benchmarks4(layers=["tensor_transpose2d"], num=65)
+    # simd_benchmarks3(layers=["elem_pow2d"], num=59)
+    # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=52)
+    # simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
     # simd_benchmarks1(layers=["relu"], tests=["t1"], num=40)
-    # resnet_benches(debug_output=False, ext="t5_", layers=[0], verbose=False)
-    # systolic_array_bench()
+    # resnet_benches(debug_output=True, ext="t10_", verbose=False, layers=[11])
+    systolic_array_conv_bench(32, 3)
+    # systolic_array_conv_scaled(layer_id=0, num=5, case_num=0)
+    # systolic_array_gemm_bench(4)
     # simd_benchmarks1(layers=["elem_sigmoid"], tests=["t1"], num=17)
     # simd_benchmarks1(num=21)
     # simd_benchmarks2(layers=["global_avg_pool", "elem_clip", "leaky_relu", "elem_sub"])

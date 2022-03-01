@@ -232,7 +232,10 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
                            f"Dimensions: {cdlt.operand_dim_mapping()}\n"
                            f"Times per level: {level_counter}\n"
                            f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
-                           f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n")
+                           f"constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n\n"
+                           # f"Hint keys:{list(tile_info.tile_hints.keys())}\n"
+                           f"Level 1 constraints: {tile_info.tile_hints['LEVEL1_hint'].fn_body_str}\n"
+                           )
     # Lastly, update operands
     for o in cdlt.operands:
         for idx, a in enumerate(o.data_moves):

@@ -655,6 +655,7 @@ class CodeletProgram(object):
         for level, fns in self.preproc_stages.items():
             for n in node_sequence:
                 cdlt = codelets[n.name]
+
                 for fn in fns:
                     if cdlt.is_noop() and fn.skip_noops:
                         if verbose:
@@ -666,6 +667,7 @@ class CodeletProgram(object):
 
                 assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
                 codelets[n.name] = cdlt
+
 
         if verbose:
             print(f"\nPreprocessing took {time() - stage_start} seconds")

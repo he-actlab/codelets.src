@@ -28,13 +28,16 @@ def from_fxp(v, dtype):
     return fp
 
 
-def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None):
+def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None, print_range=False):
     if constant_val is None:
         low, high = compute_range(fxp_dtype, scale)
+        if print_range:
+            print(f"High: {high}, Low: {low}")
         v = np.random.randint(low=low, high=high,
                               size=shape, dtype=np.int64)
     else:
         v = np.full(shape, constant_val, dtype=np.int64)
+
     return v
 
 def sigmoid_pw(xval, dtype):
@@ -118,6 +121,9 @@ def meanfn(data, axis, dtype):
 def minfn(data, axis, dtype):
     return np.min(data, axis)
 
+def transposefn(data, axes, dtype):
+    return np.transpose(data, axes)
+
 def unary(op1, layer_name, dtype, *params):
     quantize = False
     if "leaky_relu" in layer_name:
@@ -146,6 +152,9 @@ def unary(op1, layer_name, dtype, *params):
         params = params + (dtype,)
     elif "min" in layer_name:
         ref_fn = minfn
+        params = params + (dtype,)
+    elif "transpose" in layer_name:
+        ref_fn = transposefn
         params = params + (dtype,)
     else:
         raise RuntimeError

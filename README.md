@@ -11,7 +11,7 @@ The following dependencies must be met by your system:
 
 ### Step 1: Clone the Codelets Src code
   ```console
-  $ git clone --recurse-submodules https://bitbucket.org/act-lab/codelets.src
+  $ git clone --recurse-submodules https://github.com/he-actlab/codelets.src
   $ cd codelets.src
   ```
 

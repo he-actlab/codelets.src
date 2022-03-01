@@ -1,11 +1,13 @@
 from typing import Dict, List
 from pathlib import Path
-from examples.genesys import compile_genesys, get_arch
+from examples.genesys import compile_genesys, get_arch, FXP_CONFIGS
 from examples.genesys.datagen_functions import OperandData, save_array
 from examples.genesys.genesys_qmodels import generate_random_values
 from tools.compile_layer import store_compilation_output
 from codelets.compiler.program import CodeletProgram
 from pprint import pprint
+from fxpmath import Fxp
+import numpy as np
 import os
 import json
 CWD = Path(f"{__file__}").parent
@@ -29,8 +31,28 @@ def create_dirs(fpath, dir_ext):
         print(f"Directory {base_path} already exists.")
     return base_path
 
-def store_model_values(program: CodeletProgram,  model_name, base_path, use_random=True, format="nhwc",
-                       load_path=None, actual_data=None, store_partials=None):
+def quantize_initializer(data, cdlt_operand, pm_node, idx):
+    if data.shape != pm_node.shape:
+        # First, check for transpose
+        assert set(data.shape) == set(pm_node.shape)
+        swapped_idx = [data.shape.index(i) for i in pm_node.shape]
+        data = data.transpose(*swapped_idx)
+        assert pm_node.shape == data.shape
+
+    if data.shape != cdlt_operand.shape:
+        pad_width = [(0, j-i) for i, j in zip(data.shape, cdlt_operand.shape)]
+        data = np.pad(data, pad_width)
+        assert data.shape == cdlt_operand.shape
+
+    quant_data = Fxp(data, **FXP_CONFIGS[str(cdlt_operand.dtype)]).val
+    assert quant_data.shape == cdlt_operand.shape and isinstance(quant_data, np.ndarray)
+    opdata = OperandData(data=quant_data,
+                         node_name=cdlt_operand.node_name,
+                         opname=cdlt_operand.name,
+                         idx=idx)
+    return opdata
+
+def store_model_values(program: CodeletProgram, base_path, model_data=None):
     formatted: List[OperandData] = []
     value_dict: Dict[str, Dict[str,OperandData]] = {"inputs": {},
                   "intermediate": {},
@@ -45,8 +67,15 @@ def store_model_values(program: CodeletProgram,  model_name, base_path, use_rand
         inouts = {"inputs": [], "outputs": []}
         for i, op in enumerate(c.inputs):
             assert op.node_name in program.operand_mapping
+            if op.node_name in model_data:
+                assert op.node_name not in value_dict['outputs']
+                assert op.node_name not in value_dict['intermediate']
+                assert op.node_name in program.graph.nodes
+                pm_node = program.graph.nodes[op.node_name]
+                operand = quantize_initializer(model_data[op.node_name], op, pm_node, i)
+                inouts['inputs'].append(operand)
 
-            if op.node_name in value_dict['outputs']:
+            elif op.node_name in value_dict['outputs']:
                 operand = value_dict['outputs'].pop(op.node_name)
                 assert operand.data.shape == op.shape
                 inouts['inputs'].append(operand)
@@ -113,10 +142,9 @@ def store_model_outputs(model_name,
                   emit_to_stdout=None,
                   load_path=None,
                   dir_ext=None,
-                  actual_data=False,
-                  use_random=False,
-                  store_partials=False,
-                  program=None, added_constr=None):
+                  program=None, added_constr=None,
+                        model_data=None
+                        ):
     name = model_name
     tile_method = "min_tiles"
     # tile_method = "valid_split"
@@ -191,9 +219,7 @@ def store_model_outputs(model_name,
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_model_values(program, model_name, base_path, use_random=use_random, load_path=load_path,
-                 actual_data=actual_data,
-                 store_partials=store_partials)
+    store_model_values(program, base_path, model_data=model_data)
     return program
 
 def update_tile_constraints(program, layer_constraints, orig_constraint=None):
@@ -208,9 +234,8 @@ def update_tile_constraints(program, layer_constraints, orig_constraint=None):
 
     return program
 
-def compile_full_model(model_name, store_compile=False, dir_ext=None,
-                              partials=False, added_constr=None, train_mode=False,
-                       verbose=False):
+def compile_full_model(model_name, store_compile=False, dir_ext=None,partials=False, added_constr=None, train_mode=False,
+                       verbose=False, model_data=None):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
@@ -253,11 +278,8 @@ def compile_full_model(model_name, store_compile=False, dir_ext=None,
                       batch_size=1,
                       verbose=verbose,
                       emit_to_stdout=None,
-                      use_random=True,
                       dir_ext=f"{dir_ext}",
-                      actual_data=False,
-                      store_partials=partials,
-                            program=program)
+                            program=program, model_data=model_data)
 
     return program
 

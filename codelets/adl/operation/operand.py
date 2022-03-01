@@ -404,7 +404,7 @@ class Operand:
                 target_movement = dm
                 break
 
-        if dm.src_node == "IMM" or dm.dst_node == "IMM":
+        if len(self.data_moves) > 0 and (self.data_moves[-1].src_node == "IMM" or self.data_moves[-1].dst_node == "IMM"):
             return 0
 
         if target_movement is None:
@@ -418,6 +418,7 @@ class Operand:
                                f"Movement type: {movement_type}\n"
                                f"Loop id: {loop_id}\n"
                                f"Data movements: {dm_info}")
+
 
         if cdlt.get_tile_level(target_movement.src_node) > cdlt.get_tile_level(target_movement.dst_node):
             node_key = target_movement.src_node
@@ -495,6 +496,21 @@ class Operand:
             loop_name = cdlt.loop_param_map[loop_str]
             loop = cdlt.op_map[loop_str]
             stride_val *= loop.stride
+
+        # if not outer_loop and dst_node.name != "WBUF" and level == 2:
+        #     loop_str = f"loop{loop_id}"
+        #     loop_name = cdlt.loop_param_map[loop_str]
+        #     width = cdlt.param_tiling[level][loop_name]
+
+        # if self.name == "data":
+        #     varname = cdlt.loop_param_map['loop' + str(loop_id)]
+        #     print(f"{self.name}, Loop {loop_id}, {varname}\n"
+        #           f"Width: {width}\n"
+        #           f"Stride val: {stride_val}")
+        #     print(f"Level: {level}\n"
+        #           f"{cdlt.param_tiling[2][varname]}\n")
+
+
         return np.ceil(stride_val/width).astype(np.int64)
 
 
