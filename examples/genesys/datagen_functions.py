@@ -124,6 +124,47 @@ def minfn(data, axis, dtype):
 def transposefn(data, axes, dtype):
     return np.transpose(data, axes)
 
+def exp_fn(xval, dtype):
+    if not isinstance(xval, Iterable):
+        xval = np.asarray([xval])
+
+    def inner(x, slope, start):
+
+        result = ((x >> slope) + start)
+        return result
+    pw5 = Fxp(5.0, **FXP_CONFIGS[dtype])
+    pw2375 = Fxp(2.375, **FXP_CONFIGS[dtype])
+    pw1 = Fxp(1.0, **FXP_CONFIGS[dtype])
+
+    conds = [
+        xval < -pw5.val,
+        (xval < -pw2375.val) & (xval >= -pw5.val),
+        (xval < -pw1.val) & (xval >= -pw2375.val),
+        (xval < 0) & (xval >= -pw1.val),
+        (xval >= 0) & (xval < (pw1.val)),
+        (xval >= pw1.val) & (xval < (pw2375.val)),
+        (xval >= pw2375.val) & (xval < (pw5.val)),
+        (xval >= pw5.val)]
+
+    p5     = Fxp(0.5, **FXP_CONFIGS[dtype]).val
+    p625   = Fxp(0.625, **FXP_CONFIGS[dtype]).val
+    p84375 = Fxp(0.84375, **FXP_CONFIGS[dtype]).val
+    p375   = Fxp(0.375, **FXP_CONFIGS[dtype]).val
+    p15625 = Fxp(0.15625, **FXP_CONFIGS[dtype]).val
+    one = Fxp(1.0, **FXP_CONFIGS[dtype])
+    fns = [lambda x: 0,
+            lambda x: inner(x, 5, p15625),
+            lambda x: inner(x, 3, p375),
+            lambda x: inner(x, 2, p5),
+            lambda x: inner(x, 2, p5),
+            lambda x: inner(x, 3, p625),
+            lambda x: inner(x, 5, p84375),
+            lambda x: pw1.val]
+
+    res = np.piecewise(xval, conds, fns)
+    # res = np.piecewise(Fxp(xval, **FXP_CONFIGS[dtype]).val, LOOP_CONDS, fns)
+    return res
+
 def unary(op1, layer_name, dtype, *params):
     quantize = False
     if "leaky_relu" in layer_name:
@@ -150,6 +191,9 @@ def unary(op1, layer_name, dtype, *params):
     elif "mean" in layer_name:
         ref_fn = meanfn
         params = params + (dtype,)
+    elif "exp" in layer_name:
+        ref_fn = exp_fn
+        params = params + (dtype,)
     elif "min" in layer_name:
         ref_fn = minfn
         params = params + (dtype,)
@@ -175,6 +219,10 @@ def binary(op1, op2, layer_name, dtype):
     elif "div" in layer_name:
         quantize = True
         ref_fn = lambda a, b: a / b
+    elif "equal" in layer_name:
+        ref_fn = lambda a, b: a == b
+    elif "less" in layer_name:
+        ref_fn = lambda a, b: a > b
     elif "mul" in layer_name:
         quantize = True
         ref_fn = lambda a, b: a * b
