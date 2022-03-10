@@ -83,6 +83,15 @@ def sigmoid_pw(xval, dtype):
 
     return res
 
+# Accepts 64 bit FXP input, and quantizes to 32 bit FXP output
+def quantize_values(data, high_bits, low_bits, decimal_place):
+    # Remove upper `high_bits`
+    out = (data << (decimal_place - high_bits))
+    out = out >> (decimal_place - high_bits)
+    # Remove lower `low_bits`
+    out = (out >> (decimal_place - low_bits))
+    return out
+
 def quantize_np(d, dtype, inpt=None):
     if dtype == "FXP32":
         high_bits = 16
@@ -218,7 +227,7 @@ def binary(op1, op2, layer_name, dtype):
         ref_fn = lambda a, b: a - b
     elif "div" in layer_name:
         quantize = True
-        ref_fn = lambda a, b: a / b
+        ref_fn = lambda a, b: a // b
     elif "equal" in layer_name:
         ref_fn = lambda a, b: a == b
     elif "less" in layer_name:
@@ -228,6 +237,7 @@ def binary(op1, op2, layer_name, dtype):
         ref_fn = lambda a, b: a * b
     else:
         raise RuntimeError
+
     output = ref_fn(op1, op2)
     if quantize:
         output = quantize_np(output, dtype, op1)

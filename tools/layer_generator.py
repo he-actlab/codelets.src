@@ -1,15 +1,13 @@
 from pathlib import Path
 from typing import Iterable
-from benchmarks.model_generator import create_custom_conv, create_custom_gemm, create_custom_matmul, create_custom_layer
+from benchmarks.model_generator import create_custom_conv, create_custom_gemm,\
+    create_custom_matmul, create_custom_layer, create_custom_multi_layer
 from benchmarks.load_onnx_model import store_unique_model_layers
 from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
 from examples.genesys import compile_genesys_layer, GENESYS_CFG
-import torch
 import numpy as np
 import os
-import shutil
 import json
-import pprint
 from collections import defaultdict
 import onnx
 
@@ -24,12 +22,16 @@ NAME_MAPPING = {
     "gemm_no_bias": "gemm",
     "elem_add": "add",
     "elem_ceil2d": "ceil",
+    "elem_div": "div",
+    "elem_less": "less",
+    "elem_equal": "equal",
     "elem_pow2d": "pow",
     "reduce_min2d": "reducemin",
     "reduce_mean2d": "reducemean",
     "elem_mul": "mul",
     "elem_tanh": "tanh",
     "elem_clip": "clip",
+    "elem_exp": "exp",
     "elem_tanh2d": "tanh",
     "tensor_transpose2d": "transpose",
     "elem_sub": "sub",
@@ -41,7 +43,57 @@ NAME_MAPPING = {
 }
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
+def compile_custom_multi_layer(model_name, layer_sequence, params, store_compile=False, dir_ext=None,
+                              partials=False, added_constr=None):
+    create_custom_multi_layer(layer_sequence, params, True, True, False, False, fname=model_name)
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
+    batch_size = 1
+    tile_method = "min_tiles"
+
+    update_cfg_dtypes = False
+    tiling_path = None
+    store_tiling = False
+    store_json_output = False
+    json_output_filename = None
+    seq_name = "_".join(layer_sequence)
+    full_layer_name = f"{model_name}_{seq_name}"
+    # This function returns
+    program = compile_genesys_layer(full_layer_name,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              store_tiling=store_tiling,
+                              store_checkpoint=False,
+                              store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default',
+                            batch_size=batch_size,
+                            do_hoist_stage=True,
+                            do_tile_stage=True,
+                            print_config=False,
+                            tiling_search_algorithm=tile_method,
+                                    do_compile=False
+                                    # relocation_offsets=reloc_offsets
+                              )
+
+    if store_compile:
+        if added_constr:
+            for l in layer_sequence:
+                program = update_tile_constraints(program, added_constr, l)
+        dir_ext = dir_ext or ''
+        # program.compile(verbose=False, finalize_instructions=True)
+
+        store_outputs("cc_layer1", seq_name, False,
+                      1,
+                      False,
+                      None,
+                      use_random=True,
+                      dir_ext=f"{dir_ext}",
+                      actual_data=False,
+                      store_partials=partials, program=program)
+    return program
 
 
 
@@ -101,62 +153,60 @@ def compile_custom_layer(model_name, layer_name, params, store_compile=False, di
 
 
 
+
+
 def compile_custom_gemm_layer(m, n, p, model_name, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None):
-    # model_name = f"resnet50_{name_postfix}"
-    # create_custom_gemm(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, fname=None):
-    # create_custom_conv(optimize_model, training_mode, convert_data_format, to_polymath, input_shape, oc, ksize, stride,
-    #                    pad,
-    #                    name=None)
+
     create_custom_gemm(True, True, False, False, m, n, p, fname=model_name)
-    model_path = f"{MODEL_DIR}/{model_name}.onnx"
-    store_unique_model_layers(model_name, store_as_polymath=True)
-
-    batch_size = 1
-    tile_method = "min_tiles"
-    # tile_method = "valid_split"
-
-    update_cfg_dtypes = False
-    tiling_path = None
-    store_tiling = False
-    store_json_output = False
-    json_output_filename = None
-    layer_name = f"{model_name}_gemm"
-
-    # This function returns
-    program = compile_genesys_layer(layer_name,
-                              update_cfg_dtypes=update_cfg_dtypes,
-                              tiling_path=tiling_path,
-                              store_tiling=store_tiling,
-                              store_checkpoint=False,
-                              store_json_output=store_json_output,
-                              json_output_filename=json_output_filename,
-                              verbose=False,
-                              benchmark_path=BENCH_DIR,
-                              factor_fn='default',
-                            batch_size=batch_size,
-                            do_hoist_stage=True,
-                            do_tile_stage=True,
-                            print_config=False,
-                            tiling_search_algorithm=tile_method,
-                                    do_compile=False
-                                    # relocation_offsets=reloc_offsets
-                              )
-    if store_compile:
-        if added_constr:
-            program = update_tile_constraints(program, added_constr, "gemm")
-        dir_ext = dir_ext or ''
-        program.compile(verbose=False, finalize_instructions=True)
-
-        store_outputs("cc_layer1", "gemm", False,
-                      1,
-                      False,
-                      None,
-                      use_random=True,
-                      dir_ext=f"{dir_ext}",
-                      actual_data=False,
-                      store_partials=partials, program=program)
-    return program
+    # model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    # store_unique_model_layers(model_name, store_as_polymath=True)
+    #
+    # batch_size = 1
+    # tile_method = "min_tiles"
+    # # tile_method = "valid_split"
+    #
+    # update_cfg_dtypes = False
+    # tiling_path = None
+    # store_tiling = False
+    # store_json_output = False
+    # json_output_filename = None
+    # layer_name = f"{model_name}_gemm"
+    #
+    # # This function returns
+    # program = compile_genesys_layer(layer_name,
+    #                           update_cfg_dtypes=update_cfg_dtypes,
+    #                           tiling_path=tiling_path,
+    #                           store_tiling=store_tiling,
+    #                           store_checkpoint=False,
+    #                           store_json_output=store_json_output,
+    #                           json_output_filename=json_output_filename,
+    #                           verbose=False,
+    #                           benchmark_path=BENCH_DIR,
+    #                           factor_fn='default',
+    #                         batch_size=batch_size,
+    #                         do_hoist_stage=True,
+    #                         do_tile_stage=True,
+    #                         print_config=False,
+    #                         tiling_search_algorithm=tile_method,
+    #                                 do_compile=False
+    #                                 # relocation_offsets=reloc_offsets
+    #                           )
+    # if store_compile:
+    #     if added_constr:
+    #         program = update_tile_constraints(program, added_constr, "gemm")
+    #     dir_ext = dir_ext or ''
+    #     program.compile(verbose=False, finalize_instructions=True)
+    #
+    #     store_outputs("cc_layer1", "gemm", False,
+    #                   1,
+    #                   False,
+    #                   None,
+    #                   use_random=True,
+    #                   dir_ext=f"{dir_ext}",
+    #                   actual_data=False,
+    #                   store_partials=partials, program=program)
+    # return program
 
 def compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None):
@@ -967,7 +1017,7 @@ def systolic_array_gemm_bench(num=2):
                                             partials=True)
 
 def systolic_array_conv_bench(sys_array_size=8, num=2):
-
+    assert GENESYS_CFG['ARRAY_N'] == sys_array_size and GENESYS_CFG['ARRAY_M'] == sys_array_size
     base_test_name = f"fpga_{sys_array_size}x{sys_array_size}_tile{num}"
     scale_factor = sys_array_size//8
     inp_params = []
@@ -1101,15 +1151,94 @@ def systolic_array_conv_scaled(layer_id=None, num=2, case_num=0):
                                                     added_constr=constraints['oc_oh_ow'])
 
 
+def simd_benchmarks5(tests=None, layers=None, num=12):
+    base_name = f"fpga{num}"
+
+    # configs = {
+    #     "t0": {"constraint": "True", "scale_factor": 1},
+    #     "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+    #     "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1", "scale_factor": 2},
+    #     "t3" : {"constraint": "splits['C'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
+    # }
+    configs = {
+        "t0": {"constraint": "True", "scale_factor": 1},
+        "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
+        "t3" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
+    }
+    ops = ["elem_div", "elem_less", "elem_equal", "elem_exp"]
+    if layers is None:
+        layers = ops
+    if tests is None:
+        configs.pop("t0")
+        tests = list(configs.keys())
+
+    for o in layers:
+        for n in tests:
+            assert n in configs
+            cfg = configs[n]
+            off = cfg['scale_factor']
+            model_name = f"{base_name}_{n}"
+            constraint = cfg['constraint']
+            # params = {"N": 2, "C": 128, "H": 256 // (2 ** off), "W": 256 // (2 ** off)}
+
+            params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
+
+            program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
+
+
+def multi_layer_cases1(tests=None, layers=None, num=12):
+    base_name = f"fpga{num}"
+
+    configs = {
+        "t0": {"constraint": "True", "scale_factor": 1},
+        "t1": {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        "t2": {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
+        "t3": {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
+    }
+    ops = [["conv", "relu"], ["conv", "relu", "gemm"]]
+    if layers is None:
+        layers = ops
+    if tests is None:
+        configs.pop("t0")
+        tests = list(configs.keys())
+
+    for o in layers:
+        for n in tests:
+            assert n in configs
+            cfg = configs[n]
+            off = cfg['scale_factor']
+            model_name = f"{base_name}_{n}"
+            constraint = "True"
+            if n == "t1":
+                stride = 2
+                kh, kw = 3, 3
+            elif n == "t2":
+                stride = 1
+                kh, kw = 3, 3
+            elif n == "t3":
+                stride = 1
+                kh, kw = 5, 5
+            else:
+                raise RuntimeError
+            input_params = {"N": 1, "C": 512 // off, "IH": 28, "IW": 28, "OH": 14, "OW": 14, "KH": kh, "KW": kw,
+                      "stride": stride, "pad": 1}
+
+            program = compile_custom_multi_layer(model_name, o, input_params, store_compile=True, added_constr=constraint)
+            break
+        break
+
 if __name__ == "__main__":
     # transpose_test()
-    # simd_benchmarks4(layers=["tensor_transpose2d"], num=65)
+    # simd_benchmarks4(layers=["tensor_transpose2d"], num=66)
+    multi_layer_cases1(layers=[["conv", "relu"]], num=1)
+    # simd_benchmarks5(num=68, layers=["elem_less", "elem_equal", "elem_exp"])
     # simd_benchmarks3(layers=["elem_pow2d"], num=59)
     # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=52)
     # simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
     # simd_benchmarks1(layers=["relu"], tests=["t1"], num=40)
     # resnet_benches(debug_output=True, ext="t10_", verbose=False, layers=[11])
-    systolic_array_conv_bench(32, 3)
+    # systolic_array_conv_bench(4, 4)
     # systolic_array_conv_scaled(layer_id=0, num=5, case_num=0)
     # systolic_array_gemm_bench(4)
     # simd_benchmarks1(layers=["elem_sigmoid"], tests=["t1"], num=17)

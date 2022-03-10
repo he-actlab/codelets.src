@@ -19,94 +19,173 @@ CWD = Path(f"{__file__}").parent
 
 Targets = namedtuple('Targets', ['boxes', 'masks', 'labels'])
 
-LAYER_FNS = {
-
-    "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
-    "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
-    "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
-                                   kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], bias=False),
-    "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+LAYER_UTILS = {
+    "gemm":
+        {
+         "fn": lambda params: nn.Linear(params['N'], params['P'], bias=True),
+         "input_gen": lambda params: (torch.randn(params['M'], params['N']), {}),
+         "fn_params": ['N', 'P'],
+          "input_gen_params": ['M', 'N']
+         },
+    "gemm_no_bias":
+        {
+            "fn": lambda params: nn.Linear(params['N'], params['P'], bias=False),
+            "input_gen": lambda params: (torch.randn(params['M'], params['N']), {}),
+            "fn_params": ['N', 'P'],
+            "input_gen_params": ['M', 'N']
+        },
+    "conv": {"fn": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+                                     kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
+                                     bias=False),
+             "input_gen": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+             "fn_params": ['IC', 'OC', 'KH', 'stride', 'pad'],
+             "input_gen_params": ['N', 'IC', 'IH', 'IW']
+             },
+    "conv_bias": {"fn": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
                                      kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
                                      bias=True),
-    "clip": lambda params: torch.clamp,
-    "elem_clip": lambda params: torch.clamp,
-    "elem_add": lambda params: torch.add,
-    "elem_mul": lambda params: torch.mul,
-    "elem_sub": lambda params: torch.sub,
-    "elem_div": lambda params: torch.div,
-    "elem_less": lambda params: torch.lt,
-    "elem_equal": lambda params: torch.eq,
-    "elem_exp": lambda params: torch.exp,
-    "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
-    "reduce_sum": lambda params: torch.sum,
-    "relu": lambda params: torch.relu,
-    "relu2d": lambda params: torch.relu,
-    "leaky_relu": lambda params: torch.nn.LeakyReLU(),
-    "sigmoid": lambda params: torch.sigmoid,
-    "elem_sigmoid": lambda params: torch.sigmoid,
-    "elem_tanh": lambda params: torch.tanh,
-    "elem_tanh2d": lambda params: torch.tanh,
-    "elem_ceil2d": lambda params: torch.ceil,
-    "transpose2d": lambda params: torch.transpose,
-    "tensor_transpose2d": lambda params: torch.transpose,
-    "elem_pow2d": lambda params: torch.pow,
-    "reduce_mean2d": lambda params: torch.mean,
-    "reduce_min2d": lambda params: torch.min,
-    "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-    "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-    "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-    "global_avg_pool": lambda params: nn.AdaptiveAvgPool2d((1, 1)),
-    "depthwise_conv": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
-                                   kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], groups=params['C'], bias=False),
+             "input_gen": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+             "fn_params": ['IC', 'OC', 'KH', 'stride', 'pad'],
+             "input_gen_params": ['N', 'IC', 'IH', 'IW']
+             },
+    "clip": {"fn": lambda params: torch.clamp,
+             "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                            {"min": params['minval'], "max": params['maxval']}),
+             "fn_params": [],
+             "input_gen_params": (["N", "C", "H", "W"], {"min": "minval", "max": "maxval"})
+             },
+    "elem_clip": {"fn": lambda params: torch.clamp,
+             "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+                            {"min": params['minval'], "max": params['maxval']}),
+             "fn_params": [],
+             "input_gen_params": (["N", "C", "H", "W"], {"min": "minval", "max": "maxval"})
+             },
+    "elem_add": {"fn": lambda params: torch.add, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_mul": {"fn": lambda params: torch.mul, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_sub": {"fn": lambda params: torch.sub, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_div": {"fn": lambda params: torch.div, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_less": {"fn": lambda params: torch.lt, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_equal": {"fn": lambda params: torch.eq, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_exp": {"fn": lambda params: torch.exp, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "reduce_sum": {"fn": lambda params: torch.sum, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "input_gen_params": ["N", "C"], "fn_params": []},
+    "relu": {"fn": lambda params: torch.relu, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "leaky_relu": {"fn": lambda params: torch.nn.LeakyReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+        "sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+       "elem_tanh": {"fn": lambda params: torch.tanh, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "batch_norm": {"fn": lambda params: nn.BatchNorm2d(params['C']), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": ["C"]},
+        "relu2d": {"fn": lambda params: torch.relu, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "fn_params": [], "input_gen_params": ["N", "C"]},
+    "elem_tanh2d": {"fn": lambda params: torch.tanh, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "fn_params": [], "input_gen_params": ["N", "C"]},
+    "elem_pow2d": {"fn": lambda params: torch.pow, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "fn_params": [], "input_gen_params": ["N", "C"]},
+    "elem_ceil2d": {"fn": lambda params: torch.ceil, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}) , "fn_params": [], "input_gen_params": (["N", "C"], {})},
+    "transpose2d": {"fn": lambda params: torch.transpose, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}) , "fn_params": [], "input_gen_params": (["N", "C"], {"const_inputs": "axis"})},
+"tensor_transpose2d": {"fn": lambda params: torch.transpose, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}) , "fn_params": [], "input_gen_params": (["N", "C"], {"const_inputs": "axis"})},
+    "reduce_mean2d": {"fn": lambda params: torch.mean, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}) , "fn_params": [], "input_gen_params": (["N", "C"], {"keepdim": "keepdim", "const_inputs": "axis"})},
+    "reduce_min2d": {"fn": lambda params: torch.min, "input_gen": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"], "const_inputs": (params['axis'],), "extraction_args": {"input_names": ["input"],"output_names": ["output"]}}) , "fn_params": [], "input_gen_params": (["N", "C"], {"keepdim": "keepdim", "const_inputs": "axis"})},
+    "max_pool": {"fn": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+                 "fn_params": ["KH", "stride", "pad"], "input_gen_params": ["N", "C", "IH", "IW"]},
+    "maxpool": {"fn": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+                "fn_params": ["KH", "stride", "pad"], "input_gen_params": ["N", "C", "IH", "IW"]},
+    "avg_pool": {"fn": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+                    "fn_params": ["KH", "stride", "pad"], "input_gen_params": ["N", "C", "IH", "IW"]},
+    "global_avg_pool": {"fn": lambda params: nn.AdaptiveAvgPool2d((1, 1)), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+                    "fn_params": [], "input_gen_params": ["N", "C", "IH", "IW"]},
+    "depthwise_conv":  {"fn": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
+                                               kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
+                                               groups=params['C'], bias=False),
+                    "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+                    "fn_params": ['IC', 'OC', 'KH', 'stride', 'pad'],
+                    "input_gen_params": ['N', 'IC', 'IH', 'IW']},
 }
 
-LAYER_INPUT_GEN = {
-    "gemm": lambda params: (torch.randn(params['M'], params['N']), {}),
-    "clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-                            {"min": params['minval'], "max": params['maxval']}),
-    "elem_clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-                            {"min": params['minval'], "max": params['maxval']}),
-    "gemm_no_bias": lambda params: (torch.randn(params['M'], params['N']), {}),
-    "conv": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-    "depthwise_conv": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-    "conv_bias": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-    "elem_add": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "elem_mul": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "elem_sub": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "elem_div": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "elem_equal": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "elem_less": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-    "batch_norm": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "reduce_sum": lambda params: (torch.randn(params['N'], params['C']), {}),
-    "relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "leaky_relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "elem_exp": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-    "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-    "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-    "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
-    "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
-    "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"],
-                                                                             "const_inputs": (params['axis'],),
-                                                                             "extraction_args": {"input_names": ["input"],
-                                                                                                 "output_names": ["output"]
-                                                                                                 }}),
-    "tensor_transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-    "transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-    "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-    "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-    "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-    "avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-    "global_avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-}
+# LAYER_FNS = {
+#
+#     "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
+#     "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
+#     "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], bias=False),
+#     "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
+#                                      kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
+#                                      bias=True),
+#     "clip": lambda params: torch.clamp,
+#     "elem_clip": lambda params: torch.clamp,
+#     "elem_add": lambda params: torch.add,
+#     "elem_mul": lambda params: torch.mul,
+#     "elem_sub": lambda params: torch.sub,
+#     "elem_div": lambda params: torch.div,
+#     "elem_less": lambda params: torch.lt,
+#     "elem_equal": lambda params: torch.eq,
+#     "elem_exp": lambda params: torch.exp,
+#     "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
+#     "reduce_sum": lambda params: torch.sum,
+#     "relu": lambda params: torch.relu,
+#     "relu2d": lambda params: torch.relu,
+#     "leaky_relu": lambda params: torch.nn.LeakyReLU(),
+#     "sigmoid": lambda params: torch.sigmoid,
+#     "elem_sigmoid": lambda params: torch.sigmoid,
+#     "elem_tanh": lambda params: torch.tanh,
+#     "elem_tanh2d": lambda params: torch.tanh,
+#     "elem_ceil2d": lambda params: torch.ceil,
+#     "transpose2d": lambda params: torch.transpose,
+#     "tensor_transpose2d": lambda params: torch.transpose,
+#     "elem_pow2d": lambda params: torch.pow,
+#     "reduce_mean2d": lambda params: torch.mean,
+#     "reduce_min2d": lambda params: torch.min,
+#     "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+#     "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+#     "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
+#     "global_avg_pool": lambda params: nn.AdaptiveAvgPool2d((1, 1)),
+#     "depthwise_conv": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
+#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], groups=params['C'], bias=False),
+# }
+#
+# LAYER_INPUT_GEN = {
+#     "gemm": lambda params: (torch.randn(params['M'], params['N']), {}),
+#     "clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                             {"min": params['minval'], "max": params['maxval']}),
+#     "elem_clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                             {"min": params['minval'], "max": params['maxval']}),
+#     "gemm_no_bias": lambda params: (torch.randn(params['M'], params['N']), {}),
+#     "conv": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+#     "depthwise_conv": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+#     "conv_bias": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
+#     "elem_add": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "elem_mul": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "elem_sub": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "elem_div": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "elem_equal": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "elem_less": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+#     "batch_norm": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "reduce_sum": lambda params: (torch.randn(params['N'], params['C']), {}),
+#     "relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "leaky_relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "elem_exp": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
+#     "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+#     "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+#     "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
+#     "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
+#     "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
+#     "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"],
+#                                                                              "const_inputs": (params['axis'],),
+#                                                                              "extraction_args": {"input_names": ["input"],
+#                                                                                                  "output_names": ["output"]
+#                                                                                                  }}),
+#     "tensor_transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
+#     "transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
+#     "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+#     "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+#     "avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+#     "global_avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
+# }
 
 def get_image_from_url(url, size=None):
     import requests
@@ -344,12 +423,12 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
             self.kwargs = kwargs
 
             super(CustomLayer, self).__init__()
-            self.layer = LAYER_FNS[layer_name](params)
+            self.layer = LAYER_UTILS['fn'][layer_name](params)
 
         def forward(self, *args):
             x = self.layer(*(args + self.const_inputs), **self.kwargs)
             return x
-    input_var, kwargs = LAYER_INPUT_GEN[layer_name](params)
+    input_var, kwargs = LAYER_UTILS['input_gen'][layer_name](params)
     if "opset" in kwargs:
         opset = kwargs.pop("opset")
     else:
@@ -373,6 +452,64 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
                         convert_data_format=convert_data_format,
                         opset=opset,
                         extraction_args=extraction_args)
+
+
+def create_custom_multi_layer(layer_sequence, all_params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
+    assert isinstance(all_params, dict) and len(all_params) == len(layer_sequence)
+    class CustomLayerSeq(nn.Module):
+        def __init__(self, kwargs):
+            if "const_inputs" in kwargs:
+                assert isinstance(kwargs['const_inputs'], tuple)
+                self.const_inputs = kwargs.pop('const_inputs')
+            else:
+                self.const_inputs = tuple([])
+            self.kwargs = kwargs
+
+            super(CustomLayerSeq, self).__init__()
+
+            self.layers = {l: LAYER_UTILS['fn'][l](all_params[l]) for l in layer_sequence}
+            assert len(self.layers) > 0
+
+        def forward(self, *args):
+            x = args
+            # x = self.layers.values()[0](*(args + self.const_inputs), **self.kwargs)
+            for name, l in self.layers.items():
+                x = l(*(args + self.const_inputs[name]), **self.kwargs[name])
+            return x
+
+    # Only need the first layer args
+    input_var = None
+    all_kwargs = {}
+    opset = _onnx_opset_version
+    extraction_args = None
+    for l in layer_sequence:
+        if input_var is None:
+            input_var, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+        else:
+            _, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+        if "opset" in all_kwargs[l]:
+            opset = all_kwargs[l].pop("opset")
+
+        if "extraction_args" in all_kwargs[l]:
+            extraction_args = all_kwargs[l].pop("extraction_args")
+        else:
+            extraction_args = None
+
+    model = CustomLayerSeq(all_kwargs)
+
+
+    if not isinstance(input_var, tuple):
+        input_var = (input_var,)
+    output = model(*input_var)
+    model.eval()
+    if fname is None:
+        layer_seq_name = "_".join(layer_sequence)
+        fname = f"custom_{layer_seq_name}"
+    convert_torch_model(input_var, model, fname, optimize_model, training_mode, to_polymath,
+                        convert_data_format=convert_data_format,
+                        opset=opset,
+                        extraction_args=extraction_args)
+
 
 def create_custom_gemm(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, fname=None):
 
