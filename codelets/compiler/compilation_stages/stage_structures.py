@@ -36,10 +36,12 @@ class TilingInfo:
     factor_fn_name: str = field(default='default')
     print_debug: bool = field(default=True)
     dims: List[str] = field(default_factory=list)
+    loop_idx_mapping: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
         for i in range(self.levels):
             self.tile_hints[i] = {}
+
 
     def initialize_shapes(self, cdlt):
         if 'fixed_tile_dims' in cdlt.compilation_params:
@@ -63,6 +65,11 @@ class TilingInfo:
             self.selected_splits[0][dim] = 1
             self.accumulated_splits[dim] = 1
         assert 0 not in cdlt.domain_tiling
+
+        self.loop_idx_mapping = {
+            l: self.dims.index(self.loop_dim_map[l]) for l in self.loop_dependencies
+        }
+
         first_perm = product(*tuple(self.level_factors[0].values()))
 
         return first_perm
@@ -89,7 +96,8 @@ class TilingInfo:
     def check_tile_hints(self, level, loop_deps, sizes, splits):
         #TODO: Check if this works when there are actual tile hints
         for l, th in self.tile_hints[level].items():
-            idx = self.dims.index(self.loop_dim_map[l])
+            # idx = self.dims.index(self.loop_dim_map[l])
+            idx = self.loop_idx_mapping[l]
             size = sizes[idx]
             split = splits[idx]
             valid = th.evaluate_fn(size, split)
@@ -97,9 +105,15 @@ class TilingInfo:
                 return False
 
         level_name = f"LEVEL{level}_hint"
+        # print(f"Sizes: {sizes}, Length: {len(sizes)}")
+        # print(f"Splits: {splits}, Length: {len(splits)}")
+        # print(f"Loop dim map: {self.loop_dim_map}, length: {len(self.loop_dim_map)}")
+        # print(f"Loop deps: {loop_deps}, length: {len(loop_deps)}")
         if level_name in self.tile_hints:
-            sizes = {self.loop_dim_map[l]: sizes[i] for i, l in enumerate(loop_deps)}
-            splits = {self.loop_dim_map[l]: splits[i] for i, l in enumerate(loop_deps)}
+            # sizes = {self.loop_dim_map[l]: sizes[i] for i, l in enumerate(loop_deps)}
+            # splits = {self.loop_dim_map[l]: splits[i] for i, l in enumerate(loop_deps)}
+            sizes = {self.loop_dim_map[l]: sizes[self.loop_idx_mapping[l]] for l in loop_deps}
+            splits = {self.loop_dim_map[l]: splits[self.loop_idx_mapping[l]] for l in loop_deps}
             valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
             if not valid:
 
@@ -110,7 +124,11 @@ class TilingInfo:
         pass
 
     def get_permutation_map(self, perm):
-        return {l: perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]] for i, l in enumerate(self.loop_dependencies)}
+        pmap = {}
+        for i, l in enumerate(self.loop_dependencies):
+            pmap[l] = perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]]
+            # return {l: perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]] for i, l in enumerate(self.loop_dependencies)}
+        return pmap
 
     def validate_splits(self, cdlt, perm, level):
         valid_splits = perm
@@ -147,6 +165,9 @@ class TilingInfo:
             dim_order = cdlt.compilation_params["LOOP_TILE_ORDER"]
 
             reversed_dom_map = {v: k for k, v in cdlt.domain_loop_map.items()}
+            assert len(dim_order) == len(self.loop_dependencies), f"Invalid loop order specification due to missing loop names: " \
+                                                                  f"All loops: {self.loop_dependencies}\n" \
+                                                                  f"Specified loops: {[reversed_dom_map[d] for d in dim_order]}"
             self.loop_dependencies = [reversed_dom_map[d] for d in dim_order]
 
     def get_tile_permutations(self, level, perm_stack, cdlt):

@@ -38,7 +38,6 @@ def quantize_initializer(data, cdlt_operand, pm_node, idx):
         swapped_idx = [data.shape.index(i) for i in pm_node.shape]
         data = data.transpose(*swapped_idx)
         assert pm_node.shape == data.shape
-
     if data.shape != cdlt_operand.shape:
         pad_width = [(0, j-i) for i, j in zip(data.shape, cdlt_operand.shape)]
         data = np.pad(data, pad_width)
@@ -62,7 +61,10 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
     data_path = f"{base_path}/data"
     if not Path(data_path).exists():
         os.makedirs(data_path)
-
+    if model_data is None:
+        model_data = {}
+        # model_data = generate_inputs_from_program(program)
+        # exit()
     for c in program.codelets:
         inouts = {"inputs": [], "outputs": []}
         for i, op in enumerate(c.inputs):
@@ -77,7 +79,9 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
 
             elif op.node_name in value_dict['outputs']:
                 operand = value_dict['outputs'].pop(op.node_name)
-                assert operand.data.shape == op.shape
+                assert operand.data.shape == op.shape, f"Invalid shape for {operand.node_name} in {c.op_name}:\n" \
+                                                       f"Codelet shape: {op.shape}\n" \
+                                                       f"Value dict shape: {operand.data.shape}"
                 inouts['inputs'].append(operand)
                 value_dict['intermediate'][op.node_name] = operand
             elif op.node_name in value_dict['intermediate']:
@@ -203,7 +207,9 @@ def store_model_outputs(model_name,
 
     if added_constr:
         program = update_tile_constraints(program, added_constr, model_name)
+
     program.compile(verbose=False, finalize=True)
+
 
     arch_cfg = get_arch(None, None, update_cfg_dtypes)
     print(f"Configuration for program:")
@@ -234,8 +240,55 @@ def update_tile_constraints(program, layer_constraints, orig_constraint=None):
 
     return program
 
-def compile_full_model(model_name, store_compile=False, dir_ext=None,partials=False, added_constr=None, train_mode=False,
-                       verbose=False, model_data=None):
+def generate_inputs_from_program(program):
+    model_data = {}
+    value_dict: Dict[str, Dict[str,OperandData]] = {"inputs": {},
+                  "intermediate": {},
+                  "outputs": {}}
+    init_input = None
+    for c in program.codelets:
+        inouts = {"inputs": [], "outputs": []}
+        for i, op in enumerate(c.inputs):
+            assert op.node_name in program.operand_mapping
+            if op.node_name in model_data:
+                assert op.node_name not in value_dict['outputs']
+                assert op.node_name not in value_dict['intermediate']
+                assert op.node_name in program.graph.nodes
+                pm_node = program.graph.nodes[op.node_name]
+                operand = quantize_initializer(model_data[op.node_name], op, pm_node, i)
+                inouts['inputs'].append(operand)
+
+            elif op.node_name in value_dict['outputs']:
+                operand = value_dict['outputs'].pop(op.node_name)
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+                value_dict['intermediate'][op.node_name] = operand
+            elif op.node_name in value_dict['intermediate']:
+                operand = value_dict['intermediate'][op.node_name]
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+        inouts = generate_random_values(c, inouts=inouts)
+
+        for i in inouts['inputs']:
+
+            if i.fmt is None and i.node_name not in value_dict['inputs'] and i.node_name not in value_dict['intermediate']:
+                value_dict['inputs'][i.node_name] = i
+
+        for o in inouts['outputs']:
+            if o.fmt is None:
+                value_dict['outputs'][o.node_name] = o
+    print(value_dict)
+    return model_data
+
+def compile_full_model(model_name,
+                       store_compile=False,
+                       dir_ext=None,
+                       partials=False,
+                       added_constr=None,
+                       train_mode=False,
+                       verbose=False,
+                       model_data=None,
+                       fuse_layers=False):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
@@ -265,9 +318,11 @@ def compile_full_model(model_name, store_compile=False, dir_ext=None,partials=Fa
                             do_tile_stage=True,
                             print_config=False,
                             tiling_search_algorithm=tile_method,
-                                    do_compile=False
+                                    do_compile=False,
+                              fuse_layers=fuse_layers
                               )
     if store_compile:
+
         if added_constr:
             program = update_tile_constraints(program, added_constr)
 

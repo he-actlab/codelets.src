@@ -127,7 +127,11 @@ def find_valid_splits(cdlt, p, lvl,
     return valid_splits
 
 
-def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name, stopping_condition, selection_metric,
+def set_codelet_tiling(cdlt: 'Codelet',
+                       hag: 'ArchitectureNode',
+                       factor_fn_name,
+                       stopping_condition,
+                       selection_metric,
                        heuristic_fn):
     if stopping_condition is None:
         RuntimeError("Stopping condition for codelet tiling is not specified")
@@ -145,7 +149,6 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
                 level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
 
         loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
-
     tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
                            cdlt.domain_loop_map,
                            len(list(cdlt.tile_levels.keys())),
@@ -154,9 +157,9 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
     # TODO: IF loop ordering is specified, need to figure out how to handle multiple loop blocks over the same
     # dimension
     tile_info.update_loop_order(cdlt)
-
     tile_info = get_tile_constraints(cdlt, hag, tile_info)
     first_perm = tile_info.initialize_shapes(cdlt)
+
     perm_stack = deque()
 
     perm_stack.append(first_perm)
@@ -175,26 +178,25 @@ def set_codelet_tiling(cdlt: 'Codelet', hag: 'ArchitectureNode', factor_fn_name,
     # stopping condition: False
     # selection metric/function: lambda tiles: min(tiles
     # x_splits: min(prod(x)) key = splits, value = product of splits
+
     while tile_info.levels > level > 0:
         prev_level = level - 1
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
         perms, perms_copy = tee(perms)
         assert perms is not None
-        valid_splits = None
         fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
         search_space = {}
         stop_search = False
         last_valid_permutation = None
-        selected_splits = None
         selected_permutation = None
         for p in perms:
             if p in invalid_permutations:
                 continue
             level_counter[level] += 1
+
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
-
                 continue
             valid_splits = tile_info.validate_splits(cdlt, p, level)
             if valid_splits is None:

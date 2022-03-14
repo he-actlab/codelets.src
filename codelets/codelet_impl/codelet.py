@@ -920,6 +920,9 @@ class Codelet(object):
             deps += self.all_dependencies(self.op_map[l].dependencies)
         return list(set(deps))
 
+    def is_fusion(self) -> bool:
+        return len(set([c.target for c in self.ops if c.op_type == "compute"])) > 1
+
     def inner_stride(self, operand, loop, loop_idx):
 
         loop_tile_level = self.get_loop_tile_level(loop.loop_level)

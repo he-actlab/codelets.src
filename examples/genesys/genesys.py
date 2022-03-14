@@ -1,13 +1,13 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass, template_pad_pass
+    add_simd_typecast, template_layout_pass, template_pad_pass, separate_simd_sa_ops
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
 from .genesys_codelets import GENESYS_CODELETS
 
-from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
+from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, FUSION_LAYERS, FUSION_MAPPING
 import numpy as np
 from pathlib import Path
 import json
@@ -201,7 +201,7 @@ def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
     return out_cfg
 
 
-def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
+def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layers=False):
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
         graph = batch_size_pass(graph)
@@ -211,6 +211,9 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False):
             print(f"Generating training graph for {graph.name}")
         graph = pm.create_training_graph(graph)
 
+    if fuse_layers:
+        fusion_pass = pm.FuseOps(FUSION_LAYERS)
+        graph = fusion_pass(graph)
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
 
@@ -258,8 +261,7 @@ def compile_genesys(model_name,
                     do_tile_stage=True,
                     do_hoist_stage=True,
                     batch_size=1,
-                    save_genesys_filename=None,
-                    load_genesys_filename=None,
+                    fuse_layers=False,
                     relocation_offsets=None,
                     train=False,
                     tiling_search_algorithm='valid_split',
@@ -277,9 +279,8 @@ def compile_genesys(model_name,
 
     if train:
         model_name = f"{model_name}_train"
-
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
+    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -314,6 +315,7 @@ def compile_genesys(model_name,
     finalize_instructions = True
     if do_tile_stage:
         program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+        program.add_compilation_step("separate_ops", separate_simd_sa_ops)
     else:
         finalize_instructions = False
 
@@ -467,6 +469,7 @@ def compile_genesys_layer(layer_file,
     finalize_instructions = True
     if do_tile_stage:
         program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+        program.add_compilation_step("separate_ops", separate_simd_sa_ops)
     else:
         finalize_instructions = False
 
@@ -571,6 +574,7 @@ def compile_extracted_genesys_layer(model_name,
     tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
                    'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("separate_ops", separate_simd_sa_ops)
     program.add_compilation_step("hoist", hoist, dependencies=["tile"])
     if relocation_offsets:
         program.set_relocation_ns_offsets(relocation_offsets)

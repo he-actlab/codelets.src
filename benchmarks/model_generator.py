@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision import models
+from collections import OrderedDict
 import io
 from pathlib import Path
 from onnxsim import simplify
@@ -68,7 +69,7 @@ LAYER_UTILS = {
     "elem_equal": {"fn": lambda params: torch.eq, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "elem_exp": {"fn": lambda params: torch.exp, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "reduce_sum": {"fn": lambda params: torch.sum, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "input_gen_params": ["N", "C"], "fn_params": []},
-    "relu": {"fn": lambda params: torch.relu, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "relu": {"fn": lambda params: torch.nn.ReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "leaky_relu": {"fn": lambda params: torch.nn.LeakyReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
         "sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "elem_sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
@@ -98,94 +99,6 @@ LAYER_UTILS = {
                     "input_gen_params": ['N', 'IC', 'IH', 'IW']},
 }
 
-# LAYER_FNS = {
-#
-#     "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
-#     "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
-#     "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
-#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], bias=False),
-#     "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
-#                                      kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
-#                                      bias=True),
-#     "clip": lambda params: torch.clamp,
-#     "elem_clip": lambda params: torch.clamp,
-#     "elem_add": lambda params: torch.add,
-#     "elem_mul": lambda params: torch.mul,
-#     "elem_sub": lambda params: torch.sub,
-#     "elem_div": lambda params: torch.div,
-#     "elem_less": lambda params: torch.lt,
-#     "elem_equal": lambda params: torch.eq,
-#     "elem_exp": lambda params: torch.exp,
-#     "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
-#     "reduce_sum": lambda params: torch.sum,
-#     "relu": lambda params: torch.relu,
-#     "relu2d": lambda params: torch.relu,
-#     "leaky_relu": lambda params: torch.nn.LeakyReLU(),
-#     "sigmoid": lambda params: torch.sigmoid,
-#     "elem_sigmoid": lambda params: torch.sigmoid,
-#     "elem_tanh": lambda params: torch.tanh,
-#     "elem_tanh2d": lambda params: torch.tanh,
-#     "elem_ceil2d": lambda params: torch.ceil,
-#     "transpose2d": lambda params: torch.transpose,
-#     "tensor_transpose2d": lambda params: torch.transpose,
-#     "elem_pow2d": lambda params: torch.pow,
-#     "reduce_mean2d": lambda params: torch.mean,
-#     "reduce_min2d": lambda params: torch.min,
-#     "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "global_avg_pool": lambda params: nn.AdaptiveAvgPool2d((1, 1)),
-#     "depthwise_conv": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
-#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], groups=params['C'], bias=False),
-# }
-#
-# LAYER_INPUT_GEN = {
-#     "gemm": lambda params: (torch.randn(params['M'], params['N']), {}),
-#     "clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                             {"min": params['minval'], "max": params['maxval']}),
-#     "elem_clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                             {"min": params['minval'], "max": params['maxval']}),
-#     "gemm_no_bias": lambda params: (torch.randn(params['M'], params['N']), {}),
-#     "conv": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-#     "depthwise_conv": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "conv_bias": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-#     "elem_add": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_mul": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_sub": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_div": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_equal": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_less": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "batch_norm": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "reduce_sum": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "leaky_relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_exp": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
-#     "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
-#     "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"],
-#                                                                              "const_inputs": (params['axis'],),
-#                                                                              "extraction_args": {"input_names": ["input"],
-#                                                                                                  "output_names": ["output"]
-#                                                                                                  }}),
-#     "tensor_transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-#     "transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-#     "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "global_avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-# }
 
 def get_image_from_url(url, size=None):
     import requests
@@ -455,38 +368,49 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
 
 
 def create_custom_multi_layer(layer_sequence, all_params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
-    assert isinstance(all_params, dict) and len(all_params) == len(layer_sequence)
+    from collections import defaultdict
+    assert isinstance(all_params, dict)
     class CustomLayerSeq(nn.Module):
         def __init__(self, kwargs):
-            if "const_inputs" in kwargs:
-                assert isinstance(kwargs['const_inputs'], tuple)
-                self.const_inputs = kwargs.pop('const_inputs')
-            else:
-                self.const_inputs = tuple([])
+            self.const_inputs = {}
+            layer_nums = defaultdict(int)
+            for lname in layer_sequence:
+                l = f"{lname}{layer_nums[lname]}"
+                layer_nums[lname] += 1
+                if "const_inputs" in kwargs[l]:
+                    assert isinstance(kwargs[l]['const_inputs'], tuple)
+                    self.const_inputs[l] = kwargs[l].pop('const_inputs')
+                else:
+                    self.const_inputs[l] = tuple([])
             self.kwargs = kwargs
 
             super(CustomLayerSeq, self).__init__()
-
-            self.layers = {l: LAYER_UTILS['fn'][l](all_params[l]) for l in layer_sequence}
-            assert len(self.layers) > 0
+            self.seq = torch.nn.Sequential()
+            layer_nums = defaultdict(int)
+            for lname in layer_sequence:
+                l = f"{lname}{layer_nums[lname]}"
+                layer_nums[lname] += 1
+                if l == "gemm":
+                    self.seq.add_module("flatten", nn.Flatten())
+                self.seq.add_module(l, LAYER_UTILS[lname]['fn'](all_params[l]))
 
         def forward(self, *args):
-            x = args
-            # x = self.layers.values()[0](*(args + self.const_inputs), **self.kwargs)
-            for name, l in self.layers.items():
-                x = l(*(args + self.const_inputs[name]), **self.kwargs[name])
-            return x
+            return self.seq(*args)
 
     # Only need the first layer args
     input_var = None
     all_kwargs = {}
     opset = _onnx_opset_version
     extraction_args = None
-    for l in layer_sequence:
+
+    layer_nums = defaultdict(int)
+    for lname in layer_sequence:
+        l = f"{lname}{layer_nums[lname]}"
+        layer_nums[lname] += 1
         if input_var is None:
-            input_var, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+            input_var, all_kwargs[l] = LAYER_UTILS[lname]['input_gen'](all_params[l])
         else:
-            _, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+            _, all_kwargs[l] = LAYER_UTILS[lname]['input_gen'](all_params[l])
         if "opset" in all_kwargs[l]:
             opset = all_kwargs[l].pop("opset")
 
@@ -497,11 +421,11 @@ def create_custom_multi_layer(layer_sequence, all_params, optimize_model, conver
 
     model = CustomLayerSeq(all_kwargs)
 
-
     if not isinstance(input_var, tuple):
         input_var = (input_var,)
-    output = model(*input_var)
+    output = model.seq(*input_var)
     model.eval()
+
     if fname is None:
         layer_seq_name = "_".join(layer_sequence)
         fname = f"custom_{layer_seq_name}"
@@ -896,6 +820,7 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           do_constant_folding=True,  # whether to execute constant folding for optimization
                           keep_initializers_as_inputs=True,
                           training=mode,
+                          verbose=False,
                           input_names=['input'],  # the model's input names
                           output_names=['output'],
                           opset_version=opset)
@@ -951,7 +876,7 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
 
     if to_polymath:
         graph = pm.from_onnx(filepath)
-        pm.pb_store(graph, f"{CWD}/full_dnns/")
+        pm.pb_store(graph, f"{CWD}/models/srdfg")
 
 
 
@@ -994,7 +919,8 @@ def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath):
     #
     # for o in model.graph.input:
     #     print(o)
-    model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
+    if inpt_shapes is not None and out_shapes is not None:
+        model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
                                                          out_shapes)
     model = onnx.shape_inference.infer_shapes(model)
 
@@ -1345,6 +1271,56 @@ def main():
     # # split_mrcnn(benchmark, split_part)
     # create_maskrcnn_part(split_part, optimize_model, training_mode, data_format_convert, to_polymath)
 
+def get_attribute(node, attr_name):
+    for a in node.attribute:
+        if a.name == attr_name:
+            return onnx.helper.get_attribute_value(a)
+    return None
+
+
+def print_unique_model_layers(model_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    model = onnx.load_model(model_path)
+    layer_info = collect_value_info(model.graph)
+    layers = {}
+
+    def is_dw_conv(node):
+        inpt_name = node.input[0]
+        assert inpt_name in layer_info
+        inpt_shape = layer_info[inpt_name]
+        ic = inpt_shape[1]
+        groups = get_attribute(node, "group")
+        if groups is not None and groups == ic:
+            return True
+        return False
+    dw_nodes = []
+    for n in model.graph.node:
+        if n.op_type.lower() == "conv" and is_dw_conv(n):
+            lname = "DepthwiseConv"
+            dw_nodes.append(n)
+        else:
+            lname = n.op_type
+
+        if lname not in layers:
+            layers[lname] = 1
+        else:
+            layers[lname] += 1
+    csv_res = "\n".join(
+        f"{op}, {num}" for op, num in layers.items()
+    )
+    print(f"Operation, Count")
+    print(f"{csv_res}")
+
+
+def optimize_graph(model_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_path = f"{MODEL_DIR}/{model_name}-opt.onnx"
+    optimize_onnx(load_path, store_path, None, None, False)
+    return f"{model_name}-opt"
+
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
 
@@ -1404,7 +1380,14 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        optimize_yolo_onnx(False)
+        names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
+
+        # new_name = optimize_graph(names[2])
+        new_name = f"{names[2]}-opt"
+        # new_name = f"mobilenetv2"
+        print_unique_model_layers(new_name)
+
+        # optimize_yolo_onnx(False)
 
         # create_resnet50(True, False, False, False,
         #                 batch_size=1)

@@ -266,8 +266,10 @@ class CodeletProgram(object):
     def instantiate_codelet(self, node):
         # cdlt_template = self.codelet_templates[node.op_name]
         cdlt_template = self.get_template_through_mapping(node)
+
         assert isinstance(cdlt_template, CodeletTemplate), f"Invalid template: {cdlt_template}"
         cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
@@ -861,6 +863,7 @@ class CodeletProgram(object):
         start = time()
 
         node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+
 
         self.run_template_stages(node_sequence, verbose=verbose)
 

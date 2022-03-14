@@ -20,7 +20,7 @@ ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 BINARY_FNS = ["elem_add", "elem_sub", "elem_mul", "elem_div", "elem_less", "elem_equal"]
 UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigmoid", "leaky_relu", "clip", "elem_clip", "elem_ceil2d",
-             "elem_pow2d", "reduce_mean2d", "reduce_min2d", "tensor_transpose2d", "elem_exp"]
+             "elem_pow2d", "reduce_mean2d", "reduce_min2d", "tensor_transpose2d", "elem_exp", "coarse_flatten"]
 # FLIP_SHAPE_PERM = [2, 3, 1, 0]
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
@@ -72,7 +72,7 @@ def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
     elif cdlt.op_name in UNARY_FNS:
         inouts = generate_random_values_unary(cdlt, **kwargs)
     else:
-        assert "gemm" in cdlt.op_name
+        assert "gemm" in cdlt.op_name, f"Could not find value number generator for operation {cdlt.op_name}"
         inouts = generate_random_values_gemm(cdlt, **kwargs)
 
     assert inouts is not None

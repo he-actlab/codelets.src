@@ -15,7 +15,7 @@ from .stage_utils import default_tile_heuristic, \
     find_node_key, insert_simd_typecast
 import polymath as pm
 import json
-
+PAD_LAYERS = ["conv", "conv_bias", "depthwise_conv",  "conv_bias_relu"]
 SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias', 'matmul']
 
 # TODO: Update SIMD_CDLTS for dtypes
@@ -50,7 +50,7 @@ INTERMEDIATE_INPUT_INDICES = {
     "matmul": [0]
 }
 
-SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias", "matmul"]
+SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias", "matmul", "conv_bias_relu"]
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
@@ -58,6 +58,11 @@ TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
 TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 1, 0]
+POST_TRANSPOSE_SHAPES = [
+    [ts[TRANSPOSE_PERM[i]] for i in range(len(TRANSPOSE_PERM))]
+    for ts in TRANSPOSED_SHAPES
+]
+
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
 FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'], ["C", "ONE", "KH", "KW"]]
 
@@ -82,8 +87,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
     #
     # if template.op_name == "mean_var":
     #     template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-
-    if template.op_name in ["conv", "conv_bias", "depthwise_conv"]:
+    if template.op_name in PAD_LAYERS:
         template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
         template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
@@ -92,6 +96,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
 
     if template.op_name in SA_OPS:
+
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
         out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
         inp_dim = template.inputs[0].shape_list[-1]
@@ -112,12 +117,16 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 dim = "C"
             else:
                 continue
+
             dim_idx = i.shape_list_names.index(dim)
+            prev_idx = dim_idx
+            if i.shape_list_names in POST_TRANSPOSE_SHAPES:
+                prev_idx = TRANSPOSE_PERM[dim_idx]
             if i.shape_list_names[dim_idx] not in updated_dims:
-                dim = i.shape_list[dim_idx]
-                dummy_dim = template.node.inputs[idx].shape[dim_idx]
-                template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
-                updated_dims.append(dim.name)
+                dimname = i.shape_list[dim_idx].name
+                dummy_dim = template.node.inputs[idx].shape[prev_idx]
+                template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
+                updated_dims.append(dimname)
 
         for idx, o in enumerate(template.outputs):
             if "IC" in o.shape_list_names:
@@ -130,11 +139,14 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 continue
             dim_idx = o.shape_list_names.index(dim)
 
+            prev_idx = dim_idx
+            if o.shape_list_names in POST_TRANSPOSE_SHAPES:
+                prev_idx = TRANSPOSE_PERM[dim_idx]
             if o.shape_list_names[dim_idx] not in updated_dims:
-                dim = o.shape_list[dim_idx]
-                dummy_dim = template.node.outputs[idx].shape[dim_idx]
-                template.update_dummy_op(dim.name, dummy_dim + (constr - dummy_dim) % constr)
-                updated_dims.append(dim.name)
+                dimname = o.shape_list[dim_idx].name
+                dummy_dim = template.node.inputs[idx].shape[prev_idx]
+                template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
+                updated_dims.append(dimname)
     return template
 
 
@@ -223,6 +235,80 @@ def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shap
     assert isinstance(shaped_nodes, dict)
     return cdlt
 
+def update_dependencies(cdlt, loop_replacement_map):
+
+    for op in cdlt.ops:
+        if op.op_type == "config" and op.start_or_finish == "end":
+            if any([cdlt.ops[i].op_type != "config" for i in range(cdlt.ops.index(op) + 1, len(cdlt.ops))]) and not cdlt.is_fusion():
+                cdlt.ops.insert(len(cdlt.ops) - 1, cdlt.ops.pop(cdlt.ops.index(op)))
+        new_deps = []
+        for d in op.dependencies:
+            if d in loop_replacement_map:
+                new_deps.append(loop_replacement_map[d])
+            else:
+                new_deps.append(d)
+        op._dependencies = new_deps
+    return cdlt
+
+def update_data_movements(cdlt):
+    for o in cdlt.operands:
+        if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
+            last_move = o.data_moves[-1]
+            dest_name = last_move.dst_node
+            level = cdlt.get_tile_level(dest_name)
+            level_sizes = cdlt.domain_loop_map[level]
+            o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
+
+        if o in cdlt.outputs and not o.is_tiled():
+            missing_tiles = [l for l in o.unique_data_locations() if l not in list(o.tiling.keys())]
+            for m in missing_tiles:
+                level = cdlt.get_tile_level(m)
+                level_sizes = cdlt.domain_loop_map[level]
+                mmove = None
+                for a in o.data_moves:
+                    if a.src_node == m:
+                        mmove = a
+                        break
+                prev_level = level
+                if mmove is None:
+                    raise RuntimeError(f"UNable to find movement for missing tile {m}\n"
+                                       f"Moves: {o.movement_keys()}")
+                o.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
+
+        if not o.is_tiled():
+            raise RuntimeError(f"Number of tilings does not match the data path size for {o.name}:\n"
+                               f"Tiling keys: {list(o.tiling.keys())}\n"
+                               f"Unique data path locations: {o.unique_data_locations()}\n"
+                               f"Data path: {o.data_path}")
+    return cdlt
+
+
+def update_temporary_data_moves(cdlt):
+    for t in cdlt.temps:
+        if len(t.data_path) > 2:
+
+            missing_tiles = [l for l in t.unique_data_locations() if l not in list(t.tiling.keys()) or
+                             all(i == 0 for i in t.tiling[l].values())]
+            supported_operands = [o for o in cdlt.operands if t.shape_list == o.shape_list]
+
+            for d in t.data_moves:
+                if d.unset_offsets:
+                    assert "compute" in d.op_name
+                    updated_offset = False
+                    for o in supported_operands:
+                        for dm in o.data_moves:
+                            if cdlt.get_tile_level(d.src_node) == cdlt.get_tile_level(dm.src_node) and \
+                                    cdlt.get_tile_level(d.dst_node) == cdlt.get_tile_level(dm.dst_node):
+                                d.reinit_offset_map(dm.offset_map)
+                                t.tiling[d.src_node] = o.tiling[dm.src_node].copy()
+                                d.resolve_offsets(cdlt)
+                                d.evaluated_domain_offsets = deepcopy(dm.evaluated_domain_offsets)
+                                updated_offset = True
+                                break
+                        if updated_offset:
+                            break
+                    assert updated_offset
+    return cdlt
 
 def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None,
          checkpoint_file=None, stopping_condition=None, selection_metric=None) -> 'Codelet':
@@ -244,24 +330,30 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
 
     bands = cdlt.extract_bands()
-
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
 
-    outer_loop_map = {}
     loop_replacement_map = {}
-    for start, end in bands:
+    start_end_ops = [(cdlt.ops[s], cdlt.ops[e]) for s, e in bands]
+    all_deps = {}
+    for start_op, end_op in start_end_ops:
+        outer_loop_map = {}
+
+        start = cdlt.ops.index(start_op)
+        end = cdlt.ops.index(end_op)
         idx = start
         splits = loop_splits[cdlt.ops[idx].op_str] - 1
         llevels = [o.loop_level for o in cdlt.ops[start: end + 1]]
         max_level = max(llevels)
         min_level = min(llevels)
         dep_mapping = {}
+
         for split in range(splits):
             op_band = cdlt.ops[start: end + 1]
             offset = (end - start)
             num_splits = 0
 
             for op in op_band:
+
                 i = cdlt.ops.index(op)
                 target_idx = offset + i
 
@@ -269,7 +361,13 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 if inner_loop_level < op.loop_level:
                     raise RuntimeError
 
-                inner_deps = [dep_mapping[dp] for dp in op.dependencies]
+                # inner_deps = [dep_mapping[dp] for dp in op.dependencies]
+                inner_deps = []
+                for d in op.dependencies:
+                    dp = cdlt.op_map[d]
+                    if cdlt.ops.index(dp) >= start:
+                        inner_deps.append(d)
+
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
                 if op.op_type == "loop_end":
@@ -393,86 +491,30 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     inner_idx = target_idx
                     num_splits += 1
                 cdlt.insert_op(inner_op, inner_idx)
-                if op.op_type == "loop" and outer_loop_map[cdlt.loop_param_map[op.op_str]] != op.op_str:
 
+                if op.op_type == "loop" and outer_loop_map[cdlt.loop_param_map[op.op_str]] != op.op_str:
                     old_op = cdlt.ops.pop(cdlt.ops.index(op))
                     loop_replacement_map[old_op.op_str] = outer_loop_map[cdlt.loop_param_map[op.op_str]]
 
+        all_deps.update(dep_mapping)
 
+    cdlt = update_dependencies(cdlt, loop_replacement_map)
 
-    for op in cdlt.ops:
-        if op.op_type == "config" and op.start_or_finish == "end":
-            if any([cdlt.ops[i].op_type != "config" for i in range(cdlt.ops.index(op) + 1, len(cdlt.ops))]):
-                cdlt.ops.insert(len(cdlt.ops)-1, cdlt.ops.pop(cdlt.ops.index(op)))
-        new_deps = []
-        for d in op.dependencies:
-            if d in loop_replacement_map:
-                new_deps.append(loop_replacement_map[d])
-            else:
-                new_deps.append(d)
-        op._dependencies = new_deps
+    cdlt = update_data_movements(cdlt)
 
-    for o in cdlt.operands:
-        if len(o.data_moves) > 0 and o.data_moves[-1].dst_node not in o.tiling:
-            last_move = o.data_moves[-1]
-            dest_name = last_move.dst_node
-            level = cdlt.get_tile_level(dest_name)
-            level_sizes = cdlt.domain_loop_map[level]
-            o.tiling[dest_name] = last_move.get_size_from_loops(cdlt, level_sizes)
-
-        if o in cdlt.outputs and not o.is_tiled():
-            missing_tiles = [l for l in o.unique_data_locations() if l not in list(o.tiling.keys())]
-            for m in missing_tiles:
-                level = cdlt.get_tile_level(m)
-                level_sizes = cdlt.domain_loop_map[level]
-                mmove = None
-                for a in o.data_moves:
-                    if a.src_node == m:
-                        mmove = a
-                        break
-                prev_level = level
-                if mmove is None:
-                    raise RuntimeError(f"UNable to find movement for missing tile {m}\n"
-                                       f"Moves: {o.movement_keys()}")
-                o.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
-
-        if not o.is_tiled():
-            raise RuntimeError(f"Number of tilings does not match the data path size for {o.name}:\n"
-                               f"Tiling keys: {list(o.tiling.keys())}\n"
-                               f"Unique data path locations: {o.unique_data_locations()}\n"
-                               f"Data path: {o.data_path}")
-    for t in cdlt.temps:
-        if len(t.data_path) > 2:
-
-            missing_tiles = [l for l in t.unique_data_locations() if l not in list(t.tiling.keys()) or
-                             all(i == 0 for i in t.tiling[l].values())]
-            supported_operands = [o for o in cdlt.operands if t.shape_list == o.shape_list]
-
-            for d in t.data_moves:
-                if d.unset_offsets:
-                    assert "compute" in d.op_name
-                    updated_offset = False
-                    for o in supported_operands:
-                        for dm in o.data_moves:
-                            if cdlt.get_tile_level(d.src_node) == cdlt.get_tile_level(dm.src_node) and \
-                                    cdlt.get_tile_level(d.dst_node) == cdlt.get_tile_level(dm.dst_node):
-                                d.reinit_offset_map(dm.offset_map)
-                                t.tiling[d.src_node] = o.tiling[dm.src_node].copy()
-                                d.resolve_offsets(cdlt)
-                                d.evaluated_domain_offsets = deepcopy(dm.evaluated_domain_offsets)
-                                updated_offset = True
-                                break
-                        if updated_offset:
-                            break
-                    assert updated_offset
+    cdlt = update_temporary_data_moves(cdlt)
 
     if checkpoint_file is not None:
         store_tile_checkpoint(cdlt, checkpoint_file)
 
     return cdlt
 
+def separate_simd_sa_ops(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
+
+    return cdlt
 
 def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
+
     for o in cdlt.ops:
         if o.op_type == "loop" or o.op_type == "loop_end":
             continue
@@ -494,5 +536,4 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
             idx += 1
             cdlt.ops.insert(idx, cdlt.ops.pop(i))
             cdlt.ops[idx].loop_level = loop_level
-
     return cdlt

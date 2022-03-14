@@ -1,5 +1,4 @@
 from codelets import Datatype
-
 OP_LOCATIONS = {"OBUF": 0, "IBUF": 1, "VMEM": 2, "IMM": 3, "EXTMEM": 4}
 SIMD_OP_READ_NS = ["OBUF", "VMEM", "IMM"]
 SIMD_OP_WRITE_NS = ["IBUF", "VMEM", "IMM"]
@@ -189,6 +188,12 @@ SIMD_OPCODE_BITWIDTH = 4
 SIMD_FNCODE_BITWIDTH = 4
 NS_BITWIDTH = 5
 NS_IDX_BITWIDTH = 3
+
+FUSION_LAYERS = [["conv_bias", "relu"]]
+FUSION_MAPPING = {
+
+}
+
 
 from .genesys import define_genesys, compile_genesys, compile_genesys_layer, get_transformed_srdfg, \
     compile_extracted_genesys_layer, get_arch

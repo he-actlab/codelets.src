@@ -42,6 +42,10 @@ class OperandTemplate:
                 slist.append(s)
         return slist
 
+    @property
+    def shape_symbols(self):
+        return self.shape_list_names
+
     def set_write_destination(self, write_destination: Union[str, DummyParam, DummyParam]):
         self.write_destination = write_destination
 

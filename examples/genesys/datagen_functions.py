@@ -180,6 +180,8 @@ def unary(op1, layer_name, dtype, *params):
         quantize = True
         ref_fn = leaky_relu_pw
         params = params + (0.01, dtype,)
+    elif "flatten" in layer_name:
+        ref_fn = lambda a: np.reshape(a, (a.shape[0], -1))
     elif "relu" in layer_name:
         ref_fn = lambda a: np.maximum(a, 0, a)
     elif "tanh" in layer_name:
