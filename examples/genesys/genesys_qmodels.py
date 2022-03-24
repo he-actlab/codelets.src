@@ -3,7 +3,7 @@ from pathlib import Path
 from collections import Iterable
 from typing import Dict, List
 from .genesys_model_utils import get_resnet18, get_resnet50
-from .genesys_codelets import FUSION_OP_INFO
+from .codelets import FUSION_OP_INFO, BINARY_CODELETS, UNARY_CODELETS
 from .datagen_functions import binary, unary, numpy_datagen, manual_conv_from_existing, \
     maxpool2d, avgpool2d,  manual_conv, manual_gemm, conv_forward_naive, pad_conv, \
     pad_gemm, save_array, global_avg_pool, depthwise_conv2d, OperandData
@@ -19,13 +19,7 @@ WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
 WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
 ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
-BINARY_FNS = ["elem_add", "elem_sub", "elem_mul", "elem_div", "elem_less", "elem_equal"]
-UNARY_FNS = ["elem_tanh", "elem_tanh2d", "relu2d", "relu", "sigmoid", "elem_sigmoid", "leaky_relu", "clip", "elem_clip", "elem_ceil2d",
-             "elem_pow2d", "reduce_mean2d", "reduce_min2d", "tensor_transpose2d", "elem_exp", "coarse_flatten"]
 
-
-# FLIP_SHAPE_PERM = [2, 3, 1, 0]
-# FLIP_SHAPE_PERM = [2, 3, 0, 1]
 
 def create_operand_data(data, operand, fmt=None):
     return OperandData(data=data, opname=operand.name, node_name=operand.node_name, idx=operand, fmt=fmt)
@@ -76,10 +70,10 @@ def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
     elif "global_avgpool" in cdlt.op_name or "global_avg_pool" in cdlt.op_name:
         operands = [cdlt.inputs[0], cdlt.outputs[0]]
         inouts = generate_random_values_global_avgpool(cdlt, operands, **kwargs)
-    elif cdlt.op_name in BINARY_FNS:
+    elif cdlt.op_name in BINARY_CODELETS:
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.outputs[0]]
         inouts = generate_random_values_binary(cdlt, operands, **kwargs)
-    elif cdlt.op_name in UNARY_FNS:
+    elif cdlt.op_name in UNARY_CODELETS:
         operands = [cdlt.inputs[0], cdlt.outputs[0]]
         inouts = generate_random_values_unary(cdlt, operands, **kwargs)
     else:

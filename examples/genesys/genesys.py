@@ -5,7 +5,7 @@ from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
-from .genesys_codelets import GENESYS_CODELETS
+from .codelets import GENESYS_CODELETS
 
 from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, FUSION_LAYERS, FUSION_MAPPING
 import numpy as np

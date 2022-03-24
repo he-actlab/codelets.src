@@ -262,8 +262,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
                 else:
                     assert "compute" in a.op_name
                     compute_op = cdlt.op_map[a.op_name]
-
-                    exit()
+                    raise RuntimeError(f"Unable to handle this case right now: {a.op_name}")
 
             if len(a.shape_map) == 0:
                 a.set_size_from_splits(cdlt, tile_info.selected_splits)
