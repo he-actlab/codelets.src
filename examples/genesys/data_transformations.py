@@ -84,6 +84,7 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
     bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
     systolic_array_row_size = weights.dtype.itemsize * tile_m
     systolic_array_column_size = weights.dtype.itemsize * tile_n
+    # interleave_factor = bw // tile_n
     interleave_factor = bw // tile_n
     assert interleave_factor >= 1, f"Invalid interleave factor:\n" \
                                    f"Bandwidth: {bw}\n" \
@@ -123,6 +124,12 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         assert 'conv'  in layer_type
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
+        # print(f"Tile size IC: {big_tile_size_ic}")
+        # print(f"Tile size OC: {big_tile_size_oc}")
+        # print(f"W dim: {w_dim}")
+        # print(f"tile n: {tile_n}")
+        # print(f"tile m: {tile_m}")
+        # print(f"Interleave: {interleave_factor}")
         assert tile_n * interleave_factor <= big_tile_size_oc
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
@@ -134,7 +141,18 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
                                     for m in range(tile_m):  # Columns
                                         for k in range(interleave_factor):
                                             src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n + (k*tile_n))
+                                            # if src_coord[-1] == 160 and src_coord[0] == 0  and src_coord[1] == 0 and src_coord[2] == 0:
+                                            #     print(f"Source coord: {src_coord}\n"
+                                            #           f"kh, kw: {kh}, {kw}\n"
+                                            #           f"tile ic: {big_tile_ic}\n"
+                                            #           f"tile oc: {big_tile_oc}\n"
+                                            #           f"tile val (n): {n}\n"
+                                            #           f"tile val (m): {m}\n"
+                                            #           f"ic: {ic}\n"
+                                            #           f"oc: {oc}\n"
+                                            #           f"k: {k}\n")
                                             dst_coord = np.unravel_index([len(result)], weights.shape)
+
                                             final_coords[rev_coords[src_coord]] = dst_coord
                                             result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)])
     absolute_coords = {np.ravel_multi_index(k, weights.shape): np.ravel_multi_index(v, weights.shape) for k,v in final_coords.items()}

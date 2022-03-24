@@ -133,6 +133,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
                        stopping_condition,
                        selection_metric,
                        heuristic_fn):
+
     if stopping_condition is None:
         RuntimeError("Stopping condition for codelet tiling is not specified")
     if selection_metric is None:
@@ -154,6 +155,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
                            len(list(cdlt.tile_levels.keys())),
                            loop_dependencies,
                            level_accesses, factor_fn_name=factor_fn_name)
+
     # TODO: IF loop ordering is specified, need to figure out how to handle multiple loop blocks over the same
     # dimension
     tile_info.update_loop_order(cdlt)
@@ -238,6 +240,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
                            # f"Hint keys:{list(tile_info.tile_hints.keys())}\n"
                            f"Level 1 constraints: {tile_info.tile_hints['LEVEL1_hint'].fn_body_str}\n"
                            )
+
     # Lastly, update operands
     for o in cdlt.operands:
         for idx, a in enumerate(o.data_moves):
@@ -249,6 +252,26 @@ def set_codelet_tiling(cdlt: 'Codelet',
                 a.set_size_from_splits(cdlt, tile_info.selected_splits)
 
             a.set_offset_map(cdlt, tile_info.shapes)
+
+    ## Testing temporary data move updates
+    for o in cdlt.temps:
+        for idx, a in enumerate(o.data_moves):
+            if all(a in [None, 0] for a in list(a.offset_map.values())) and a.src_node != "IMM":
+                if idx > 0:
+                    a.reinit_offset_map(o.data_moves[idx - 1].offset_map.copy())
+                else:
+                    assert "compute" in a.op_name
+                    compute_op = cdlt.op_map[a.op_name]
+
+                    exit()
+
+            if len(a.shape_map) == 0:
+                a.set_size_from_splits(cdlt, tile_info.selected_splits)
+
+            a.set_offset_map(cdlt, tile_info.shapes)
+
+
+    ## Testing temporary
 
     # TODO: Store all information in the codelet
     cdlt._domain_tiling = {}

@@ -1,10 +1,13 @@
 from pathlib import Path
 from typing import Iterable
 from benchmarks.model_generator import create_custom_conv, create_custom_gemm,\
-    create_custom_matmul, create_custom_layer, create_custom_multi_layer
-from benchmarks.load_onnx_model import store_unique_model_layers
+    create_custom_matmul, create_custom_layer, create_custom_multi_layer, is_dw_conv,\
+    collect_value_info
+from benchmarks.load_onnx_model import store_unique_model_layers, convert_model_to_polymath
 from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
-from examples.genesys import compile_genesys_layer, GENESYS_CFG
+from examples.genesys import compile_genesys_layer, GENESYS_CFG, compile_genesys
+from examples.genesys.genesys_network_sim import compile_full_model
+from tools.neuroweaver.compile_model import get_onnx_weights
 import numpy as np
 import os
 import json
@@ -17,6 +20,7 @@ BENCH_DIR = Path(f"{Path(__file__).parent}/../benchmarks")
 MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
 LAYER_DIR = Path(f"{Path(__file__).parent}/../benchmarks/layers")
 NAME_MAPPING = {
+    "conv_bias": "conv",
     "relu2d": "relu",
     "elem_sigmoid": "sigmoid",
     "gemm_no_bias": "gemm",
@@ -44,55 +48,33 @@ NAME_MAPPING = {
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
 def compile_custom_multi_layer(model_name, layer_sequence, params, store_compile=False, dir_ext=None,
-                              partials=False, added_constr=None):
-    create_custom_multi_layer(layer_sequence, params, True, True, False, False, fname=model_name)
-    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+                              partials=False, added_constr=None, verbose=False, fuse_layers=False):
+    create_custom_multi_layer(layer_sequence, params, True, True, False, True, fname=model_name)
 
-    batch_size = 1
-    tile_method = "min_tiles"
-
-    update_cfg_dtypes = False
-    tiling_path = None
-    store_tiling = False
-    store_json_output = False
-    json_output_filename = None
-    seq_name = "_".join(layer_sequence)
-    full_layer_name = f"{model_name}_{seq_name}"
-    # This function returns
-    program = compile_genesys_layer(full_layer_name,
-                              update_cfg_dtypes=update_cfg_dtypes,
-                              tiling_path=tiling_path,
-                              store_tiling=store_tiling,
-                              store_checkpoint=False,
-                              store_json_output=store_json_output,
-                              json_output_filename=json_output_filename,
-                              verbose=False,
-                              benchmark_path=BENCH_DIR,
-                              factor_fn='default',
-                            batch_size=batch_size,
-                            do_hoist_stage=True,
-                            do_tile_stage=True,
-                            print_config=False,
-                            tiling_search_algorithm=tile_method,
-                                    do_compile=False
-                                    # relocation_offsets=reloc_offsets
+    program = compile_full_model(model_name,
+                                store_compile=store_compile,
+                                dir_ext=dir_ext,
+                                 added_constr=added_constr,
+                                 train_mode=False,
+                                 verbose=verbose,
+                                 model_data=None,
+                                 fuse_layers=fuse_layers
                               )
 
-    if store_compile:
-        if added_constr:
-            for l in layer_sequence:
-                program = update_tile_constraints(program, added_constr, l)
-        dir_ext = dir_ext or ''
-        # program.compile(verbose=False, finalize_instructions=True)
+    return program
 
-        store_outputs("cc_layer1", seq_name, False,
-                      1,
-                      False,
-                      None,
-                      use_random=True,
-                      dir_ext=f"{dir_ext}",
-                      actual_data=False,
-                      store_partials=partials, program=program)
+def compile_fusion_model(model_name, layer_sequence, params, store_compile=False, dir_ext=None,
+                              partials=False, added_constr=None, verbose=False, fuse_layers=False):
+    program = compile_full_model(model_name,
+                                 store_compile=store_compile,
+                                 dir_ext=dir_ext,
+                                 added_constr=added_constr,
+                                 train_mode=False,
+                                 verbose=verbose,
+                                 model_data=None,
+                                 fuse_layers=fuse_layers
+                                 )
+
     return program
 
 
@@ -159,54 +141,54 @@ def compile_custom_gemm_layer(m, n, p, model_name, store_compile=False, dir_ext=
                               partials=False, added_constr=None):
 
     create_custom_gemm(True, True, False, False, m, n, p, fname=model_name)
-    # model_path = f"{MODEL_DIR}/{model_name}.onnx"
-    # store_unique_model_layers(model_name, store_as_polymath=True)
-    #
-    # batch_size = 1
-    # tile_method = "min_tiles"
-    # # tile_method = "valid_split"
-    #
-    # update_cfg_dtypes = False
-    # tiling_path = None
-    # store_tiling = False
-    # store_json_output = False
-    # json_output_filename = None
-    # layer_name = f"{model_name}_gemm"
-    #
-    # # This function returns
-    # program = compile_genesys_layer(layer_name,
-    #                           update_cfg_dtypes=update_cfg_dtypes,
-    #                           tiling_path=tiling_path,
-    #                           store_tiling=store_tiling,
-    #                           store_checkpoint=False,
-    #                           store_json_output=store_json_output,
-    #                           json_output_filename=json_output_filename,
-    #                           verbose=False,
-    #                           benchmark_path=BENCH_DIR,
-    #                           factor_fn='default',
-    #                         batch_size=batch_size,
-    #                         do_hoist_stage=True,
-    #                         do_tile_stage=True,
-    #                         print_config=False,
-    #                         tiling_search_algorithm=tile_method,
-    #                                 do_compile=False
-    #                                 # relocation_offsets=reloc_offsets
-    #                           )
-    # if store_compile:
-    #     if added_constr:
-    #         program = update_tile_constraints(program, added_constr, "gemm")
-    #     dir_ext = dir_ext or ''
-    #     program.compile(verbose=False, finalize_instructions=True)
-    #
-    #     store_outputs("cc_layer1", "gemm", False,
-    #                   1,
-    #                   False,
-    #                   None,
-    #                   use_random=True,
-    #                   dir_ext=f"{dir_ext}",
-    #                   actual_data=False,
-    #                   store_partials=partials, program=program)
-    # return program
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_unique_model_layers(model_name, store_as_polymath=True)
+
+    batch_size = 1
+    tile_method = "min_tiles"
+    # tile_method = "valid_split"
+
+    update_cfg_dtypes = False
+    tiling_path = None
+    store_tiling = False
+    store_json_output = False
+    json_output_filename = None
+    layer_name = f"{model_name}_gemm"
+
+    # This function returns
+    program = compile_genesys_layer(layer_name,
+                              update_cfg_dtypes=update_cfg_dtypes,
+                              tiling_path=tiling_path,
+                              store_tiling=store_tiling,
+                              store_checkpoint=False,
+                              store_json_output=store_json_output,
+                              json_output_filename=json_output_filename,
+                              verbose=False,
+                              benchmark_path=BENCH_DIR,
+                              factor_fn='default',
+                            batch_size=batch_size,
+                            do_hoist_stage=True,
+                            do_tile_stage=True,
+                            print_config=False,
+                            tiling_search_algorithm=tile_method,
+                                    do_compile=False
+                                    # relocation_offsets=reloc_offsets
+                              )
+    if store_compile:
+        if added_constr:
+            program = update_tile_constraints(program, added_constr, "gemm")
+        dir_ext = dir_ext or ''
+        program.compile(verbose=False, finalize_instructions=True)
+
+        store_outputs("cc_layer1", "gemm", False,
+                      1,
+                      False,
+                      None,
+                      use_random=True,
+                      dir_ext=f"{dir_ext}",
+                      actual_data=False,
+                      store_partials=partials, program=program)
+    return program
 
 def compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None):
@@ -265,26 +247,42 @@ def compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name, sto
                       actual_data=False,
                       store_partials=partials, program=program)
 
-            # else:
-            # print(f"{o}")
     return program
 
 
 def get_onnx_shape(tensor_dict, val_name):
-    assert val_name in tensor_dict
+    assert val_name in tensor_dict, f"Unable to find shape for {val_name}"
     value = tensor_dict[val_name]
-    shape = [d.dim_value for d in value.type.tensor_type.shape.dim]
-    return tuple(shape)
+    return value
+    # if isinstance(value, onnx.ValueInfoProto):
+    #     shape = [d.dim_value for d in value.type.tensor_type.shape.dim]
+    # else:
+    #     assert isinstance(value, onnx.TensorProto)
+    #     shape = value.dims
+    # return tuple(shape)
+
+
 
 def get_all_unique_layer_params(model_name, layer_name, input_shape_params, out_shape_params, param_names):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
-    tensor_dict = {i.name: i for i in model.graph.input}
-    tensor_dict.update({o.name: o for o in model.graph.output})
-    tensor_dict.update({v.name: v for v in model.graph.value_info})
+    tensor_dict = collect_value_info(model.graph)
+    # tensor_dict = {i.name: i for i in model.graph.input}
+    # tensor_dict.update({o.name: o for o in model.graph.output})
+    # tensor_dict.update({v.name: v for v in model.graph.value_info})
+    # tensor_dict.update({i.name: i for i in model.graph.initializer})
+    # print(f"INputs: {[i.name for i in model.graph.input]}")
+    # print(f"val info: {[i.name for i in model.graph.value_info]}")
+    # print(f"output: {[i.name for i in model.graph.output]}")
+    # print(f"Dir: {model.graph.initializer[0].dims}")
+    # print(f"Dir: {type(model.graph.input[0].type.tensor_type.shape.dim)}\n")
+    # print(f"Dir: {dir(model.graph.initializer[0])}")
+    # print(f"Dir: {dir(model.graph.input[0])}")
+
     layer_params = []
     for n in model.graph.node:
-        if n.op_type == layer_name:
+
+        if n.op_type == layer_name and not is_dw_conv(n, tensor_dict):
             outputs = n.output
             inputs = n.input
             kv_map = {}
@@ -592,7 +590,12 @@ def get_program_params(program, cdlt_type):
         cparams[f'{k}_tile'] = v
     return cparams
 
-def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_params, nunique,
+def scale_and_compile_layers(model_name,
+                             dir_ext,
+                             layer_params,
+                             updated_layer_params,
+                             nunique,
+                             do_scaling=True,
                              layers=None,
                              verbose=False,
                              im2col_layers=None, added_constraint=None, debug_output=False):
@@ -661,9 +664,11 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 oh = int((h + 2 * pad - ksize) / stride) + 1
                 ow = int((w + 2 * pad - ksize) / stride) + 1
                 M, N, P = compute_im2col_dims(new_layer_params, oh, ow)
-                program = compile_custom_gemm_layer(M, N, P, f"{model_name}_custom", partials=debug_output )
+                program = compile_custom_gemm_layer(M, N, P, f"{model_name}_custom",
+                                                    partials=debug_output)
             else:
-                program = compile_custom_conv_layer(n, ic, oc, h, w, ksize, stride, pad, f"{model_name}_custom",partials=debug_output )
+                program = compile_custom_conv_layer(n, ic, oc, h, w, ksize, stride, pad, f"{model_name}_custom",
+                                                    partials=debug_output, store_compile=False)
 
             if orig_conv_constraint is None:
                 orig_conv_constraint = program.hag.codelets['conv_bias'].compilation_params['LEVEL1_hint']
@@ -706,9 +711,12 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                 program.compile(verbose=False, finalize=True)
             except Exception as e:
                 print(f"Unable to compile layer {e}")
-                scale_val += 1
-                # layer_splits = []
-                continue
+                if do_scaling:
+                    scale_val += 1
+                    continue
+                else:
+                    raise RuntimeError(f"Unable to compile layer:\n"
+                                       f"{e}")
             cparams = {}
 
             if idx in im2col_layers:
@@ -752,7 +760,8 @@ def scale_and_compile_layers(model_name, dir_ext, layer_params, updated_layer_pa
                               use_random=True,
                               dir_ext=f"{dir_ext}{idx*nunique + nlayer_perm}",
                               actual_data=False,
-                              store_partials=debug_output, program=program)
+                              store_partials=debug_output,
+                              program=program)
                 nlayer_perm += 1
             else:
                 raise RuntimeError(f"Found duplicate layer somehow:\n"
@@ -806,10 +815,15 @@ def sys_array_bench_old():
                                         )
 
 
-def resnet_benches(nunique=1, layers=None, debug_output=False, ext=None,
-                   verbose=False):
-    model_name = "resnet50"
-
+def model_benches(model_name,
+                  nunique=1,
+                  sa_size=64,
+                  layers=None,
+                  debug_output=False,
+                  ext=None,
+                   verbose=False,
+                  do_scaling=True):
+    assert sa_size == GENESYS_CFG['ARRAY_M'] and sa_size == GENESYS_CFG['ARRAY_N']
     inp_params = []
     inp_params.append(["N", "IC", "IH", "IW"])
     inp_params.append(["OC", "IC", "KH", "KW"])
@@ -821,29 +835,31 @@ def resnet_benches(nunique=1, layers=None, debug_output=False, ext=None,
     attr_params = []
     attr_params.append("pads")
     attr_params.append("strides")
-    # tile_constraint = "True"
+    tile_constraint = "True"
     # tile_constraint = "np.prod(list(splits.values())) < 64"
-    tile_constraint = "np.prod(list(splits.values())) < 20 " \
-                      "and splits['IC'] > 1 " \
-                      "and splits['OC'] > 1 " \
-                      "and splits['OH'] > 1 " \
-                      "and splits['OW'] > 1"
+    # tile_constraint = "np.prod(list(splits.values())) < 50 " \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
     # tile_constraint = "np.prod(list(splits.values())) < 16 " \
     #                   "and splits['IC'] > 1 " \
     #                   "and splits['OH'] > 1 " \
     #                   "and splits['OW'] > 1"
     ext = ext or ""
     layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
-    scale_and_compile_layers(model_name, f"8x8_{ext}", layer_params[1:], [], nunique,
+    scale_and_compile_layers(model_name, f"{sa_size}x{sa_size}_{ext}", layer_params[2:3], [], nunique,
                              added_constraint=tile_constraint,
                              layers=layers,
-                             debug_output=debug_output, verbose=verbose)
+                             debug_output=debug_output,
+                             verbose=verbose, do_scaling=do_scaling)
 
 
 def simd_benchmarks1(tests=None, layers=None, num=0):
     base_name = f"fpga{num}"
 
     configs = {
+        "t0":  {"constraint": "True", "scale_factor": 1},
         "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
         "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
         "t3" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
@@ -865,7 +881,8 @@ def simd_benchmarks1(tests=None, layers=None, num=0):
                 params = {"N": 2, "C": 128, "IH": 112//(2**off), "IW": 112//(2**off), "OH": 28, "OW": 28, "KH": 3, "KW": 3, "pad": 1, "stride": 2}
             else:
                 constraint = cfg['constraint']
-                params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
+                # params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
+                params = {"N": 1, "C": 128, "H": 10, "W": 10}
             program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
 
 
@@ -1033,29 +1050,30 @@ def systolic_array_conv_bench(sys_array_size=8, num=2):
     attr_params.append("strides")
     layer_configs = []
     layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 1}) # Case 0
-    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
-    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
-    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
-    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
-    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
-    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
-    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
-    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
-    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
+    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
+    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
+    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
+    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
+    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
+    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
+    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
+    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
+    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
     constraints = {}
-    constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 " \
-                      "and splits['IC'] > 1 " \
-                      "and splits['OC'] > 1 " \
-                      "and splits['OH'] > 1 " \
-                      "and splits['OW'] > 1"
-    constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['OC'] == 1" \
-                      "and splits['IC'] > 1 " \
-                      "and splits['OH'] > 1 " \
-                      "and splits['OW'] > 1"
-    constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['IC'] == 1" \
-                      "and splits['OC'] > 1 " \
-                      "and splits['OH'] > 1 " \
-                      "and splits['OW'] > 1"
+    constraints['default'] = "True"
+    # constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 " \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+    # constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['OC'] == 1" \
+    #                   "and splits['IC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
+    # constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['IC'] == 1" \
+    #                   "and splits['OC'] > 1 " \
+    #                   "and splits['OH'] > 1 " \
+    #                   "and splits['OW'] > 1"
 
     for test_id, lc in enumerate(layer_configs):
 
@@ -1063,14 +1081,33 @@ def systolic_array_conv_bench(sys_array_size=8, num=2):
             test_name = f"{base_test_name}_case{test_id}_{name}"
             program = compile_custom_conv_layer(lc['n'], lc['ic'], lc['oc'], lc['ih'], lc['iw'], lc['k'], lc['stride'], lc['pad'], test_name,
                                                 store_compile=True,
-                                                partials=True,
+                                                partials=False,
                                                 added_constr=cstr)
+            set_index_fmt = "({all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+
+            # cdlt = program.codelets[0]
+            # operand = cdlt.temps[1]
+            #
+            # # c0 = cdlt.get_ops_by_type('compute')[0]
+            # c1 = cdlt.get_ops_by_type('compute')[1]
+            # print(operand.data_path)
+            # offset = operand.get_mem_offset('OBUF')
+
+
 
 def conv_out_size(dims):
-    ow = (dims['iw'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
-    oh = (dims['ih'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
+    if 'iw' in dims:
+        ow = (dims['iw'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
+        oh = (dims['ih'] - dims['k'] + 2*dims['pad']) // dims['stride'] + 1
 
-    return (dims['n'], dims['oc'], oh, ow)
+        return (dims['n'], dims['oc'], oh, ow)
+    else:
+        assert 'IH' in dims
+        ow = (dims['IW'] - dims['KH'] + 2*dims['pad']) // dims['stride'] + 1
+        oh = (dims['IH'] - dims['KW'] + 2*dims['pad']) // dims['stride'] + 1
+
+        return (dims['N'], dims['OC'], oh, ow)
+
 
 def from_target_out_size(dims, ohw):
     ihw = ((ohw - 1) * dims['stride']) - 2*dims['pad'] + dims['k']
@@ -1196,55 +1233,130 @@ def multi_layer_cases1(tests=None, layers=None, num=12):
         "t2": {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
         "t3": {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
     }
-    ops = [["conv", "relu"], ["conv", "relu", "gemm"]]
+    ops = [["conv_bias", "relu", "conv_bias"], ["conv_bias", "relu"]]
     if layers is None:
         layers = ops
     if tests is None:
         configs.pop("t0")
         tests = list(configs.keys())
-
+    layer_params = {
+        "conv_bias": {"N": 1, "IC": 512, "OC": 256, "IH": 28, "IW": 28, "OH": 14, "OW": 14, "pad": 0},
+        "gemm": {"M": 1, "N": 512, "P": 256},
+        "relu": {"N": 1, "C": 256, "H": 28, "W": 28},
+        "elem_add": {"N": 1, "C": 256, "H": 28, "W": 28},
+    }
     for o in layers:
         for n in tests:
             assert n in configs
             cfg = configs[n]
             off = cfg['scale_factor']
-            model_name = f"{base_name}_{n}"
-            constraint = "True"
-            if n == "t1":
-                stride = 2
-                kh, kw = 3, 3
-            elif n == "t2":
-                stride = 1
-                kh, kw = 3, 3
-            elif n == "t3":
-                stride = 1
-                kh, kw = 5, 5
-            else:
-                raise RuntimeError
-            input_params = {"N": 1, "C": 512 // off, "IH": 28, "IW": 28, "OH": 14, "OW": 14, "KH": kh, "KW": kw,
-                      "stride": stride, "pad": 1}
+            seq_name = "_".join(o)
+            model_name = f"{seq_name}_{base_name}_{n}"
+            constraint = {l:"True" for l in o}
 
+            input_params = {}
+
+            input_shape = None
+            layer_names = defaultdict(int)
+            for lname in o:
+                l = f"{lname}{layer_names[lname]}"
+                layer_names[lname] += 1
+                input_params[l] = layer_params[lname].copy()
+
+                if lname == "conv_bias":
+                    if input_shape is not None:
+                        coff = off + 1
+                    else:
+                        coff = off
+                    if n == "t1":
+                        input_params[l]['stride'] = 2
+                        input_params[l]['KH'], input_params[l]['KW'] = 3, 3
+                    elif n == "t2":
+                        input_params[l]['stride'] = 1
+                        input_params[l]['KH'], input_params[l]['KW'] = 3, 3
+                    elif n == "t3":
+                        input_params[l]['stride'] = 1
+                        input_params[l]['KH'], input_params[l]['KW'] = 5, 5
+                    else:
+                        raise RuntimeError
+
+                    if input_shape is None:
+                        input_params[l]['IC'] = input_params[l]['IC'] // coff
+                        input_params[l]['OC'] = input_params[l]['OC'] // coff
+                    else:
+                        input_params[l]['IC'] = input_shape[1]
+                        input_params[l]['OC'] = input_params[l]['OC'] // coff
+
+                    input_shape = conv_out_size(input_params[l])
+
+                elif lname == "relu":
+                    assert input_shape is not None
+                    input_keys = list(layer_params[lname].keys())
+                    for i, v in enumerate(input_shape):
+                        input_params[l][input_keys[i]] = v
+                elif lname == "elem_add":
+                    assert input_shape is not None
+                    input_keys = list(layer_params[lname].keys())
+                    for i, v in enumerate(input_shape):
+                        input_params[l][input_keys[i]] = v
+                elif lname == "gemm":
+                    assert input_shape is not None
+                    assert len(input_shape) == 4
+                    input_params[l]['M'] = input_shape[0]
+                    input_params[l]['N'] = input_shape[1]*input_shape[2]*input_shape[3]
+                    input_params[l]['P'] = input_params[l]['P'] // off
+                else:
+                    raise RuntimeError
             program = compile_custom_multi_layer(model_name, o, input_params, store_compile=True, added_constr=constraint)
-            break
-        break
+
+
+def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=True, verbose=False):
+    seq_name = "_".join(layer_sequence)
+    filename = f"{fusion_model}_{seq_name}{num}"
+
+    dir_ext = f"test{testnum}"
+    added_constr = None
+    fuse_layers = True
+    if not os.path.exists(f"{MODEL_DIR}/srdfg/{filename}.srdfg"):
+        convert_model_to_polymath(f"{MODEL_DIR}/{filename}.onnx")
+        assert os.path.exists(f"{MODEL_DIR}/srdfg/{filename}.srdfg")
+    program = compile_full_model(filename,
+                                 store_compile=store_compile,
+                                 dir_ext=dir_ext,
+                                 added_constr=added_constr,
+                                 train_mode=False,
+                                 verbose=verbose,
+                                 model_data=None,
+                                 fuse_layers=fuse_layers,
+                                 generate_data=True
+                                 )
+
 
 if __name__ == "__main__":
-    # transpose_test()
-    # simd_benchmarks4(layers=["tensor_transpose2d"], num=66)
-    multi_layer_cases1(layers=[["conv", "relu"]], num=1)
+    fusion_testing("resnet18",
+                   ['Conv', 'Add', 'Relu'],
+                   0,
+                   testnum=0)
+    # multi_layer_cases1(num=1)
     # simd_benchmarks5(num=68, layers=["elem_less", "elem_equal", "elem_exp"])
     # simd_benchmarks3(layers=["elem_pow2d"], num=59)
     # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=52)
     # simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
     # simd_benchmarks1(layers=["relu"], tests=["t1"], num=40)
-    # resnet_benches(debug_output=True, ext="t10_", verbose=False, layers=[11])
-    # systolic_array_conv_bench(4, 4)
+    # model = "resnet18"
+
+    # model = "efficientnet-lite4-11-opt"
+    # model_benches(model,
+    #               sa_size=32,
+    #               debug_output=False,
+    #               ext="t12_",
+    #               verbose=False,
+    #               do_scaling=False)
+
+    # model_benches("resnet18", sa_size=32, debug_output=False, ext="t12_", verbose=False)
+    # resnet_benches(sa_size=32, debug_output=False, ext="t11_", verbose=False)
+
     # systolic_array_conv_scaled(layer_id=0, num=5, case_num=0)
     # systolic_array_gemm_bench(4)
-    # simd_benchmarks1(layers=["elem_sigmoid"], tests=["t1"], num=17)
-    # simd_benchmarks1(num=21)
-    # simd_benchmarks2(layers=["global_avg_pool", "elem_clip", "leaky_relu", "elem_sub"])
-    # simd_benchmarks2(layers=["elem_clip"], tests=["t1"], num=17)
-    # simd_benchmarks2(layers=["elem_clip", "global_avg_pool"], tests=["t1"], num=24)
-    # simd_benchmarks2(layers=["depthwise_conv"], num=38)
+
 

@@ -127,7 +127,6 @@ class TilingInfo:
         pmap = {}
         for i, l in enumerate(self.loop_dependencies):
             pmap[l] = perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]]
-            # return {l: perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]] for i, l in enumerate(self.loop_dependencies)}
         return pmap
 
     def validate_splits(self, cdlt, perm, level):

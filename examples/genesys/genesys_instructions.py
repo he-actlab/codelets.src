@@ -71,14 +71,16 @@ def loop_stride_instr():
     return instr_temp
 
 # INIT/SETUP INSTR
-def group_instr():
+def sync_instr():
     target = Field("COMPUTE_TARGET", 1, value_names={"SYSTOLIC_ARRAY": 0, "SIMD": 1})
     start_end = Field("START_END", 1, value_names={"START": 0, "END": 1})
-    group_num = Field("GROUP_NUM", 8)
-    loop_id = Field("LOOP_ID", 2)
+    end_buf = Field("EXEC_BUF", 1, value_names={"EXEC": 0, "BUF": 1})
+    group_num = Field("GROUP_NUM", 6)
+    noop = Field("NULL", 3)
+    noop.set_value(0)
     num_instr = Field("NUM_INSTR", 16)
-    instr_temp = Instruction("INST_GROUP", 10, OPCODE_WIDTH,
-                             (target, start_end, group_num, loop_id, num_instr))
+    instr_temp = Instruction("SYNC_INST", 10, OPCODE_WIDTH,
+                             (target, start_end, end_buf, noop, group_num, num_instr))
     return instr_temp
 
 def block_instr():
@@ -456,29 +458,9 @@ def create_simd_ops():
 
     instructions += create_simd_perm_ops()
 
-    # for op_type_list in [PERM_OPS]:
-    #     op_code = op_type_list[0]
-    #     op_fnctions = op_type_list[1]
-    #     op_type = op_type_list[2]
-    #     for fn_code, op_fn in enumerate(op_fnctions):
-    #         dest_ns = Field("DST_NS_ID", 3, value_names=NS_OP_CODES)
-    #         dest_ns_idx = Field("DST_INDEX_ID", 5)
-    #
-    #         src1_ns = Field("SRC1_NS_ID", 3, value_names=NS_OP_CODES)
-    #         src1_ns_idx = Field("SRC1_INDEX_ID", 5)
-    #         src2_ns = Field("SRC2_NS_ID", 3, value_names=NS_OP_CODES)
-    #         src2_ns_idx = Field("SRC2_INDEX_ID", 5)
-    #         if op_type == "DTYPE_CAST":
-    #             src2_ns.set_value_by_string("IMM")
-    #         op_fn_code = (op_code << FUNCTION_CODE_WIDTH) + fn_code + len(ALU_OP_NAMES)
-    #         op_fn_code_width = OPCODE_WIDTH + FUNCTION_CODE_WIDTH
-    #         instr_fields = (dest_ns, dest_ns_idx, src1_ns, src1_ns_idx, src2_ns, src2_ns_idx)
-    #         instr = Instruction(op_fn, op_fn_code, op_fn_code_width, instr_fields)
-    #         instructions.append(instr)
     return instructions
 
-
 GENESYS_INSTRUCTIONS = {
-    "systolic_array": [specific_loop_instr(), loop_cfg_instr(), loop_stride_instr(), group_instr(), base_addr_instr(), block_instr(), load_store()],
+    "systolic_array": [specific_loop_instr(), loop_cfg_instr(), loop_stride_instr(), sync_instr(), base_addr_instr(), block_instr(), load_store()],
     "SIMD": create_simd_ops() + create_dtype_cfg_ops() +  create_iterator_ops()
 }

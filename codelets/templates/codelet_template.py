@@ -305,6 +305,8 @@ class CodeletTemplate(object):
         inputs = [i.instantiate(instance_args) for i in self.inputs]
         outputs = [o.instantiate(instance_args) for o in self.outputs]
         temps = [t.instantiate(instance_args) for t in self.temps]
+        # cdlt = list(codelets.values())[0]
+
         contexts = deque()
         with Codelet(self.op_name, inputs, outputs, instance_args['HAGPlaceholder']) as cdlt:
             cdlt._temps = temps
@@ -321,6 +323,8 @@ class CodeletTemplate(object):
                 else:
                     new_op = o.instantiate(instance_args)
                 cdlt.add_op(new_op)
+
+
 
             while len(contexts) > 0:
                 cm = contexts.pop()
@@ -345,6 +349,7 @@ class CodeletTemplate(object):
                 cdlt.required_params[key].value = do.value
         Codelet.codelet_instance_id += 1
         cdlt._instance_id = Codelet.codelet_instance_id
+
         return cdlt
 
     def emit(self, output_type):
@@ -376,6 +381,8 @@ class CodeletTemplate(object):
         return op_str
 
 
+    def get_ops_by_type(self, op_type):
+        return [o for o in self.ops if o.op_type == op_type]
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value

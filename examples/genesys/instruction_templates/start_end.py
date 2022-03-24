@@ -27,26 +27,30 @@ def program_start(hag: ArchitectureNode):
 
 def codelet_end(hag: ArchitectureNode):
     instructions = []
+    instr = hag.get_primitive_template("BLOCK_END")
+    # # TODO: Make sure this is evaluated after having gone through all codelets
+    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
+    instructions.append(instr)
     return instructions
 
 
 def simd_start_template(hag: ComputeNode):
 
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
     instr.set_field_by_name("START_END", "START")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
-    # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
     instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr")
     instructions.append(instr)
 
+    # TODO: THis is a hotfix. need to more intelligently set the config for this later
     instr = hag.get_primitive_template("DTYPE_CFG")
-    instr.set_field_flex_param("DTYPE", "str(cdlt.inputs[0].dtype.bits()) + cdlt.inputs[0].dtype.type")
+    instr.set_field_flex_param("DTYPE", "str(cdlt.outputs[0].dtype.bits()) + cdlt.outputs[0].dtype.type")
     instr.set_field_flex_param("DST_BITS", "cdlt.outputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC1_BITS", "cdlt.inputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC2_BITS", "cdlt.inputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC1_BITS", "cdlt.outputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC2_BITS", "cdlt.outputs[0].dtype.exp")
     instructions.append(instr)
 
 
@@ -121,12 +125,12 @@ def simd_start_template(hag: ComputeNode):
 def simd_end_template(hag: ComputeNode):
     #TODO: Add conditional block end instruction
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
     instr.set_field_by_name("START_END", "END")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
-    # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
     instr.set_field_flex_param("NUM_INSTR", "0")
     instructions.append(instr)
     return instructions
@@ -135,12 +139,12 @@ def simd_end_template(hag: ComputeNode):
 def sa_start_template(hag: ComputeNode):
 
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "START")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
     # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
     instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
     instructions.append(instr)
 
@@ -202,18 +206,13 @@ def sa_start_template(hag: ComputeNode):
 def sa_end_template(hag: ComputeNode):
     #TODO: Add conditional block end instruction
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "END")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
-    # Figure out what this is
-    instr.set_field_flex_param("LOOP_ID", "0")
-    instr.set_field_value("NUM_INSTR", 0)
-    instructions.append(instr)
 
-    instr = hag.get_primitive_template("BLOCK_END")
-    # TODO: Make sure this is evaluated after having gone through all codelets
-    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
+    instr.set_field_value("NUM_INSTR", 0)
     instructions.append(instr)
     return instructions
 

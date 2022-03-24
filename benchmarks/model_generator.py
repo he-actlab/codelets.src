@@ -15,6 +15,7 @@ from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionPro
 import sys
 import onnx
 from onnx.tools import update_model_dims
+from onnx.utils import Extractor
 import csv
 CWD = Path(f"{__file__}").parent
 
@@ -336,12 +337,12 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
             self.kwargs = kwargs
 
             super(CustomLayer, self).__init__()
-            self.layer = LAYER_UTILS['fn'][layer_name](params)
+            self.layer = LAYER_UTILS[layer_name]['fn'](params)
 
         def forward(self, *args):
             x = self.layer(*(args + self.const_inputs), **self.kwargs)
             return x
-    input_var, kwargs = LAYER_UTILS['input_gen'][layer_name](params)
+    input_var, kwargs = LAYER_UTILS[layer_name]['input_gen'](params)
     if "opset" in kwargs:
         opset = kwargs.pop("opset")
     else:
@@ -1321,6 +1322,124 @@ def optimize_graph(model_name):
     optimize_onnx(load_path, store_path, None, None, False)
     return f"{model_name}-opt"
 
+def get_fusable_layer(graph, layer_name, input_node, layer_info):
+    for n in graph.node:
+        lname = get_layer_name(n, layer_info)
+        if lname == layer_name and input_node in n.input:
+            assert hasattr(n, "output") and len(n.output) == 1
+            return {'output': n.output[0], 'layer': n}
+    return None
+
+def get_fused_nodes(graph, sequence, initial_layer, layer_info):
+    # TODO: Make sure the output isnt used in multiple places
+    assert len(initial_layer.output) == 1
+    tgt_input = initial_layer.output[0]
+    fdescriptors = []
+    fdescriptors.append({
+        'layer': initial_layer,
+        'output': tgt_input
+    })
+    for l in sequence[1:]:
+        fl = get_fusable_layer(graph, l, tgt_input, layer_info)
+        if fl is None:
+            return None
+        else:
+            assert isinstance(fl, dict)
+            tgt_input = fl['output']
+            fdescriptors.append(fl)
+    return fdescriptors
+
+def fuse_layers(model_name,
+                all_fused_nodes,
+                fusion_instances,
+                layers,
+                fusion_ops,
+                layer_info):
+
+
+    intermediate_nodes = [l['output'] for l in layers[:-1]]
+    fused_templates = [l['layer'] for l in layers]
+    layer_inputs = []
+    for l in layers:
+        for i in l['layer'].input:
+            if i not in intermediate_nodes:
+                layer_inputs.append(i)
+
+    result = layers[-1]['output']
+    all_fused_nodes['intermediate'] += intermediate_nodes
+    all_fused_nodes['layers'] += fused_templates
+    all_fused_nodes['fusion_inputs'] += layer_inputs
+    all_fused_nodes['fusion_outputs'].append(result)
+
+    fusion_name = "_".join(fusion_ops)
+    instance_name = f"{fusion_name}{fusion_instances[fusion_name]}"
+    fusion_instances[fusion_name] += 1
+
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    src_path = f"{MODEL_DIR}/{model_name}.onnx"
+    model = onnx.load(src_path)
+    e = Extractor(model)
+    dst_path = f"{MODEL_DIR}/{model_name}_{instance_name}.onnx"
+    layer_inputs = [l for l in layer_inputs if l in e.vimap]
+    onnx.utils.extract_model(src_path, dst_path, layer_inputs, [result])
+
+    return all_fused_nodes, fusion_instances
+
+def is_dw_conv(node, layer_info):
+    inpt_name = node.input[0]
+    assert inpt_name in layer_info
+    inpt_shape = layer_info[inpt_name]
+    ic = inpt_shape[1]
+    groups = get_attribute(node, "group")
+    if groups is not None and groups == ic:
+        return True
+    return False
+
+def get_layer_name(node, layer_info):
+    if node.op_type.lower() == "conv" and is_dw_conv(node, layer_info):
+        lname = "DepthwiseConv"
+    else:
+        lname = node.op_type
+    return lname
+
+def fusion_generator(src_model, fusion_sequences):
+    from collections import defaultdict
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    model_path = f"{MODEL_DIR}/{src_model}.onnx"
+    model = onnx.load_model(model_path)
+
+    node_list = list(model.graph.node)
+    nidx = 0
+    all_fused_nodes = {'layers': [],
+                       'fusion_inputs': [],
+                       'fusion_outputs': [],
+                       'intermediate': []
+                       }
+    fusion_sequences = sorted(fusion_sequences, key= lambda x: len(x), reverse=True)
+    fusion_starts = [s[0] for s in fusion_sequences]
+    fusion_instances = defaultdict(int)
+
+    layer_info = collect_value_info(model.graph)
+
+
+
+    while nidx < len(model.graph.node):
+        n = node_list[nidx]
+
+        if n in all_fused_nodes['layers'] or any([o in all_fused_nodes['fusion_inputs'] for o in n.output]):
+            nidx += 1
+            continue
+
+        lname = get_layer_name(n, layer_info)
+        if lname in fusion_starts:
+
+            possible_fusions = [s for s in fusion_sequences if s[0] == lname]
+            for pf in possible_fusions:
+                fused_nodes = get_fused_nodes(model.graph, pf, n, layer_info)
+                if fused_nodes is not None:
+                    all_fused_nodes, fusion_instances = fuse_layers(src_model, all_fused_nodes, fusion_instances, fused_nodes, pf, layer_info)
+        nidx += 1
+
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
 
@@ -1383,10 +1502,14 @@ if __name__ == "__main__":
         names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
 
         # new_name = optimize_graph(names[2])
-        new_name = f"{names[2]}-opt"
+        new_name = f"{names[1]}-opt"
+        # new_name = f"resnet18"
         # new_name = f"mobilenetv2"
-        print_unique_model_layers(new_name)
-
+        # print_unique_model_layers(new_name)
+        # sequences = [['Conv', 'Relu'],
+        #              ['Conv', 'Add', 'Relu']]
+        sequences = [['Conv', 'Clip', 'DepthwiseConv'], ]
+        fusion_generator(new_name, sequences)
         # optimize_yolo_onnx(False)
 
         # create_resnet50(True, False, False, False,

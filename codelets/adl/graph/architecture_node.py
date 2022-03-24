@@ -34,6 +34,10 @@ class Edge:
     def attribute_names(self):
         return ["src", "src_id", "dst", "dst_id", "bandwidth", "attributes"]
 
+    @property
+    def bandwidth_bytes(self):
+        return self.bandwidth // 8
+
 
 class UtilFuncs(object):
 
@@ -99,6 +103,7 @@ class ArchitectureNode(Node):
         # type
         self._anode_type = type(self).__name__
         self._all_subgraph_nodes = {}
+        self._all_subgraph_edges = {}
         self._subgraph_nodes = {}
         self._subgraph_edges = []
         self._edge_map = {}
@@ -339,6 +344,17 @@ class ArchitectureNode(Node):
     def get_cdlt_op_template(self, subtype: str):
         return self.operation_mappings['codelet'][subtype]
 
+    def get_program_template_copy(self, subtype: str):
+        template = self.operation_mappings['program'][subtype]
+        temp_copy = [ft.template_copy() for ft in template.instructions]
+
+        return temp_copy
+
+    def get_cdlt_op_template_copy(self, subtype: str):
+        template = self.operation_mappings['codelet'][subtype]
+        temp_copy = [ft.template_copy() for ft in template.instructions]
+        return temp_copy
+
     def get_operation_template(self, op):
 
         if op.op_type == 'transfer':
@@ -431,15 +447,27 @@ class ArchitectureNode(Node):
         self.operation_mappings['loop_end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_start_template(self, target, template, template_fns=None):
+        assert isinstance(template, list)
+        for t in template:
+            t.update_template_type("program")
         self.operation_mappings['program']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_end_template(self, target, template, template_fns=None):
+        assert isinstance(template, list)
+        for t in template:
+            t.update_template_type("program")
         self.operation_mappings['program']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_start_template(self, target, template, template_fns=None):
+        assert isinstance(template, list)
+        for t in template:
+            t.update_template_type("codelet")
         self.operation_mappings['codelet']['start'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_codelet_end_template(self, target, template, template_fns=None):
+        assert isinstance(template, list)
+        for t in template:
+            t.update_template_type("codelet")
         self.operation_mappings['codelet']['end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def get_subgraph_node(self, name: str) -> Union['ComputeNode', 'StorageNode', 'CommunicationNode']:
@@ -641,6 +669,26 @@ class ArchitectureNode(Node):
         for name, node in self.all_subgraph_nodes.items():
             for op, instr in node.primitives.items():
                 print(f"{name}{op}: {instr}")
+
+    def is_adjacent(self, n1, n2):
+        res = False
+        for e in self.subgraph_edges:
+            src = e.src_id
+            dst = e.dst_id
+            if (src, dst) == (n1, n2):
+                return True
+            if (dst, src) == (n1, n2):
+                return True
+        return False
+
+    def adjacent_nodes(self, node_name):
+        nodes = []
+        for e in self.subgraph_edges:
+            if e.src_id == node_name:
+                nodes.append(e.dst_id)
+            if e.dst_id == node_name:
+                nodes.append(e.src_id)
+        return list(set(nodes))
 
     def print_subgraph_edges(self, tabs=""):
         edge_pairs = [f"SRC: {self.subgraph.get_node_by_index(e.src).name}\t" \

@@ -97,6 +97,16 @@ class Loop(Operation):
             Operation.current_codelet.end_loop(self.op_str)
         Operation.loop_stack.pop()
         Operation.loop_ctx_dependencies.pop()
+        if self.loop_level == 0 and Operation.current_codelet is not None:
+            cdlt = Operation.current_codelet
+            scope_ops = cdlt.loop_scope(self.op_str)
+            nested_loops = [self.op_str]
+
+            for o in scope_ops:
+                if o.op_type == "compute":
+                    o._dependencies += [nl for nl in nested_loops if nl not in o.dependencies]
+                elif o.op_type == "loop":
+                    nested_loops.append(o.op_str)
 
     @staticmethod
     def reset():

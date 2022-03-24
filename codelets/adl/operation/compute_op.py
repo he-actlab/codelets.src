@@ -26,9 +26,10 @@ class Compute(Operation):
                                       add_codelet=add_codelet,
                                       dependencies=dependencies,
                                       **kwargs)
-        for s_call in sources:
 
+        for s_call in sources:
             s = s_call.add_compute_access(target, self.op_str, "source")
+
             self._dependencies += [dep for dep in s.dependencies if dep not in dependencies and dep != self.op_str]
             self._sources.append(s)
 
@@ -38,6 +39,7 @@ class Compute(Operation):
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies and dep != self.op_str]
             d.dependencies.append(self.op_str)
             self._dests.append(d)
+
             if "temp" in d.name and all("transfer" not in dep for dep in d.dependencies):
                 for s in self.sources:
                     if s.shape_list == d.shape_list:

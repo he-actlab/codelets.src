@@ -72,6 +72,11 @@ class FlexParam:
         self.fn_args.append(arg)
         self.create_function_from_str(self.fn_args, self.fn_body_str)
 
+    def reset_base_fn_args(self, old_args, new_args):
+        assert old_args == self.fn_args[:len(old_args)], "Invalid default args"
+        new_args = new_args + self.fn_args[len(old_args):]
+        self.reset_fn_args(new_args)
+
     def reset_fn_args(self, args):
         self.fn_args = args
         self.create_function_from_str(self.fn_args, self.fn_body_str)

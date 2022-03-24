@@ -69,10 +69,15 @@ class CodeletProgram(object):
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
         self._codelet_instructions = {}
+        self._is_finalized = False
 
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def is_finalized(self) -> bool:
+        return self._is_finalized
 
     @property
     def hag(self) -> ArchitectureNode:
@@ -237,13 +242,11 @@ class CodeletProgram(object):
 
     def set_instruction_templates(self, cdlt: Codelet):
         for o in cdlt.ops:
-
             template = self.hag.get_operation_template(o)
             template_copy = [ft.template_copy() for ft in template]
-
             o.set_template(template_copy)
 
-    def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
+    def instantiate_instructions(self, cdlt: Codelet, fixed_val=None, verbose=True):
 
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
@@ -441,15 +444,15 @@ class CodeletProgram(object):
 
             # Emit codelet start
             if self.hag.has_op_template("codelet", "start"):
-                cdlt_start = self.hag.get_cdlt_op_template("start")
-                for ft in cdlt_start.instructions:
+                cdlt_start = self.hag.get_cdlt_op_template_copy("start")
+                for ft in cdlt_start:
                     codelet_strings += ft.emit(output_type)
             codelet_strings.append(self.emit_single_codelet(c, output_type))
 
             # Emit codelet end
             if self.hag.has_op_template("codelet", "end"):
-                cdlt_end = self.hag.get_cdlt_op_template("end")
-                for ft in cdlt_end.instructions:
+                cdlt_end = self.hag.get_cdlt_op_template_copy("end")
+                for ft in cdlt_end:
                     codelet_strings += ft.emit(output_type)
         return codelet_strings
 
@@ -475,21 +478,24 @@ class CodeletProgram(object):
             res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
             return res
 
-    def instantiate_instructions_templates(self, node, cdlt):
+    def instantiate_instructions_templates(self, node, cdlt, verbose=False):
         self.set_instruction_templates(cdlt)
         self.relocatables.add_data_relocation(node, cdlt)
-        self.instantiate_instructions(cdlt)
+        self.instantiate_instructions(cdlt, verbose=verbose)
 
         if self.hag.has_op_template("codelet", "start"):
-            cdlt_start = self.hag.get_cdlt_op_template("start")
+            cdlt_start = self.hag.get_cdlt_op_template_copy("start")
             args = (self, self.hag, -1, cdlt.instance_id)
-            for ft in cdlt_start.instructions:
+            for ft in cdlt_start:
+                assert ft.template_type == "codelet"
                 ft.evaluate(*args)
 
         if self.hag.has_op_template("codelet", "end"):
-            cdlt_end = self.hag.get_cdlt_op_template("end")
+            cdlt_end = self.hag.get_cdlt_op_template_copy("end")
             args = (self, self.hag, -1, cdlt.instance_id)
-            for ft in cdlt_end.instructions:
+
+            for ft in cdlt_end:
+                assert ft.template_type == "codelet"
                 ft.evaluate(*args)
 
     def evaluate_lazy_instruction_templates(self, cdlt):
@@ -754,7 +760,9 @@ class CodeletProgram(object):
             loc_sizes = defaultdict(int)
             for o in (cdlt.operands + cdlt.temps):
                 for ml in o.unset_mem_locations:
+
                     mem_node = self.hag.get_subgraph_node(ml)
+
                     if ml not in o.tiling or mem_node.node_type != "storage":
                         continue
                     assert ml not in o.mem_locations
@@ -784,7 +792,7 @@ class CodeletProgram(object):
                 continue
             if verbose:
                 print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
-            self.instantiate_instructions_templates(n, codelets[n.name])
+            self.instantiate_instructions_templates(n, codelets[n.name], verbose=verbose)
 
         # Generate program end, if it exists
         if self.hag.has_op_template("program", "end"):
@@ -860,6 +868,8 @@ class CodeletProgram(object):
         # 1. Generate codelets from nodes
         # 2. Generate operands/operations within codelets
         # 3. Generate instruction templates within operations
+        if self.is_finalized:
+            return None
         start = time()
 
         node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
@@ -873,11 +883,17 @@ class CodeletProgram(object):
             if verbose:
                 print(f"\nLoading predefined tiling at {tiling_path}")
             self.load_tiling(tiling_path)
+
         codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
+
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
+
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
+        print(f"Finalizing instructions")
+
         if finalize:
             self.finalize_program(node_sequence, codelets, verbose=verbose)
+            self._is_finalized = True
 
         self.run_instruction_stages(codelets, verbose=verbose)
 

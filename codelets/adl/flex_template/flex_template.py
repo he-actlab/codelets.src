@@ -340,7 +340,7 @@ class FlexTemplate:
                             )
 
     def create_fn_args(self, program, hag, cdlt_id, op_id):
-        # program, hag, cdlt_id, op_idx
+
         args = [program, hag, program.relocatables]
         if cdlt_id >= 0:
             cdlt = program.get_codelet(cdlt_id)
@@ -365,3 +365,14 @@ class FlexTemplate:
             instr_strings.append(instr)
 
         return instr_strings
+
+    def update_template_type(self, tmplt_type):
+        if tmplt_type != self.template_type:
+            prev_template = Instruction.INSTR_TYPE_ARGS[self.template_type]
+            assert prev_template == self.arg_names[:len(prev_template)], "Invalid default args"
+            new_args = Instruction.INSTR_TYPE_ARGS[tmplt_type].copy() + self.arg_names[len(prev_template):]
+            assert len(self.instructions) == 0
+            self.template_type = tmplt_type
+            for bi in self.base_instructions:
+                bi.update_instr_args_from_type(self.arg_names, new_args)
+            self.arg_names = new_args

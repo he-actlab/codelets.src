@@ -157,6 +157,7 @@ class OperationTemplate(object):
                 kwargs[key] = self.evaluate_args(value, instance_args, False)
 
         kwargs['add_codelet'] = False
+
         instance = INITIALIZER_FN_MAP[self.op_type](*args, **kwargs)
         return instance
 

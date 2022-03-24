@@ -88,13 +88,17 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
                 operand = value_dict['intermediate'][op.node_name]
                 assert operand.data.shape == op.shape
                 inouts['inputs'].append(operand)
+
         inouts = generate_random_values(c, inouts=inouts)
 
         for i in inouts['inputs']:
 
             if i.fmt is None and i.node_name not in value_dict['inputs'] and i.node_name not in value_dict['intermediate']:
                 value_dict['inputs'][i.node_name] = i
-                storage_info[i.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+                storage_info[i.node_name] = {"cdlt": c.cdlt_uid,
+                                             "path": None,
+                                             'cdlt_name': i.idx.name,
+                                             'operand_type': 'input'}
 
             elif i.fmt is not None:
                 formatted.append(i)
@@ -102,7 +106,10 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
         for o in inouts['outputs']:
             if o.fmt is None:
                 value_dict['outputs'][o.node_name] = o
-                storage_info[o.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+                storage_info[o.node_name] = {"cdlt": c.cdlt_uid,
+                                             "path": None,
+                                             'cdlt_name': o.idx.name,
+                                             'operand_type': 'output'}
 
     for f in formatted:
         if f.node_name in value_dict['inputs']:
@@ -140,14 +147,16 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
 
 
 def store_model_outputs(model_name,
-                  training_mode,
-                  batch_size=1,
-                  verbose=False,
-                  emit_to_stdout=None,
-                  load_path=None,
-                  dir_ext=None,
-                  program=None, added_constr=None,
-                        model_data=None
+                        training_mode,
+                        batch_size=1,
+                        verbose=False,
+                        emit_to_stdout=None,
+                        load_path=None,
+                        dir_ext=None,
+                        program=None,
+                        added_constr=None,
+                        model_data=None,
+                        generate_data=True
                         ):
     name = model_name
     tile_method = "min_tiles"
@@ -208,6 +217,7 @@ def store_model_outputs(model_name,
     if added_constr:
         program = update_tile_constraints(program, added_constr, model_name)
 
+    print(f"Compiling")
     program.compile(verbose=False, finalize=True)
 
 
@@ -222,10 +232,14 @@ def store_model_outputs(model_name,
     base_path = store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg, dir_ext=dir_ext)
     store_compilation_output(program, "operations_idx", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "json", extension="json", dir_ext=dir_ext)
+
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
+
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
+
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_model_values(program, base_path, model_data=model_data)
+    if generate_data:
+        store_model_values(program, base_path, model_data=model_data)
     return program
 
 def update_tile_constraints(program, layer_constraints, orig_constraint=None):
@@ -277,7 +291,6 @@ def generate_inputs_from_program(program):
         for o in inouts['outputs']:
             if o.fmt is None:
                 value_dict['outputs'][o.node_name] = o
-    print(value_dict)
     return model_data
 
 def compile_full_model(model_name,
@@ -288,7 +301,8 @@ def compile_full_model(model_name,
                        train_mode=False,
                        verbose=False,
                        model_data=None,
-                       fuse_layers=False):
+                       fuse_layers=False,
+                       generate_data=True):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
@@ -329,12 +343,15 @@ def compile_full_model(model_name,
         dir_ext = dir_ext or ''
         print(f"Codelet length: {len(program.codelets)}")
 
-        store_model_outputs(model_name, False,
-                      batch_size=1,
-                      verbose=verbose,
-                      emit_to_stdout=None,
-                      dir_ext=f"{dir_ext}",
-                            program=program, model_data=model_data)
+        store_model_outputs(model_name,
+                            False,
+                            batch_size=1,
+                            verbose=verbose,
+                            emit_to_stdout=None,
+                            dir_ext=f"{dir_ext}",
+                            program=program,
+                            model_data=model_data,
+                            generate_data=generate_data)
 
     return program
 

@@ -259,6 +259,21 @@ class Codelet(object):
                 ptiling[l][self.loop_param_map[loopname]] = tile_size
         return ptiling
 
+    def filtered_read_operands(self, compute_name):
+        ops = []
+        for c in self.get_ops_by_type("compute"):
+            if c.target == compute_name:
+                ops += c.sources
+        return ops
+
+    def filtered_write_operands(self, compute_name):
+        ops = []
+        for c in self.get_ops_by_type("compute"):
+            if c.target == compute_name:
+                ops += c.dests
+        return ops
+
+
     def is_tiling_set(self, level: int):
         return level in self.domain_tiling
 
@@ -599,12 +614,31 @@ class Codelet(object):
         self.required_params[key].value = value
 
     def is_loop_node_target(self, loop, hag_node):
-        for o in self.ops:
+        scoped_ops = self.loop_scope(loop.op_str)
+        # for o in self.ops:
+        for o in scoped_ops:
             if o.op_type == 'compute' and o.target == hag_node and loop.loop_level <= o.loop_level:
                 return True
             elif o.op_type == 'transfer' and hag_node in o.path and loop.loop_level <= o.loop_level:
                 return True
         return False
+
+    def loop_scope(self, loopname):
+        loop = self.op_map[loopname]
+        start = self.ops.index(loop) + 1
+
+        idx = start + 1
+        end = None
+        while idx < len(self.ops):
+            o = self.ops[idx]
+            if isinstance(o, LoopEnd) and o.loop_name == loopname:
+                end = idx
+                break
+            idx += 1
+        if end is None:
+            raise RuntimeError(f"Uable to find loop end for {loopname}")
+        scoped_ops = self.ops[start: end + 1]
+        return scoped_ops
 
     def is_direct_loop_dep(self, loop, hag_node):
         for o in self.ops:
@@ -613,6 +647,45 @@ class Codelet(object):
             elif o.op_type == 'transfer' and hag_node in o.path and loop.op_str in o.dependencies:
                 return True
         return False
+
+    def compute_loop_deps(self, compute_op):
+        deps = self.op_map[compute_op].dependencies
+        filtered_deps = []
+        for d in deps:
+            if self.op_map[d].op_type == "loop":
+                dep_names = [l.op_str for l in self.loop_scope(d)]
+                if compute_op in dep_names:
+                    filtered_deps.append(d)
+        return filtered_deps
+
+    def compute_node_loops(self, node_name):
+        compute_ops = self.get_ops_by_type('compute')
+        loops = []
+        for c in compute_ops:
+            if c.target == node_name:
+                loops += self.compute_loop_deps(c.op_str)
+        return list(set(loops))
+
+    def loop_node_compute(self, loop, node_name):
+        scope_ops = self.loop_scope(loop.op_str)
+
+        for c in scope_ops:
+            if c.target == node_name:
+                return c
+        options = {c.op_str: c.target for c in scope_ops if c.op_type == "compute"}
+        raise RuntimeError(f"Could not find compute node for {loop.op_str} with target {node_name}\n"
+                           f"{options}")
+
+    def loop_compute_op(self, loop):
+        if isinstance(loop, Loop):
+            loop = loop.op_str
+        scope_ops = self.loop_scope(loop)
+        for c in scope_ops:
+            if c.op_type == "compute":
+                return c
+        options = {c.op_str: c.target for c in scope_ops if c.op_type == "compute"}
+        raise RuntimeError(f"Could not find compute node for {loop.op_str}. Possible ops:\n"
+                           f"{options}")
 
 
     def ordered_loop_ops(self):
@@ -970,8 +1043,26 @@ class Codelet(object):
 
             assert isinstance(o, Operation)
         # Now set the required parameters in each operation, as specified
+
         for o in self.ops:
             o.evaluate_parameters(node, hag, self)
+
+        for o in self.ops:
+            if o.op_type == "compute":
+                deps = self.compute_loop_deps(o.op_str)
+                for operand in o.operands:
+                    dms = operand.get_op_accesses(o.op_str)
+                    for dm in dms:
+                        names = [str(i) for i in dm.symbol_str_map.keys()]
+                        symbol_deps = {self.loop_param_map[d]: d for d in deps}
+                        for i in names:
+                            if i in self.loop_param_map and symbol_deps[self.loop_param_map[i]] != i:
+
+                                tgt_name = symbol_deps[self.loop_param_map[i]]
+                                symbol = self.op_map[tgt_name].param_symbols[tgt_name]
+                                dm.update_offset_map(self.loop_param_map[i], symbol)
+
+
 
         for operand in self.operands:
             operand.evaluate_operand(node, hag, self)

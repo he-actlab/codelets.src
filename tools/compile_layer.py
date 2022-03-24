@@ -110,7 +110,8 @@ def store_outputs(model_name,
                   actual_data=False,
                   use_random=False,
                   store_partials=False,
-                  program=None, added_constr=None):
+                  program=None,
+                  added_constr=None):
     name = model_name
     tile_method = "min_tiles"
     # tile_method = "valid_split"

@@ -15,45 +15,10 @@ from .stage_utils import default_tile_heuristic, \
     find_node_key, insert_simd_typecast
 import polymath as pm
 import json
-PAD_LAYERS = ["conv", "conv_bias", "depthwise_conv",  "conv_bias_relu"]
-SYSTOLIC_ARRAY_CDLTS = ['conv_bias', 'conv', 'gemm', 'gemm_no_bias', 'matmul']
-
-# TODO: Update SIMD_CDLTS for dtypes
-SIMD_CDLTS = ['max_pool', 'elem_add', 'relu', 'global_avg_pool', 'batch_normalization',
-              'sgd4', 'elem_add_grad', 'sgd4d', 'elem_tanh', 'avg_pool', "elem_cast2d", "elem_cast"]
-POOL_OPS = ['max_pool', 'global_avg_pool', 'avg_pool']
-BINARY_SIMD = ['elem_add', 'sgd4d', 'elem_add_grad', 'global_average_pool_grad', 'relu_grad', 'elem_tanh_grad',
-               'sgd4d', 'max_pool_grad', 'average_pool_grad']
-
-UNARY_SIMD = ['relu', 'max_pool', 'global_avg_pool', 'elem_tanh', 'avg_pool', 'elem_tanh2d', "elem_cast2d", "elem_cast"]
-NOOPS = ['coarse_flatten']
-STANDARD_SHAPE_OPS = ['elem_add', 'relu', 'global_avg_pool', 'batch_norm', 'sgd4d',
-                      'max_pool_grad', 'global_average_pool_grad', 'relu_grad', 'elem_add_grad', 'elem_tanh_grad',
-                      'average_pool_grad']
-INFERENCE_OPS = [""]
-
-INTERMEDIATE_INPUT_INDICES = {
-    "conv": [0],
-    "conv_bias": [0],
-    "relu": [0],
-    "elem_tanh": [0],
-    "elem_tanh2d": [0],
-    "elem_cast2d": [0],
-    "max_pool": [0],
-    "avg_pool": [0],
-    "global_avg_pool": [0],
-    "batch_normalization": [0],
-    "elem_add": [0, 1],
-    "cross_entropy_loss": [0, 1],
-    "cross_entropy_loss_grad": [0, 1, 2],
-    "gemm": [0],
-    "matmul": [0]
-}
-
-SA_OPS = ["conv", "conv_bias", "gemm", "gemm_bias", "matmul", "conv_bias_relu"]
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
+                     ['N', 'OC', 'OH1', 'OW1'],
                      ['ON', 'OC', 'OH', 'OW'], ['N', 'C', 'OH', 'OW']]
 TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
@@ -64,89 +29,108 @@ POST_TRANSPOSE_SHAPES = [
 ]
 
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
-FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'], ["C", "ONE", "KH", "KW"]]
+FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'], ["C", "ONE", "KH", "KW"], ["OC", "ONE", "KH1", "KW1"]]
 
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
-    if cdlt.op_name in SYSTOLIC_ARRAY_CDLTS:
-        cdlt.inputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
-        cdlt.inputs[1].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
-        if len(cdlt.inputs) == 3:
-            cdlt.inputs[2].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
-        cdlt.outputs[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
-    else:
-        for o in cdlt.operands:
-            o.set_dtype(dtype_map['SIMD'])
+
+    compute_ops = cdlt.get_ops_by_type('compute')
+    if any([o.target == 'pe_array' for o in compute_ops]):
+        for c in compute_ops:
+            if c.target == "pe_array":
+                c.sources[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
+                c.sources[1].set_dtype(dtype_map['SYSTOLIC_ARRAY']['inp_weight'])
+                if len(c.sources) >= 3:
+                    c.sources[2].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
+                c.dests[0].set_dtype(dtype_map['SYSTOLIC_ARRAY']['bias_out'])
+    if any([o.target == 'SIMD' for o in compute_ops]):
+        for c in compute_ops:
+            if c.target == "SIMD":
+                for o in c.operands:
+                    o.set_dtype(dtype_map['SIMD'])
     return cdlt
 
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
-    #
-    # if template.op_name in ["avg_pool", 'global_avg_pool']:
-    #     template.update_dummy_op('denom', template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-    #
-    # if template.op_name == "mean_var":
-    #     template.update_dummy_op('denom', template.node.inputs[0].shape[0]*template.node.inputs[0].shape[1]*template.node.inputs[0].shape[2])
-    if template.op_name in PAD_LAYERS:
-        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
-        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
-    if template.op_name == "max_pool":
-        template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
-        template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
-
-    if template.op_name in SA_OPS:
-
+    if 'pad' in template.dummy_ops.keys():
+        if template.op_name == "max_pool":
+            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
+            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
+        else:
+            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
+            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+    compute_ops = template.get_ops_by_type('compute')
+    if any([o.param_map['target'] == 'pe_array' for o in compute_ops]):
+        # THis requires conv/gemm to be first operation
+        compute_op = None
+        for c in compute_ops:
+            if c.param_map['target'] == "pe_array":
+                compute_op = c
+                break
+        assert compute_op.param_map['op_name'] == 'MVMUL'
         inp_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
-        out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
-        inp_dim = template.inputs[0].shape_list[-1]
-        out_dim = template.outputs[0].shape_list[-1]
+        inp_bw = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        inp_dim = compute_op.param_map['sources'][0].shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
-        dummy_out_dim = template.node.outputs[0].shape[1]
-        template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
+
+        new_inp_dim = (inp_dim + (inp_bw - inp_dim) * (inp_bw > inp_dim)) + (inp_constr - (inp_dim + (inp_bw - inp_dim) * (inp_bw > inp_dim))) % inp_constr
+        # template.update_dummy_op(inp_dim.name, dummy_inp_dim + (input_bw - dummy_inp_dim) % inp_constr)
+        template.update_dummy_op(inp_dim.name, new_inp_dim)
+
+        out_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
+        out_dim = compute_op.param_map['dests'][0].shape_list[-1]
+        # TODO: Need to validate
+        dummy_out_dim = template.node.inputs[1].shape[0]
+        # template.update_dummy_op(inp_dim.name, dummy_inp_dim + (inp_constr - dummy_inp_dim) % inp_constr)
         template.update_dummy_op(out_dim.name, dummy_out_dim + (out_constr - dummy_out_dim) % out_constr)
-    else:
+
+    # Need to figure out if this works for DW Conv
+    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]):
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         updated_dims = []
-        for idx, i in enumerate(template.inputs):
-            if "IC" in i.shape_list_names:
-                dim = "IC"
-            elif "OC" in i.shape_list_names:
-                dim = "OC"
-            elif "C" in i.shape_list_names:
-                dim = "C"
-            else:
-                continue
+        for c in compute_ops:
+            if c.param_map['target'] == "SIMD":
+                for idx, i in enumerate(c.param_map['sources']):
+                    if "IC" in i.shape_list_names:
+                        dim = "IC"
+                    elif "OC" in i.shape_list_names:
+                        dim = "OC"
+                    elif "C" in i.shape_list_names:
+                        dim = "C"
+                    else:
+                        continue
+                    dim_idx = i.shape_list_names.index(dim)
+                    prev_idx = dim_idx
+                    if i.shape_list_names in POST_TRANSPOSE_SHAPES:
+                        prev_idx = TRANSPOSE_PERM[dim_idx]
+                    if i.shape_list_names[dim_idx] not in updated_dims:
+                        dimname = i.shape_list[dim_idx].name
+                        # Change dummy dim
+                        dummy_dim = template.node.inputs[idx].shape[prev_idx]
+                        template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
+                        updated_dims.append(dimname)
+                for idx, o in enumerate(c.param_map['dests']):
+                    if "IC" in o.shape_list_names:
+                        dim = "IC"
+                    elif "OC" in o.shape_list_names:
+                        dim = "OC"
+                    elif "C" in o.shape_list_names:
+                        dim = "C"
+                    else:
+                        continue
+                    dim_idx = o.shape_list_names.index(dim)
 
-            dim_idx = i.shape_list_names.index(dim)
-            prev_idx = dim_idx
-            if i.shape_list_names in POST_TRANSPOSE_SHAPES:
-                prev_idx = TRANSPOSE_PERM[dim_idx]
-            if i.shape_list_names[dim_idx] not in updated_dims:
-                dimname = i.shape_list[dim_idx].name
-                dummy_dim = template.node.inputs[idx].shape[prev_idx]
-                template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
-                updated_dims.append(dimname)
+                    prev_idx = dim_idx
+                    if o.shape_list_names in POST_TRANSPOSE_SHAPES:
+                        prev_idx = TRANSPOSE_PERM[dim_idx]
+                    if o.shape_list_names[dim_idx] not in updated_dims:
+                        dimname = o.shape_list[dim_idx].name
+                        dummy_dim = template.node.inputs[idx].shape[prev_idx]
+                        template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
+                        updated_dims.append(dimname)
 
-        for idx, o in enumerate(template.outputs):
-            if "IC" in o.shape_list_names:
-                dim = "IC"
-            elif "OC" in o.shape_list_names:
-                dim = "OC"
-            elif "C" in o.shape_list_names:
-                dim = "C"
-            else:
-                continue
-            dim_idx = o.shape_list_names.index(dim)
 
-            prev_idx = dim_idx
-            if o.shape_list_names in POST_TRANSPOSE_SHAPES:
-                prev_idx = TRANSPOSE_PERM[dim_idx]
-            if o.shape_list_names[dim_idx] not in updated_dims:
-                dimname = o.shape_list[dim_idx].name
-                dummy_dim = template.node.inputs[idx].shape[prev_idx]
-                template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
-                updated_dims.append(dimname)
     return template
 
 
@@ -290,7 +274,6 @@ def update_temporary_data_moves(cdlt):
             missing_tiles = [l for l in t.unique_data_locations() if l not in list(t.tiling.keys()) or
                              all(i == 0 for i in t.tiling[l].values())]
             supported_operands = [o for o in cdlt.operands if t.shape_list == o.shape_list]
-
             for d in t.data_moves:
                 if d.unset_offsets:
                     assert "compute" in d.op_name
@@ -308,14 +291,33 @@ def update_temporary_data_moves(cdlt):
                         if updated_offset:
                             break
                     assert updated_offset
+            missing_tiles = [l for l in t.unique_data_locations() if l not in list(t.tiling.keys())]
+            for m in missing_tiles:
+                level = cdlt.get_tile_level(m)
+                level_sizes = cdlt.domain_loop_map[level]
+                mmove = None
+                for a in t.data_moves:
+
+                    if a.src_node == m:
+                        mmove = a
+                        break
+                    elif a.dst_node == m:
+                        mmove = a
+                        break
+
+                if mmove is None:
+                    raise RuntimeError(f"UNable to find movement for missing tile {m}\n"
+                                       f"Moves: {t.movement_keys()}")
+                t.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
+
     return cdlt
 
 def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_name='default', heuristic_fn=None,
          checkpoint_file=None, stopping_condition=None, selection_metric=None) -> 'Codelet':
     hag = program.hag
-
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
+
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
     for i, o in enumerate(cdlt.operands):
@@ -330,11 +332,13 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
 
     bands = cdlt.extract_bands()
+
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
 
     loop_replacement_map = {}
     start_end_ops = [(cdlt.ops[s], cdlt.ops[e]) for s, e in bands]
     all_deps = {}
+
     for start_op, end_op in start_end_ops:
         outer_loop_map = {}
 
@@ -366,7 +370,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 for d in op.dependencies:
                     dp = cdlt.op_map[d]
                     if cdlt.ops.index(dp) >= start:
-                        inner_deps.append(d)
+                        inner_deps.append(dep_mapping[d])
 
                 new_op_id, new_global_id = cdlt.get_new_op_ids(op)
                 extra_kwargs = {}
@@ -497,7 +501,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     loop_replacement_map[old_op.op_str] = outer_loop_map[cdlt.loop_param_map[op.op_str]]
 
         all_deps.update(dep_mapping)
-
     cdlt = update_dependencies(cdlt, loop_replacement_map)
 
     cdlt = update_data_movements(cdlt)

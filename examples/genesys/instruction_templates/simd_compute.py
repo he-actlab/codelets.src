@@ -47,7 +47,8 @@ OP_COMPUTE_CYCLES = {
     "TRANSPOSE": 0
 }
 # Loops
-ALL_LOOP_ID = f"(len(cdlt.get_ops_by_type('loop'))//2)"
+# ALL_LOOP_ID = f"(len(cdlt.get_ops_by_type('loop'))//2)"
+ALL_LOOP_ID = f"(len(cdlt.compute_node_loops('SIMD')))"
 OPERAND_ITER = ("operand", "op.operands_by_unique_location")
 LOOP_ITER = ('loop_op', f'cdlt.get_ops_by_type("loop")')
 
@@ -282,13 +283,13 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     macro_instr.set_print_tabs("loop_op.loop_level")
     macro_instr.add_iterable(*LOOP_ITER)
     macro_instr.add_condition(" and ".join(other_constr))
-    macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_id % {ALL_LOOP_ID}) + {loop_idx_offset}")
+    macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_level % {ALL_LOOP_ID}) + {loop_idx_offset}")
     # macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // {simd_size} if cdlt.loop_param_map[loop_op.op_str] in ['C', 'IC', 'OC'] else loop_op.iter_count")
     macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]")
 
 
     sub_instr = hag.get_primitive_template("SET_INDEX")
-    set_index_fmt = "(loop_op.loop_id % {all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+    set_index_fmt = "(loop_op.loop_level % {all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
 
     sub_instr.set_print_tabs("loop_op.loop_level")
     sub_instr.add_iterable(*LOOP_ITER)
@@ -353,6 +354,14 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
 
 
     instructions += alu_noop(op_name, hag)
+    instr = hag.get_primitive_template("SYNC_INST")
+    instr.add_condition("any([op.get_operand_location(o.name) == 'OBUF' for o in op.operands])")
+    instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
+    instr.set_field_by_name("START_END", "END")
+    instr.set_field_by_name("EXEC_BUF", "BUF")
+    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
+    instr.set_field_flex_param("NUM_INSTR", "0")
+    instructions.append(instr)
 
     return instructions
 
@@ -361,7 +370,9 @@ def base_sign_ext_gen(op_name, hag: ArchitectureNode):
     instructions = []
 
     # Index generation
-    ns_idx = f"(loop_op.loop_id % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
+    # ns_idx = f"(loop_op.loop_id % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
+
+    ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
     base_sign_ext = f"(operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) + 1) if op.get_operand_location(operand.name) " \
                     f"!= 'IMM' else cdlt.temps.index(operand)"
 
@@ -431,7 +442,7 @@ def base_sign_ext_gen(op_name, hag: ArchitectureNode):
 
 
 def alu_noop(op_name, hag):
-    all_loop_id = f"(len(cdlt.get_ops_by_type('loop'))//2)"
+    all_loop_id = ALL_LOOP_ID
 
     instructions = []
     if OP_COMPUTE_CYCLES[op_name] > 0:

@@ -86,6 +86,9 @@ class DataMovement:
     def unset_offsets(self):
         return all([v == 0 for v in self.offset_map.values()])
 
+    def replace_atom(self, prev_name, new_name):
+        pass
+
     def size(self):
         return np.prod(self.dim_sizes())
 
@@ -113,6 +116,7 @@ class DataMovement:
 
     def substitute_offset_symbols(self, cdlt, dep_map, replacements):
         new_offset_map = {}
+
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = self.get_symbol_atoms(o)
@@ -405,6 +409,7 @@ class Operand:
                 break
 
         if len(self.data_moves) > 0 and (self.data_moves[-1].src_node == "IMM" or self.data_moves[-1].dst_node == "IMM"):
+
             return 0
 
         if target_movement is None:
@@ -430,8 +435,22 @@ class Operand:
         offset_val = None
 
         other_offsets = []
+
         if all([o.loop_id == -1 for o in target_movement.domain_offsets()]):
-            raise RuntimeError
+            dm_info = "\n".join([str({"src": dm.src_node,
+                                      "dst": dm.dst_node,
+                                      "dst_lvl": cdlt.get_tile_level(dm.dst_node),
+                                      "src_lvl": cdlt.get_tile_level(dm.src_node)
+                                      }) for dm in self.data_moves])
+            raise RuntimeError(f"All loop ids unset for target movement."
+                               f"Could not find data movement for level {level} in operand "
+                               f"{self.name}: {self.data_path}\n"
+                               f"Movement type: {movement_type}\n"
+                               f"Loop id: {loop_id}\n"
+                               f"Data movements: {dm_info}\n"
+                               f"Target movement info:\n"
+                               f"src: {target_movement.src_node} -> {target_movement.dst_node}\n"
+                               f"{[o.loop_id for o in target_movement.domain_offsets()]}")
         else:
             dom_offsets = target_movement.domain_offsets()
 
@@ -445,6 +464,10 @@ class Operand:
 
         if offset_val is None:
             if zero_not_found:
+                # if not outer_loop and level == 2:
+                #     print(f"Returning zero for {loop_id}: {self.name}\n"
+                #           f"{target_movement.src_node} --> {target_movement.dst_node}\n"
+                #           f"{[o.loop_id for o in target_movement.domain_offsets()]}")
                 return 0
             else:
                 raise RuntimeError(f"Could not find offset movement {level} from "
@@ -454,7 +477,20 @@ class Operand:
         acc_dims = [offset_val.dim]
 
         for o in dom_offsets:
+
+
             if o.loop_id > loop_id and o.dim not in acc_dims:
+                if node_key not in self.tiling:
+                    raise RuntimeError(f"Unable to find tiling for node key:\n"
+                                       f"{self.name}:\n"
+                                       f"node key: {node_key}\n"
+                                       f"SRC->DST: {target_movement.src_node} -> {target_movement.dst_node}\n"
+                                       f"Tiling: {self.tiling}"
+                                       )
+                # print(f"{self.name}: "
+                #       f"SRC->DST: {target_movement.src_node} -> {target_movement.dst_node}\n"
+                #       f"Node key: {node_key}\n"
+                #         f"Tiling: {self.tiling}\n")
                 other_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
                 acc_dims.append(o.dim)
 
@@ -560,7 +596,9 @@ class Operand:
         self.write_destination = location
 
     def get_access_offsets(self, offsets):
+
         if len(offsets) == 0 and len(self.data_moves) > 0:
+
             a_offsets = {}
             for i in range(len(self.shape_list)):
                 offset_values = list(self.data_moves[-1].offset_map.values())
@@ -768,6 +806,27 @@ class Operand:
         raise KeyError(f"Unable to find Data Movement for operand {self.name}, "
                        f"Compute node: {storage_node}")
 
+    def has_transfer(self, path):
+        # def x_in_y(query, base):
+
+        try:
+            l = len(path)
+        except TypeError:
+            l = 1
+            query = type(self.data_path)((path,))
+
+        for i in range(len(self.data_path)):
+            if self.data_path[i:i + l] == path:
+                return True
+        return False
+
+
+    def has_transfer_from_src(self, src):
+        if src not in self.data_path:
+            return False
+        edges = [s for s,d in zip(self.data_path, self.data_path[1:])]
+        return src in edges
+
     @property
     def shape(self):
         s = []
@@ -816,7 +875,7 @@ class Operand:
         if self.current_location != path_key[1]:
             self.data_path.append(path_key[1])
 
-    def get_ld_storage_location(self, cdlt, level):
+    def get_ld_storage_location(self, cdlt, level, return_null=False):
         prev_level = level - 1
         assert prev_level >= 0
         for dm in self.data_moves:
@@ -826,9 +885,46 @@ class Operand:
             elif cdlt.get_tile_level(dm.dst_node) == prev_level:
                 assert cdlt.get_tile_level(dm.src_node) == level
                 return dm.src_node
+        dm_info = "\n".join([str({"src": dm.src_node,
+                                  "dst": dm.dst_node,
+                                  "dst_lvl": cdlt.get_tile_level(dm.dst_node),
+                                  "src_lvl": cdlt.get_tile_level(dm.src_node)
+                                  }) for dm in self.data_moves])
+        if return_null:
+            return None
         raise RuntimeError(f"Unable to find storage node for level {level} in operand"
-                           f" {self.name}.")
+                           f" {self.name}:\n"
+                           f"{dm_info}")
 
+    def get_transfer_dest(self, src_node):
+        if src_node not in self.data_path:
+            raise RuntimeError(f"Not a valid source.")
+
+        src_idx = None
+        for i, d in enumerate(self.data_path[:-1]):
+            if d == src_node:
+                src_idx = i
+                break
+        if src_idx is None:
+            raise RuntimeError(f"No such transfer exists for {self.name}"
+                               f" with destination {src_node}:\n"
+                               f"Data path: {self.data_path}")
+        return self.data_path[src_idx + 1]
+
+    def get_transfer_source(self, dst_node):
+        if dst_node not in self.data_path:
+            raise RuntimeError(f"Not a valid source.")
+
+        dst_idx = None
+        for i, d in enumerate(self.data_path):
+            if d == dst_node and i > 0:
+                dst_idx = i
+                break
+        if dst_idx is None:
+            raise RuntimeError(f"No such transfer exists for {self.name}"
+                               f" with destination {dst_node}:\n"
+                               f"Data path: {self.data_path}\n")
+        return self.data_path[dst_idx - 1]
 
     def set_start_location(self, location: str):
         if len(self.data_path) > 0:

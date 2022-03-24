@@ -124,6 +124,25 @@ class DummyOp:
     def __rmod__(self, other):
         return dummy_op(other, self, '%', reflected=True)
 
+    def __lt__(self, other):
+        return dummy_op(other, self, '<')
+
+    def __le__(self, other):
+        return dummy_op(other, self, '<=')
+
+    def __gt__(self, other):
+        return dummy_op(other, self, '>')
+
+    def __ge__(self, other):
+        return dummy_op(other, self, '>=')
+
+    # def __ne__(self, other):
+    #     return dummy_op(other, self, '!=')
+    #
+    # def __eq__(self, other):
+    #     return dummy_op(other, self, '==')
+
+
 @dataclass
 class DummyParam:
     # This is a placeholder for templates. Each time a node method is called on this,
