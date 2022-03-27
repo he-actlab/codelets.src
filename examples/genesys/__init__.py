@@ -143,13 +143,6 @@ SIMD_FNCODE_BITWIDTH = 4
 NS_BITWIDTH = 5
 NS_IDX_BITWIDTH = 3
 
-FUSION_LAYERS = [
-                    ["Conv", "Relu"],
-                    ["Conv", "Add", "Relu"],
-                 ]
-FUSION_MAPPING = {
-
-}
 
 
 from .genesys import define_genesys, compile_genesys, compile_genesys_layer, get_transformed_srdfg, \

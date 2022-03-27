@@ -66,6 +66,14 @@ class Compute(Operation):
         return self._sources + self._dests
 
     @property
+    def unique_operands(self):
+        ops = []
+        for o in self.operands:
+            if o not in ops:
+                ops.append(o)
+        return ops
+
+    @property
     def op_name(self):
         return self._op_name
 

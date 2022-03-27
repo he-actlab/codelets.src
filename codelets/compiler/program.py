@@ -1,8 +1,9 @@
 import json
-from typing import List, Callable, Dict, List, Any
+from typing import List, Callable, Dict, List, Any, Union
 from collections import defaultdict
 from time import time
 from codelets.adl.flex_param import FlexParam
+from codelets.adl.flex_template import FlexTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
@@ -59,6 +60,8 @@ class CodeletProgram(object):
         self._hag = hag
         self._graph = graph
         self._codelets = []
+        self._program_flex_templates = {"start": [], "end": []}
+        self._cdlt_flex_templates = {"start": [], "end": []}
         self._codelet_templates = {}
         self._relocatables = RelocationTable(hag.get_off_chip_storage())
         self._compilation_pipeline = defaultdict(list)
@@ -106,6 +109,14 @@ class CodeletProgram(object):
     @property
     def compilation_pipeline(self) -> Dict[int, List[CompilationStage]]:
         return self._compilation_pipeline
+
+    @property
+    def program_flex_templates(self) -> Dict[str, List[FlexTemplate]]:
+        return self._program_flex_templates
+
+    @property
+    def cdlt_flex_templates(self) -> Dict[str, List[FlexTemplate]]:
+        return self._cdlt_flex_templates
 
     @property
     def preproc_stages(self) -> Dict[int, List[CompilationStage]]:
@@ -252,6 +263,7 @@ class CodeletProgram(object):
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
             for ft in o.instructions:
                 ft.evaluate(*args)
+
 
     def get_template_shapes(self, t):
         shapes = [len(i.shape_list) for i in t.inputs]
@@ -430,12 +442,15 @@ class CodeletProgram(object):
                 if len(instr_list) > 0:
                     instr_list = f"\n".join(instr_list) + "\n"
                     op_str += instr_list
+            if len(op_str) > 0 and op_str[-1] == "\n":
+                op_str = op_str[:-1]
         else:
             op_str = []
             for o in cdlt.ops:
                 instr_list = self.emit_operation(o, output_type)
                 op_str += instr_list
             op_str = "\n".join(op_str)
+
         return op_str
 
     def emit_codelets(self, output_type):
@@ -443,15 +458,19 @@ class CodeletProgram(object):
         for c in self.codelets:
 
             # Emit codelet start
-            if self.hag.has_op_template("codelet", "start"):
-                cdlt_start = self.hag.get_cdlt_op_template_copy("start")
+            if output_type not in ['operations', 'operations_idx']:
+
+                cdlt_start = self.cdlt_flex_templates['start']
+                assert isinstance(cdlt_start, list)
+                assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start])
                 for ft in cdlt_start:
                     codelet_strings += ft.emit(output_type)
             codelet_strings.append(self.emit_single_codelet(c, output_type))
-
             # Emit codelet end
-            if self.hag.has_op_template("codelet", "end"):
-                cdlt_end = self.hag.get_cdlt_op_template_copy("end")
+            if output_type not in ['operations', 'operations_idx']:
+                cdlt_end = self.cdlt_flex_templates['end']
+                assert isinstance(cdlt_end, list)
+                assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end])
                 for ft in cdlt_end:
                     codelet_strings += ft.emit(output_type)
         return codelet_strings
@@ -459,17 +478,15 @@ class CodeletProgram(object):
     def emit(self, output_type: str):
         program_strings = []
 
-        if self.hag.has_op_template("program", "start"):
-            start_instrs = self.hag.get_program_template("start")
-            for ft in start_instrs.instructions:
-                program_strings += ft.emit(output_type)
+        start_instrs = self.program_flex_templates['start']
+        for ft in start_instrs:
+            program_strings += ft.emit(output_type)
 
         program_strings += self.emit_codelets(output_type)
 
-        if self.hag.has_op_template("program", "end"):
-            end_instrs = self.hag.get_program_template("end")
-            for ft in end_instrs.instructions:
-                program_strings += ft.emit(output_type)
+        end_instrs = self.program_flex_templates['end']
+        for ft in end_instrs:
+            program_strings += ft.emit(output_type)
 
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(program_strings)
@@ -489,14 +506,16 @@ class CodeletProgram(object):
             for ft in cdlt_start:
                 assert ft.template_type == "codelet"
                 ft.evaluate(*args)
+            self._cdlt_flex_templates['start'] = cdlt_start
 
         if self.hag.has_op_template("codelet", "end"):
             cdlt_end = self.hag.get_cdlt_op_template_copy("end")
             args = (self, self.hag, -1, cdlt.instance_id)
-
             for ft in cdlt_end:
                 assert ft.template_type == "codelet"
                 ft.evaluate(*args)
+            self._cdlt_flex_templates['end'] = cdlt_end
+
 
     def evaluate_lazy_instruction_templates(self, cdlt):
         for o in cdlt.ops:
@@ -779,10 +798,13 @@ class CodeletProgram(object):
             print(f"\nFinalizing instruction templates")
 
         if self.hag.has_op_template("program", "start"):
-            start_instrs = self.hag.get_program_template("start")
+            start_instrs = self.hag.get_program_template_copy("start")
             args = (self, self.hag, -1, -1)
-            for ft in start_instrs.instructions:
+            for ft in start_instrs:
+                assert ft.template_type == "program"
                 ft.evaluate(*args)
+            self._program_flex_templates['start'] = start_instrs
+
 
         for n in node_sequence:
             cdlt = codelets[n.name]
@@ -796,10 +818,12 @@ class CodeletProgram(object):
 
         # Generate program end, if it exists
         if self.hag.has_op_template("program", "end"):
-            end_instrs = self.hag.get_program_template("end")
+            end_instrs = self.hag.get_program_template_copy("end")
             args = (self, self.hag, -1, -1)
-            for ft in end_instrs.instructions:
+            for ft in end_instrs:
+                assert ft.template_type == "program"
                 ft.evaluate(*args)
+            self._program_flex_templates['end'] = end_instrs
 
     def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
         if verbose:

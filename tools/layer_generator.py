@@ -6,6 +6,7 @@ from benchmarks.model_generator import create_custom_conv, create_custom_gemm,\
 from benchmarks.load_onnx_model import store_unique_model_layers, convert_model_to_polymath
 from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
 from examples.genesys import compile_genesys_layer, GENESYS_CFG, compile_genesys
+from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
 from tools.neuroweaver.compile_model import get_onnx_weights
 import numpy as np
@@ -236,7 +237,6 @@ def compile_custom_conv_layer(n, ic, oc, ih, iw, k, stride, pad, model_name, sto
 
         dir_ext = dir_ext or ''
         # program.compile(verbose=False, finalize_instructions=True)
-        print(f"Codelet length: {len(program.codelets)}")
 
         store_outputs("cc_layer1", "conv", False,
                       1,
@@ -267,17 +267,8 @@ def get_all_unique_layer_params(model_name, layer_name, input_shape_params, out_
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load_model(model_path)
     tensor_dict = collect_value_info(model.graph)
-    # tensor_dict = {i.name: i for i in model.graph.input}
-    # tensor_dict.update({o.name: o for o in model.graph.output})
-    # tensor_dict.update({v.name: v for v in model.graph.value_info})
-    # tensor_dict.update({i.name: i for i in model.graph.initializer})
-    # print(f"INputs: {[i.name for i in model.graph.input]}")
-    # print(f"val info: {[i.name for i in model.graph.value_info]}")
-    # print(f"output: {[i.name for i in model.graph.output]}")
-    # print(f"Dir: {model.graph.initializer[0].dims}")
-    # print(f"Dir: {type(model.graph.input[0].type.tensor_type.shape.dim)}\n")
-    # print(f"Dir: {dir(model.graph.initializer[0])}")
-    # print(f"Dir: {dir(model.graph.input[0])}")
+    ic_bw_constr = GENESYS_CFG['IBUF_CHANNEL_BW'] // 8
+    oc_bw_constr = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
 
     layer_params = []
     for n in model.graph.node:
@@ -295,24 +286,35 @@ def get_all_unique_layer_params(model_name, layer_name, input_shape_params, out_
                         kv_map[a.name] = attr_val[0]
                     else:
                         kv_map[a.name] = attr_val
+
             for i, v in enumerate(inputs):
                 shape = get_onnx_shape(tensor_dict, v)
                 assert len(shape) == len(input_shape_params[i])
                 for pidx, p in enumerate(input_shape_params[i]):
                     if p in kv_map:
-                        assert kv_map[p] == shape[pidx], f"Mismatched values for input key {p}:\n" \
+                        assert kv_map[p] == shape[pidx] or p in ['IC', 'OC'], f"Mismatched values for input key {p}:\n" \
                                                          f"Input val: {shape[pidx]}, Previous: {kv_map[p]} "
                     else:
                         kv_map[p] = shape[pidx]
+                    if p == 'IC':
+                        kv_map[p] = kv_map[p] + (ic_bw_constr - kv_map[p]) % ic_bw_constr
+                    elif p == 'OC':
+                        kv_map[p] = kv_map[p] + (oc_bw_constr - kv_map[p]) % oc_bw_constr
+
             for o, v in enumerate(outputs):
                 shape = get_onnx_shape(tensor_dict, v)
                 assert len(shape) == len(out_shape_params[o])
                 for pidx, p in enumerate(out_shape_params[o]):
                     if p in kv_map:
-                        assert kv_map[p] == shape[pidx], f"Mismatched values for output key {p}:\n" \
+                        assert kv_map[p] == shape[pidx] or p in ['IC', 'OC'], f"Mismatched values for output key {p}:\n" \
                                                          f"Output val: {shape[pidx]}, Previous: {kv_map[p]} "
                     else:
                         kv_map[p] = shape[pidx]
+                    if p == 'IC':
+                        kv_map[p] = kv_map[p] + (ic_bw_constr - kv_map[p]) % ic_bw_constr
+                    elif p == 'OC':
+                        kv_map[p] = kv_map[p] + (oc_bw_constr - kv_map[p]) % oc_bw_constr
+
             if kv_map not in layer_params:
                 layer_params.append(kv_map)
     return layer_params
@@ -819,6 +821,8 @@ def model_benches(model_name,
                   nunique=1,
                   sa_size=64,
                   layers=None,
+                  layer_start=0,
+                  layer_end=None,
                   debug_output=False,
                   ext=None,
                    verbose=False,
@@ -847,8 +851,10 @@ def model_benches(model_name,
     #                   "and splits['OH'] > 1 " \
     #                   "and splits['OW'] > 1"
     ext = ext or ""
+    import pprint
     layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
-    scale_and_compile_layers(model_name, f"{sa_size}x{sa_size}_{ext}", layer_params[2:3], [], nunique,
+    layer_end = layer_end or len(layer_params)
+    scale_and_compile_layers(model_name, f"{sa_size}x{sa_size}_{ext}", layer_params[layer_start:layer_end], [], nunique,
                              added_constraint=tile_constraint,
                              layers=layers,
                              debug_output=debug_output,
@@ -934,8 +940,8 @@ def simd_benchmarks2(tests=None, layers=None, num=12):
                 params = {"N": 2, "C": 128, "H": 256//(2**off), "W": 256//(2**off)}
 
             if o == "elem_clip":
-                params['maxval'] = 0
-                params['minval'] = 6
+                params['minval'] = 0
+                params['maxval'] = 6
             program = compile_custom_layer(model_name, o, params, store_compile=True, added_constr=constraint)
 
 
@@ -956,7 +962,7 @@ def simd_benchmarks3(tests=None, layers=None, num=12):
     if tests is None:
         configs.pop("t0")
         tests = list(configs.keys())
-
+    assert all([o in ops for o in layers])
     for o in layers:
         for n in tests:
             assert n in configs
@@ -1033,7 +1039,9 @@ def systolic_array_gemm_bench(num=2):
                                             store_compile=True,
                                             partials=True)
 
-def systolic_array_conv_bench(sys_array_size=8, num=2):
+def systolic_array_conv_bench(sys_array_size=8, num=2,
+                              constr_names=None,
+                              layers=None):
     assert GENESYS_CFG['ARRAY_N'] == sys_array_size and GENESYS_CFG['ARRAY_M'] == sys_array_size
     base_test_name = f"fpga_{sys_array_size}x{sys_array_size}_tile{num}"
     scale_factor = sys_array_size//8
@@ -1050,49 +1058,51 @@ def systolic_array_conv_bench(sys_array_size=8, num=2):
     attr_params.append("strides")
     layer_configs = []
     layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 1}) # Case 0
-    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
-    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
-    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
-    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
-    # layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
-    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
-    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
-    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
-    # layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 3, "stride": 2, "pad": 1})  # Case 1
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 14, "iw": 14, "k": 5, "stride": 1, "pad": 1}) # Case  2
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 9, "iw": 9, "k": 5, "stride": 2, "pad": 1}) # Case    3
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 12, "iw": 12, "k": 5, "stride": 2, "pad": 0}) # Case  4
+    layer_configs.append({"n": 1, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 1, "stride": 1, "pad": 0}) # Case  5
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 1, "pad": 0}) # Case  6
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 10, "iw": 10, "k": 3, "stride": 2, "pad": 0}) # Case  7
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 2, "pad": 1}) # Case  8
+    layer_configs.append({"n": 4, "oc": 128, "ic": 128, "ih": 11, "iw": 11, "k": 3, "stride": 3, "pad": 1}) # Case  9
     constraints = {}
     constraints['default'] = "True"
-    # constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 " \
-    #                   "and splits['IC'] > 1 " \
-    #                   "and splits['OC'] > 1 " \
-    #                   "and splits['OH'] > 1 " \
-    #                   "and splits['OW'] > 1"
-    # constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['OC'] == 1" \
-    #                   "and splits['IC'] > 1 " \
-    #                   "and splits['OH'] > 1 " \
-    #                   "and splits['OW'] > 1"
-    # constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['IC'] == 1" \
-    #                   "and splits['OC'] > 1 " \
-    #                   "and splits['OH'] > 1 " \
-    #                   "and splits['OW'] > 1"
+    constraints['ic_oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 " \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    constraints['ic_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['OC'] == 1" \
+                      "and splits['IC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    constraints['oc_oh_ow'] = "np.prod(list(splits.values())) <= 50 and splits['IC'] == 1" \
+                      "and splits['OC'] > 1 " \
+                      "and splits['OH'] > 1 " \
+                      "and splits['OW'] > 1"
+    if layers is None:
+        layers = list(range(len(layer_configs)))
+    else:
+        assert all([isinstance(i, int) for i in layers])
 
-    for test_id, lc in enumerate(layer_configs):
 
-        for name, cstr in constraints.items():
+    if constr_names is None:
+        constraints.pop('default')
+        constr_names = list(constraints.keys())
+    else:
+        assert all([i in constraints for i in constr_names])
+
+    for test_id in layers:
+        lc = layer_configs[test_id]
+        for name in constr_names:
+            cstr = constraints[name]
             test_name = f"{base_test_name}_case{test_id}_{name}"
             program = compile_custom_conv_layer(lc['n'], lc['ic'], lc['oc'], lc['ih'], lc['iw'], lc['k'], lc['stride'], lc['pad'], test_name,
                                                 store_compile=True,
                                                 partials=False,
                                                 added_constr=cstr)
-            set_index_fmt = "({all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
-
-            # cdlt = program.codelets[0]
-            # operand = cdlt.temps[1]
-            #
-            # # c0 = cdlt.get_ops_by_type('compute')[0]
-            # c1 = cdlt.get_ops_by_type('compute')[1]
-            # print(operand.data_path)
-            # offset = operand.get_mem_offset('OBUF')
-
 
 
 def conv_out_size(dims):
@@ -1310,16 +1320,29 @@ def multi_layer_cases1(tests=None, layers=None, num=12):
             program = compile_custom_multi_layer(model_name, o, input_params, store_compile=True, added_constr=constraint)
 
 
-def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=True, verbose=False):
+def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=True, verbose=False,
+                   added_constr=None, generate_data=True):
     seq_name = "_".join(layer_sequence)
     filename = f"{fusion_model}_{seq_name}{num}"
 
     dir_ext = f"test{testnum}"
-    added_constr = None
+
+    opname = None
+    for name, fop in FUSION_OP_INFO.items():
+        if 'seq' in fop and fop['seq'] == layer_sequence:
+            opname = name
+            break
+    if opname is None:
+        raise RuntimeError(f"INvalid fusion sequence: {layer_sequence}\n")
     fuse_layers = True
     if not os.path.exists(f"{MODEL_DIR}/srdfg/{filename}.srdfg"):
         convert_model_to_polymath(f"{MODEL_DIR}/{filename}.onnx")
         assert os.path.exists(f"{MODEL_DIR}/srdfg/{filename}.srdfg")
+
+    if added_constr is not None:
+        assert isinstance(added_constr, str)
+        added_constr = {opname: added_constr}
+
     program = compile_full_model(filename,
                                  store_compile=store_compile,
                                  dir_ext=dir_ext,
@@ -1328,15 +1351,29 @@ def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=
                                  verbose=verbose,
                                  model_data=None,
                                  fuse_layers=fuse_layers,
-                                 generate_data=True
+                                 generate_data=generate_data
                                  )
 
 
 if __name__ == "__main__":
     fusion_testing("resnet18",
-                   ['Conv', 'Add', 'Relu'],
+                   # ['Conv', 'Relu'],
+                   # ['Conv', 'Add', 'Relu'],
+                   ['Conv', 'Relu', 'MaxPool'],
                    0,
-                   testnum=0)
+                   # added_constr="splits['OW'] == 4",
+                   testnum=0,
+                   generate_data=False)
+    # systolic_array_conv_bench(32, num=40)
+    # simd_benchmarks1(tests=["t0"], layers=["elem_sigmoid"], num=0)
+    # simd_benchmarks3(tests=["t0"], layers=["elem_tanh"], num=0)
+    # simd_benchmarks1(tests=["t0"], layers=["elem_add"])
+    # simd_benchmarks2(tests=["t1"], layers=["elem_clip"], num=0)
+    # simd_benchmarks2(tests=["t3"], layers=["global_avg_pool"], num=0)
+    # systolic_array_conv_bench(sys_array_size=64,
+    #                           num=0,
+    #                           constr_names=["default"],
+    #                           layers=[0])
     # multi_layer_cases1(num=1)
     # simd_benchmarks5(num=68, layers=["elem_less", "elem_equal", "elem_exp"])
     # simd_benchmarks3(layers=["elem_pow2d"], num=59)
@@ -1346,9 +1383,12 @@ if __name__ == "__main__":
     # model = "resnet18"
 
     # model = "efficientnet-lite4-11-opt"
+    # model = "resnet18"
     # model_benches(model,
-    #               sa_size=32,
+    #               sa_size=8,
     #               debug_output=False,
+    #               # layer_start=15,
+    #               # layer_end=2,
     #               ext="t12_",
     #               verbose=False,
     #               do_scaling=False)

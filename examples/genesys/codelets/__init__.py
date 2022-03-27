@@ -1,5 +1,6 @@
 
 from .util import range_from_cfg
+from .arch_constraints import add_simd_constraint, add_conv_constraints, add_gemm_constraints
 from .fusion_layers import FUSION_CODELETS, FUSION_OP_INFO
 from .gradients import GRADIENT_CDLTS
 from .binary import BINARY_CODELETS

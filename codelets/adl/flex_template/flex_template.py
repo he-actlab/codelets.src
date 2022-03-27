@@ -5,6 +5,7 @@ from codelets.adl.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
 NUM_OP_FN_ARGS = 6
+
 @dataclass
 class FlexTemplate:
     base_instructions: List[Instruction]

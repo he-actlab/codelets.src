@@ -136,12 +136,6 @@ class DummyOp:
     def __ge__(self, other):
         return dummy_op(other, self, '>=')
 
-    # def __ne__(self, other):
-    #     return dummy_op(other, self, '!=')
-    #
-    # def __eq__(self, other):
-    #     return dummy_op(other, self, '==')
-
 
 @dataclass
 class DummyParam:

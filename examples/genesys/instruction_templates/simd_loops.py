@@ -1,12 +1,14 @@
 from codelets.adl.graph import ArchitectureNode
 
 
+
 def outer_simd_loops(hag: ArchitectureNode):
     instructions = []
+    ld_simd_compute = f"(cdlt.loop_compute_op(op, src_op=operand))"
+    st_simd_compute = f"(cdlt.loop_compute_op(op, dst_op=operand))"
     # program, cdlt, op, hag
-    ld_stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True)*operand.dtype.bytes()"
-    st_stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True, movement_type='down')*operand.dtype.bytes()"
-    # operand_str = f"cdlt.used_inputs"
+    ld_stride_str = f"operand.get_offset(cdlt, op.loop_id, hag, {ld_simd_compute}.op_str, 'DRAM', write=False, outer_loop=True)*operand.dtype.bytes()"
+    st_stride_str = f"operand.get_offset(cdlt, op.loop_id, hag, {st_simd_compute}.op_str, 'DRAM', write=True, outer_loop=True)*operand.dtype.bytes()"
     ld_operand_names = f"list(set([o.name for o in cdlt.filtered_read_operands('SIMD')]))"
     st_operand_names = f"list(set([o.name for o in cdlt.filtered_write_operands('SIMD')]))"
     ld_operand_str = f"[cdlt.get_operand(n) for n in {ld_operand_names}]"

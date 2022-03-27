@@ -79,7 +79,8 @@ class Codelet(object):
         self._id_counter = deepcopy(Operation.id_counter)
         self._loop_ctxt_level = deepcopy(Operation.loop_ctxt_level)
         self._op_id_counters = deepcopy(Operation.op_id_counters)
-        assert last_id == -1
+        assert last_id == -1, f"Last operation id is invalid when exiting codelet ctxt: {last_id}\n" \
+                              f"loop{last_id}\n"
 
     @contextmanager
     def exit_context(self):
@@ -231,6 +232,10 @@ class Codelet(object):
         return self._tile_levels
 
     @property
+    def all_operands(self):
+        return self.inputs + self.temps + self.outputs
+
+    @property
     def all_oploc_indices(self):
         indices = defaultdict(list)
         all_operands = self.operands + self.temps
@@ -320,6 +325,14 @@ class Codelet(object):
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value
+
+    def update_compilation_param(self, key, value):
+        if key in self.compilation_params:
+            prev = self.compilation_params[key]
+            new_param = f"({prev}) and ({value})"
+            self._compilation_params[key] = new_param
+        else:
+            self._compilation_params[key] = value
 
     def unset_params(self):
         unset_params = []
@@ -676,16 +689,26 @@ class Codelet(object):
         raise RuntimeError(f"Could not find compute node for {loop.op_str} with target {node_name}\n"
                            f"{options}")
 
-    def loop_compute_op(self, loop):
+    def loop_compute_op(self, loop, src_op=None, dst_op=None):
+        assert not (src_op is not None and dst_op is not None)
         if isinstance(loop, Loop):
             loop = loop.op_str
         scope_ops = self.loop_scope(loop)
         for c in scope_ops:
             if c.op_type == "compute":
-                return c
+                if src_op is not None and src_op in c.sources:
+                    return c
+                elif dst_op is not None and dst_op in c.dests:
+                    return c
+                elif dst_op is None and src_op is None:
+                    return c
+
         options = {c.op_str: c.target for c in scope_ops if c.op_type == "compute"}
-        raise RuntimeError(f"Could not find compute node for {loop.op_str}. Possible ops:\n"
-                           f"{options}")
+        raise RuntimeError(f"Could not find compute node for {loop.op_str}. "
+                           f"Src op: {src_op}\n"
+                           f"Dst op: {dst_op}\n"
+                           f"Possible ops:\n"
+                           f"{options}\n")
 
 
     def ordered_loop_ops(self):

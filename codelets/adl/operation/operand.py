@@ -301,6 +301,11 @@ class Operand:
     dim_order: List[int] = field(default=None)
 
     @property
+    def data_size(self):
+        assert self.dtype is not None
+        return np.prod(self.shape)*self.dtype.bits()
+
+    @property
     def mem_locations_set(self) -> bool:
         return all([loc in self.mem_locations for loc in set(self.data_path)])
 
@@ -372,6 +377,36 @@ class Operand:
             # TODO: Check if already set
             pass
 
+    def find_compute_rd_movement(self, op_name, compute_unit):
+        tgt = None
+        for dm in self.data_moves:
+            if dm.op_name == op_name and dm.dst_node == compute_unit:
+                return dm
+
+        if tgt is None:
+            raise RuntimeError(f"Unable to find {op_name} in movements for {self.name}"
+                               f" with destination {compute_unit}.")
+
+    def find_compute_wrt_movement(self, op_name, compute_unit):
+        tgt = None
+        for dm in self.data_moves:
+            if dm.op_name == op_name and dm.src_node == compute_unit:
+                return dm
+
+        if tgt is None:
+            raise RuntimeError(f"Unable to find {op_name} in movements for {self.name}"
+                               f" with destination {compute_unit}.")
+
+    def find_transfer_movement(self, op_name):
+        tgt = None
+        for dm in self.data_moves:
+            if dm.op_name == op_name:
+                tgt = dm
+                break
+
+        if tgt is None:
+            raise RuntimeError(f"Unable to find {op_name} in data movements for {self.name}.")
+
     def get_tile_size(self, src_loc, dst_loc):
         move = None
         for dm in self.data_moves:
@@ -379,15 +414,131 @@ class Operand:
                 move = dm
 
         if move is None:
-            raise RuntimeError
+            raise RuntimeError(f"Could not find tile size for {src_loc}, {dst_loc}")
         stride_val = np.prod(move.shape_list)
         return stride_val.astype(np.int64)
 
 
+    def get_offset(self,  cdlt, loop_id, hag, op_name, node_name, write=False, outer_loop=False):
+
+        if len(self.data_moves) > 0 and (
+                self.data_moves[-1].src_node == "IMM" or self.data_moves[-1].dst_node == "IMM"):
+            return 0
+
+        if not outer_loop:
+            assert cdlt.op_map[op_name].target == node_name
+            if write:
+                target_movement = self.find_compute_wrt_movement(op_name, node_name)
+            else:
+                target_movement = self.find_compute_rd_movement(op_name, node_name)
+        else:
+            if write:
+                target_movement = self.get_store_transfer(cdlt.op_map[op_name].target, node_name, op_name)
+            else:
+                target_movement = self.get_load_transfer(node_name, cdlt.op_map[op_name].target, op_name)
+
+
+        if cdlt.get_tile_level(target_movement.src_node) > cdlt.get_tile_level(target_movement.dst_node):
+            node_key = target_movement.src_node
+            other_key = target_movement.dst_node
+        else:
+            node_key = target_movement.dst_node
+            other_key = target_movement.src_node
+
+        offset_val = None
+
+        other_offsets = []
+
+        if all([o.loop_id == -1 for o in target_movement.domain_offsets()]):
+            dm_info = "\n".join([str({"src": dm.src_node,
+                                      "dst": dm.dst_node,
+                                      "dst_lvl": cdlt.get_tile_level(dm.dst_node),
+                                      "src_lvl": cdlt.get_tile_level(dm.src_node)
+                                      }) for dm in self.data_moves])
+            raise RuntimeError(f"All loop ids unset for target movement."
+                               f"Could not find data movement for op {op_name} in operand "
+                               f"{self.name}: {self.data_path}\n"
+                               f"Loop id: {loop_id}\n"
+                               f"Data movements: {dm_info}\n"
+                               f"Target movement info:\n"
+                               f"src: {target_movement.src_node} -> {target_movement.dst_node}\n"
+                               f"{[o.loop_id for o in target_movement.domain_offsets()]}")
+        else:
+            dom_offsets = target_movement.domain_offsets()
+
+        for o in dom_offsets:
+            if o.loop_id == loop_id:
+                offset_val = o
+            # TODO: Check to make sure other loops are nested
+            elif o.loop_id > loop_id:
+                other_offsets.append(o)
+
+        if offset_val is None:
+            return 0
+
+        other_sizes = [1]
+        acc_dims = [offset_val.dim]
+
+        for o in dom_offsets:
+
+            if o.loop_id > loop_id and o.dim not in acc_dims:
+                if node_key not in self.tiling:
+                    raise RuntimeError(f"Unable to find tiling for node key:\n"
+                                       f"{self.name}:\n"
+                                       f"node key: {node_key}\n"
+                                       f"SRC->DST: {target_movement.src_node} -> {target_movement.dst_node}\n"
+                                       f"Tiling: {self.tiling}"
+                                       )
+                other_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
+                acc_dims.append(o.dim)
+
+        src_node = hag.get_subgraph_node(target_movement.src_node)
+        dst_node = hag.get_subgraph_node(target_movement.dst_node)
+
+        if src_node.name == "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
+            width = src_node.banks
+            if (("conv" in cdlt.op_name and loop_name in ["IC", "OC"]) \
+                or ("gemm" in cdlt.op_name)) and cdlt.is_direct_loop_dep(cdlt.op_map[loop_str], "pe_array"):
+                width = np.sqrt(width)
+        elif src_node.node_type == "compute":
+            width = dst_node.banks
+        elif dst_node.node_type == "compute":
+            width = src_node.banks
+        else:
+            width = 1
+
+        if outer_loop and dst_node.name == "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
+            loop = cdlt.op_map[loop_str]
+            tile_sizes = []
+            num_tiles = []
+            for i, o in enumerate(dom_offsets):
+                tile_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
+
+                if o.dim in acc_dims and o.dim != offset_val.dim:
+                    num_tiles.append(self.tiling[other_key][self.shape_list[i]] // tile_sizes[i])
+            tile_size = np.prod([1] + tile_sizes)
+            tot_tiles = np.prod([1] + num_tiles)
+            stride_val = tile_size * tot_tiles
+        else:
+            stride_val = offset_val.stride
+
+        if outer_loop and dst_node.name != "WBUF":
+            loop_str = f"loop{loop_id}"
+            loop_name = cdlt.loop_param_map[loop_str]
+            loop = cdlt.op_map[loop_str]
+            stride_val *= loop.stride
+
+
+        return np.ceil(stride_val / width).astype(np.int64)
 
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram
-    def get_offset(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=False):
+    def get_offset_(self, cdlt, level, loop_id, hag, movement_type='up', zero_not_found=True, outer_loop=False):
+
         if movement_type == 'up':
             prev_level = level + 1
         else:
@@ -457,17 +608,13 @@ class Operand:
         for o in dom_offsets:
             if o.loop_id == loop_id:
                 offset_val = o
-                # break
             # TODO: Check to make sure other loops are nested
             elif o.loop_id > loop_id:
                 other_offsets.append(o)
 
         if offset_val is None:
+
             if zero_not_found:
-                # if not outer_loop and level == 2:
-                #     print(f"Returning zero for {loop_id}: {self.name}\n"
-                #           f"{target_movement.src_node} --> {target_movement.dst_node}\n"
-                #           f"{[o.loop_id for o in target_movement.domain_offsets()]}")
                 return 0
             else:
                 raise RuntimeError(f"Could not find offset movement {level} from "
@@ -487,10 +634,6 @@ class Operand:
                                        f"SRC->DST: {target_movement.src_node} -> {target_movement.dst_node}\n"
                                        f"Tiling: {self.tiling}"
                                        )
-                # print(f"{self.name}: "
-                #       f"SRC->DST: {target_movement.src_node} -> {target_movement.dst_node}\n"
-                #       f"Node key: {node_key}\n"
-                #         f"Tiling: {self.tiling}\n")
                 other_sizes.append(self.tiling[node_key][self.shape_list[o.dim]])
                 acc_dims.append(o.dim)
 
@@ -589,7 +732,11 @@ class Operand:
                     off = idx
                 self.dependencies.append(idx.op_str)
             offsets.append(off)
-        assert len(offsets) == len(self.shape_list)
+        if len(offsets) != len(self.shape_list):
+            raise RuntimeError("Too many address offsets for operand shape:\n"
+                               f"Operand: {self.name}\n"
+                               f"Shape: {self.shape_list}\n"
+                               f"Offsets: {offsets}")
         return IndexedOperandTemplate(self, offsets)
 
     def set_write_destination(self, location):
@@ -931,6 +1078,39 @@ class Operand:
             raise RuntimeError(f"Unable to set default location for operand {self.name} because "
                                f"path has already been initialized: {self.data_path}")
         self.data_path.append(location)
+
+    def get_load_transfer(self, src_node, dst_node, compute_name):
+        idx = -1
+        for i, dm in enumerate(self.data_moves):
+            if dm.op_name == compute_name and dm.dst_node == dst_node:
+                idx = i
+                break
+
+        while idx >= 0:
+            if self.data_moves[idx].src_node == src_node:
+                return self.data_moves[idx]
+            idx -= 1
+
+        raise RuntimeError(f"Unable to find load movement between {src_node} "
+                           f"and {dst_node} for {compute_name}")
+
+
+    def get_store_transfer(self, src_node, dst_node, compute_name):
+        idx = len(self.data_moves)
+        for i, dm in enumerate(self.data_moves):
+            if dm.op_name == compute_name and dm.src_node == src_node:
+                idx = i
+                break
+
+        while idx < len(self.data_moves):
+            if self.data_moves[idx].dst_node == dst_node:
+                return self.data_moves[idx]
+            idx += 1
+
+        for dm in self.data_moves:
+            print(f"({dm.op_name}){dm.src_node} --> {dm.dst_node}")
+        raise RuntimeError(f"Unable to find store movement between {src_node} "
+                           f"and {dst_node} for {self.name} in {compute_name}")
 
     def evaluate_operand(self, node: pm.Node, hag, cdlt):
 

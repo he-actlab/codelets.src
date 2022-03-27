@@ -213,6 +213,7 @@ def generate_random_values_unary(cdlt,
     if "clip" in op_name:
         minval = cdlt.required_params['min'].value
         maxval = cdlt.required_params['max'].value
+
         params = (minval, maxval)
     elif "tensor_transpose2d" in op_name:
         axes = (1,0)
@@ -223,11 +224,7 @@ def generate_random_values_unary(cdlt,
     elif "reduce_mean" in op_name or "reduce_min" in op_name:
         axis = cdlt.required_params['axis'].value
         params = (axis,)
-        # input1_op = OperandData(data=input1_op.data.transpose(1,0),
-        #                         node_name=input1_op.node_name,
-        #                         opname=input1_op.opname,
-        #                         idx=input1_op.idx,
-        #                         fmt=input1_op.fmt,)
+
     else:
         params = tuple([])
 

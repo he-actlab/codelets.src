@@ -2,7 +2,10 @@ from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, FXP_CONFIGS
 
-from . import range_from_cfg
+from . import range_from_cfg, add_simd_constraint
+
+
+
 
 def depthwise_conv(hag: ArchitectureNode):
     # TODO: De-duplicate replicated outer loops for a given VMEM
@@ -40,17 +43,15 @@ def depthwise_conv(hag: ArchitectureNode):
                         with cdlt.loop(OW) as x:
                             with cdlt.loop(KH) as kh:
                                 with cdlt.loop(KW) as kw:
-
-                                    cdlt.transfer(weight[c, one, kh, kw], ["DRAM", "VMEM1"])
-                                    cdlt.transfer(data[n, c, y*stride + kh, x*stride + kw], ["DRAM", "VMEM2"])
-                                    cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
+                                    cdlt.transfer(weight, ["DRAM", "VMEM1"])
+                                    cdlt.transfer(data, ["DRAM", "VMEM2"])
+                                    cdlt.transfer(out, ["DRAM", "VMEM2"])
                                     out.set_write_destination("VMEM2")
-                                    cdlt.compute("MACC", [data, weight, out], [out], target="SIMD")
-                                    cdlt.transfer(out[n, c, y, x], ["VMEM2", "DRAM"])
+                                    cdlt.compute("MACC", [data[n, c, y * stride + kh, x * stride + kw], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
+                                    cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
 
     return cdlt
 
@@ -85,24 +86,23 @@ def batch_norm(hag: ArchitectureNode):
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
-                        cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(out[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(mean[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(istd[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(scale[c], ["DRAM", "VMEM2"])
-                        cdlt.transfer(offset[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(data, ["DRAM", "VMEM1"])
+                        cdlt.transfer(out, ["DRAM", "VMEM1"])
+                        cdlt.transfer(mean, ["DRAM", "VMEM2"])
+                        cdlt.transfer(istd, ["DRAM", "VMEM2"])
+                        cdlt.transfer(scale, ["DRAM", "VMEM2"])
+                        cdlt.transfer(offset, ["DRAM", "VMEM2"])
                         numer.set_write_destination("VMEM1")
                         denom.set_write_destination("VMEM2")
                         out.set_write_destination("VMEM1")
-                        cdlt.compute("SUB", [data, mean], [numer], target="SIMD")
-                        cdlt.compute("MUL", [numer, istd], [out], target="SIMD")
-                        cdlt.compute("MUL", [out, scale], [out], target="SIMD")
-                        cdlt.compute("ADD", [out, offset], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+                        cdlt.compute("SUB", [data[n, c, h, w], mean[c]], [numer[n, c, h, w]], target="SIMD")
+                        cdlt.compute("MUL", [numer[n, c, h, w], istd[c]], [out[n, c, h, w]], target="SIMD")
+                        cdlt.compute("MUL", [out[n, c, h, w], scale[c]], [out[n, c, h, w]], target="SIMD")
+                        cdlt.compute("ADD", [out[n, c, h, w], offset[c]], [out[n, c, h, w]], target="SIMD")
+                        cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
 
     return cdlt
 
@@ -144,28 +144,27 @@ def mean_var(hag: ArchitectureNode):
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
-                        cdlt.transfer(data[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(mean[c], ["DRAM", "VMEM1"])
-                        cdlt.transfer(istd[c], ["DRAM", "VMEM2"])
+                        cdlt.transfer(data, ["DRAM", "VMEM1"])
+                        cdlt.transfer(mean, ["DRAM", "VMEM1"])
+                        cdlt.transfer(istd, ["DRAM", "VMEM2"])
                         data.set_write_destination("VMEM1")
                         mean.set_write_destination("VMEM1")
                         istd.set_write_destination("VMEM2")
-                        cdlt.compute("ADD", [data, mean], [mean], target="SIMD")
-                        cdlt.compute("MUL", [data, data], [temp1], target="SIMD")
-                        cdlt.compute("ADD", [istd, temp1], [istd], target="SIMD")
-            cdlt.compute("MUL", [mean, mean], [temp2], target="SIMD")
-            cdlt.compute("DIV", [temp2, denom_op], [temp3], target="SIMD")
-            cdlt.compute("SUB", [istd, temp3], [istd], target="SIMD")
-            cdlt.compute("DIV", [istd, denom_op], [istd], target="SIMD")
-            cdlt.compute("ADD", [istd, eps_op], [istd], target="SIMD")
-            cdlt.compute("INV_SQRT", [istd], [istd], target="SIMD")
-            cdlt.compute("DIV", [mean, denom_op], [mean], target="SIMD")
-            cdlt.transfer(mean[c], ["VMEM1", "DRAM"])
-            cdlt.transfer(istd[c], ["VMEM2", "DRAM"])
+                        cdlt.compute("ADD", [data[n, c, h, w], mean[c]], [mean[c]], target="SIMD")
+                        cdlt.compute("MUL", [data[n, c, h, w], data[n, c, h, w]], [temp1[c]], target="SIMD")
+                        cdlt.compute("ADD", [istd[c], temp1[c]], [istd[c]], target="SIMD")
+            cdlt.compute("MUL", [mean[c], mean[c]], [temp2[c]], target="SIMD")
+            cdlt.compute("DIV", [temp2[c], denom_op], [temp3[c]], target="SIMD")
+            cdlt.compute("SUB", [istd[c], temp3[c]], [istd[c]], target="SIMD")
+            cdlt.compute("DIV", [istd[c], denom_op], [istd[c]], target="SIMD")
+            cdlt.compute("ADD", [istd[c], eps_op], [istd[c]], target="SIMD")
+            cdlt.compute("INV_SQRT", [istd[c]], [istd[c]], target="SIMD")
+            cdlt.compute("DIV", [mean[c], denom_op], [mean[c]], target="SIMD")
+            cdlt.transfer(mean, ["VMEM1", "DRAM"])
+            cdlt.transfer(istd, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt = add_simd_constraint(hag, cdlt, "C")
 
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 
@@ -187,17 +186,16 @@ def cross_entropy_loss(hag: ArchitectureNode):
 
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
-                cdlt.transfer(res[n, c], ["DRAM", "VMEM1"])
-                cdlt.transfer(loss[n, c], ["DRAM", "VMEM1"])
+                cdlt.transfer(res, ["DRAM", "VMEM1"])
+                cdlt.transfer(loss, ["DRAM", "VMEM1"])
                 loss.set_write_destination("VMEM1")
-                cdlt.compute("EXP", [res], [temp1], target="SIMD")
-                cdlt.compute("ADD", [temp1, loss], [loss], target="SIMD")
-            cdlt.compute("DIV", [temp1, loss], [loss], target="SIMD")
-            cdlt.transfer(loss[n, c], ["VMEM1", "DRAM"])
+                cdlt.compute("EXP", [res[n, c]], [temp1[n, c]], target="SIMD")
+                cdlt.compute("ADD", [temp1[n, c], loss[n, c]], [loss[n, c]], target="SIMD")
+            cdlt.compute("DIV", [temp1[n, c], loss[n, c]], [loss[n, c]], target="SIMD")
+            cdlt.transfer(loss, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
 
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
     return cdlt
 
 
@@ -233,15 +231,14 @@ def maxpool2d(hag: ArchitectureNode):
                     with cdlt.loop(KW) as kw:
                         with cdlt.loop(OH) as y:
                             with cdlt.loop(OW) as x:
-                                cdlt.transfer(data[n, c, y*sy + kh, x*sx + kw], ["DRAM", "VMEM1"])
+                                cdlt.transfer(data, ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
-                                cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
+                                cdlt.transfer(out, ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM2")
-                                cdlt.compute("MAX", [data, out], [out], target="SIMD")
-                                cdlt.transfer(out[n, c, y, x], ["VMEM2", "DRAM"])
+                                cdlt.compute("MAX", [data[n, c, y*sy + kh, x*sx + kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
+                                cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
     return cdlt
 
 
@@ -276,18 +273,16 @@ def averagepool2d(hag: ArchitectureNode):
                     with cdlt.loop(KW) as kw:
                         with cdlt.loop(OH) as y:
                             with cdlt.loop(OW) as x:
-                                cdlt.transfer(data[n, c, y*sy + kh, x*sx + kw], ["DRAM", "VMEM1"])
+                                cdlt.transfer(data, ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
-                                cdlt.transfer(out[n, c, y, x], ["DRAM", "VMEM2"])
+                                cdlt.transfer(out, ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM2")
-                                cdlt.compute("ADD", [data, out], [out], target="SIMD")
-                cdlt.compute("MUL", [out, denom_op], [out], target="SIMD")
-                cdlt.transfer(out[n, c, y, x], ["VMEM1", "DRAM"])
+                                cdlt.compute("ADD", [data[n, c, y*sy + kh, x*sx + kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
+                cdlt.compute("MUL", [out[n, c, y, x], denom_op], [out[n, c, y, x]], target="SIMD")
+                cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
+    cdlt = add_simd_constraint(hag, cdlt, "C")
 
-    # cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 
@@ -328,17 +323,18 @@ def global_avg_pool(hag: ArchitectureNode):
                     with cdlt.loop(IW) as ix:
                         with cdlt.loop(N) as n:
                             with cdlt.loop(C) as c:
-                                cdlt.transfer(data[n, c, iy, ix], ["DRAM", "VMEM1"])
-                                # TODO: Zero out output data at compile time
-                                cdlt.transfer(out[n, c, oy, ox], ["DRAM", "VMEM2"])
+                                cdlt.transfer(data, ["DRAM", "VMEM1"])
+                                cdlt.transfer(out, ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM2")
-                                cdlt.compute("ADD", [data, out], [out], target="SIMD")
-                                cdlt.compute("MUL", [out, denom_op], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, oy, ox], ["VMEM2", "DRAM"])
+                                cdlt.compute("ADD", [data[n, c, iy, ix], out[n, c, oy, ox]],
+                                             [out[n, c, oy, ox]], target="SIMD")
+                                cdlt.compute("MUL", [out[n, c, oy, ox], denom_op],
+                                             [out[n, c, oy, ox]],
+                                             target="SIMD")
+                        cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
 
-    simd_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 

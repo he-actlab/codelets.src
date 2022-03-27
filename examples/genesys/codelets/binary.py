@@ -3,6 +3,8 @@ from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES
 from functools import partial
 
+from . import add_simd_constraint
+
 def elem_binary_op(cdlt_name: str, instr_name: str, hag: ArchitectureNode):
 
     with CodeletTemplate(cdlt_name) as cdlt:
@@ -23,16 +25,15 @@ def elem_binary_op(cdlt_name: str, instr_name: str, hag: ArchitectureNode):
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
-                        cdlt.transfer(op1[n, c, h, w], ["DRAM", "VMEM1"])
-                        cdlt.transfer(op2[n, c, h, w], ["DRAM", "VMEM2"])
+                        cdlt.transfer(op1, ["DRAM", "VMEM1"])
+                        cdlt.transfer(op2, ["DRAM", "VMEM2"])
                         out.set_write_destination("VMEM1")
-                        cdlt.compute(instr_name, [op1, op2], [out], target="SIMD")
-                        cdlt.transfer(out[n, c, h, w], ["VMEM1", "DRAM"])
+                        cdlt.compute(instr_name, [op1[n, c, h, w], op2[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
+                        cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-        simd_dims = hag.get_subgraph_node("pe_array").dimensions
+        cdlt = add_simd_constraint(hag, cdlt, "C")
 
-        cdlt.add_compilation_param("C_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
 BINARY_CODELETS = {

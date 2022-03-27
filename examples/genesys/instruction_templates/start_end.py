@@ -7,11 +7,6 @@ BASE_ADDR_STR_SIMD = f"program.extract_bits({SIMD_BASE_ADDR}[" + "'{LS}_' + relo
 
 def codelet_start(hag: ArchitectureNode):
     instructions = []
-    # instr = hag.get_primitive_template("IMM_SIGN_EXT", template_type="codelet")
-    # instr.set_field_by_name("NS_ID", "IMM")
-    # instr.set_field_flex_param("NS_INDEX_ID", "1 + 5")
-    # instr.set_field_value("IMM", 50)
-    # instructions.append(instr)
     return instructions
 
 
@@ -32,7 +27,6 @@ def codelet_end(hag: ArchitectureNode):
     instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
     instructions.append(instr)
     return instructions
-
 
 def simd_start_template(hag: ComputeNode):
 

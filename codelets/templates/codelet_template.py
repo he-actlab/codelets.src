@@ -82,6 +82,14 @@ class CodeletTemplate(object):
             raise RuntimeError(f"Cannot overwrite existing inputs")
         self._outputs = outputs
 
+    def add_input(self, input_op: OperandTemplate):
+        assert input_op not in self._inputs
+        self._inputs.append(input_op)
+
+    def add_output(self, output_op: OperandTemplate):
+        assert output_op not in self._outputs
+        self._outputs.append(output_op)
+
     def create_operand_template(self, name: str, dtypes: List[Datatype], shape_list: List,
                                 **kwargs):
         op_temp = OperandTemplate(name, dtypes, shape_list, **kwargs)
@@ -317,14 +325,18 @@ class CodeletTemplate(object):
                     cm = contexts.pop()
                     cm.exit_loop_body()
                 if isinstance(o, LoopTemplate):
-
-                    new_op = o.instantiate(instance_args).enter_loop_body()
+                    try:
+                        new_op = o.instantiate(instance_args).enter_loop_body()
+                    except Exception as e:
+                        raise RuntimeError(f"{e}")
                     contexts.append(new_op)
                 else:
-                    new_op = o.instantiate(instance_args)
+                    try:
+                        new_op = o.instantiate(instance_args)
+                    except Exception as e:
+                        raise RuntimeError(f"{e}")
+
                 cdlt.add_op(new_op)
-
-
 
             while len(contexts) > 0:
                 cm = contexts.pop()
@@ -386,3 +398,11 @@ class CodeletTemplate(object):
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value
+
+    def update_compilation_param(self, key, value):
+        if key in self.compilation_params:
+            prev = self.compilation_params[key]
+            new_param = f"({prev}) and ({value})"
+            self._compilation_params[key] = new_param
+        else:
+            self._compilation_params[key] = value

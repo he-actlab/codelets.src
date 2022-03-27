@@ -5,9 +5,9 @@ from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
-from .codelets import GENESYS_CODELETS
+from .codelets import GENESYS_CODELETS, FUSION_OP_INFO
 
-from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, FUSION_LAYERS, FUSION_MAPPING
+from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
 from pathlib import Path
 import json
@@ -147,6 +147,7 @@ def define_genesys(cfg):
         hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
         hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
+
     for op_name, cdlt in GENESYS_CODELETS.items():
         cdlt_instance = cdlt(hag)
         hag.add_codelet(cdlt_instance)
@@ -212,7 +213,12 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
         graph = pm.create_training_graph(graph)
 
     if fuse_layers:
-        fusion_pass = pm.FuseOps(FUSION_LAYERS)
+        fusions = []
+        for opname, info in FUSION_OP_INFO.items():
+            if opname != "single_layer_info":
+                assert 'seq' in info
+                fusions.append(info['seq'])
+        fusion_pass = pm.FuseOps(fusions)
         graph = fusion_pass(graph)
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)

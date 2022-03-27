@@ -54,9 +54,14 @@ LOOP_ITER = ('loop_op', f'cdlt.get_ops_by_type("loop")')
 
 # Stride calculation
 MVMT_TYPE = f"'up' if operand.data_path[0] == 'DRAM' else 'down'"
-LOOP_STRIDE = f"operand.get_offset(cdlt, 2," \
+RD_WRITE_OPERAND = f"(True if operand in op.dests else False)"
+# LOOP_STRIDE = f"operand.get_offset(cdlt, 2," \
+#               f"loop_op.loop_id," \
+#               f"hag, movement_type={MVMT_TYPE}, " \
+#               f"outer_loop=False)"
+LOOP_STRIDE = f"operand.get_offset(cdlt," \
               f"loop_op.loop_id," \
-              f"hag, movement_type={MVMT_TYPE}, " \
+              f"hag, op.op_str, 'SIMD', write={RD_WRITE_OPERAND}, " \
               f"outer_loop=False)"
 
 # Instruction generation conditions

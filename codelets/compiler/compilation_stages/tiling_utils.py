@@ -30,7 +30,9 @@ def get_sizes_from_splits(loops, shapes, splits):
 def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: TilingInfo):
     path_constraints = {}
 
-    for o in cdlt.operands:
+    for o in cdlt.all_operands:
+        if "DRAM" not in o.data_path:
+            continue
         for access in o.data_moves:
             if (access.src_node, access.dst_node) in path_constraints or access.src_node == access.dst_node:
                 continue
@@ -144,12 +146,17 @@ def set_codelet_tiling(cdlt: 'Codelet',
     loop_dependencies = []
 
     # Collect accesses and loop dependencies
-    for o in cdlt.operands:
+    for o in cdlt.all_operands:
+        if 'DRAM' not in o.data_path:
+            continue
         for i, access in enumerate(o.data_moves):
             if access.src_node != access.dst_node:
+                print(f"{o.name}: {access.src_node} --> {access.dst_node}")
                 level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
 
         loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
+
+
     tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
                            cdlt.domain_loop_map,
                            len(list(cdlt.tile_levels.keys())),
@@ -242,7 +249,9 @@ def set_codelet_tiling(cdlt: 'Codelet',
                            )
 
     # Lastly, update operands
-    for o in cdlt.operands:
+    for o in cdlt.all_operands:
+        if 'DRAM' not in o.data_path:
+            continue
         for idx, a in enumerate(o.data_moves):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
@@ -253,21 +262,24 @@ def set_codelet_tiling(cdlt: 'Codelet',
 
             a.set_offset_map(cdlt, tile_info.shapes)
 
-    ## Testing temporary data move updates
-    for o in cdlt.temps:
-        for idx, a in enumerate(o.data_moves):
-            if all(a in [None, 0] for a in list(a.offset_map.values())) and a.src_node != "IMM":
-                if idx > 0:
-                    a.reinit_offset_map(o.data_moves[idx - 1].offset_map.copy())
-                else:
-                    assert "compute" in a.op_name
-                    compute_op = cdlt.op_map[a.op_name]
-                    raise RuntimeError(f"Unable to handle this case right now: {a.op_name}")
-
-            if len(a.shape_map) == 0:
-                a.set_size_from_splits(cdlt, tile_info.selected_splits)
-
-            a.set_offset_map(cdlt, tile_info.shapes)
+    # ## Testing temporary data move updates
+    # for o in cdlt.temps:
+    #     for idx, a in enumerate(o.data_moves):
+    #         if all(a in [None, 0] for a in list(a.offset_map.values())) and a.src_node != "IMM":
+    #             if idx > 0:
+    #                 a.reinit_offset_map(o.data_moves[idx - 1].offset_map.copy())
+    #             else:
+    #                 assert "compute" in a.op_name, f"Operand: {o.name}\n" \
+    #                                                f"Operation: {a.op_name}\n" \
+    #                                                f"{a.src_node} --> {a.dst_node}\n" \
+    #                                                f"Offsets: {a.offset_map}\n"
+    #                 compute_op = cdlt.op_map[a.op_name]
+    #                 raise RuntimeError(f"Unable to handle this case right now: {a.op_name}")
+    #
+    #         if len(a.shape_map) == 0:
+    #             a.set_size_from_splits(cdlt, tile_info.selected_splits)
+    #
+    #         a.set_offset_map(cdlt, tile_info.shapes)
 
 
     ## Testing temporary

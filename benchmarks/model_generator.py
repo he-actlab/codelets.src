@@ -62,12 +62,32 @@ LAYER_UTILS = {
              "fn_params": [],
              "input_gen_params": (["N", "C", "H", "W"], {"min": "minval", "max": "maxval"})
              },
-    "elem_add": {"fn": lambda params: torch.add, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_mul": {"fn": lambda params: torch.mul, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_sub": {"fn": lambda params: torch.sub, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_div": {"fn": lambda params: torch.div, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_less": {"fn": lambda params: torch.lt, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_equal": {"fn": lambda params: torch.eq, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_add": {"fn": lambda params: torch.add,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_mul": {"fn": lambda params: torch.mul,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_sub": {"fn": lambda params: torch.sub,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_div": {"fn": lambda params: torch.div,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_less": {"fn": lambda params: torch.lt,
+                  "input_gen": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+                  "input_gen_params": ["N", "C", "H", "W"],
+                  "fn_params": []},
+    "elem_equal": {"fn": lambda params: torch.eq,
+                   "input_gen": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+                   "input_gen_params": ["N", "C", "H", "W"],
+                   "fn_params": []},
     "elem_exp": {"fn": lambda params: torch.exp, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "reduce_sum": {"fn": lambda params: torch.sum, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "input_gen_params": ["N", "C"], "fn_params": []},
     "relu": {"fn": lambda params: torch.nn.ReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
@@ -327,6 +347,7 @@ def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_
     convert_torch_model(input_var, model, "custom_matmul", optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
 
 def create_custom_layer(layer_name, params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
+
     class CustomLayer(nn.Module):
         def __init__(self, kwargs):
             if "const_inputs" in kwargs:
@@ -343,6 +364,7 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
             x = self.layer(*(args + self.const_inputs), **self.kwargs)
             return x
     input_var, kwargs = LAYER_UTILS[layer_name]['input_gen'](params)
+
     if "opset" in kwargs:
         opset = kwargs.pop("opset")
     else:
@@ -1130,6 +1152,7 @@ def parse_array(tensor_proto):
 
 def collect_value_info(graph):
     node_info = {}
+
     for vi in graph.value_info:
         name, shape, shape_name = get_info(vi)
         node_info[name] = shape
@@ -1378,9 +1401,8 @@ def fuse_layers(model_name,
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     src_path = f"{MODEL_DIR}/{model_name}.onnx"
     model = onnx.load(src_path)
-    e = Extractor(model)
     dst_path = f"{MODEL_DIR}/{model_name}_{instance_name}.onnx"
-    layer_inputs = [l for l in layer_inputs if l in e.vimap]
+    layer_inputs = [l for l in layer_inputs if l not in layer_info['initializer_names']]
     onnx.utils.extract_model(src_path, dst_path, layer_inputs, [result])
 
     return all_fused_nodes, fusion_instances
@@ -1420,7 +1442,7 @@ def fusion_generator(src_model, fusion_sequences):
     fusion_instances = defaultdict(int)
 
     layer_info = collect_value_info(model.graph)
-
+    layer_info['initializer_names'] = [init.name for init in model.graph.initializer]
 
 
     while nidx < len(model.graph.node):
@@ -1438,7 +1460,11 @@ def fusion_generator(src_model, fusion_sequences):
                 fused_nodes = get_fused_nodes(model.graph, pf, n, layer_info)
                 if fused_nodes is not None:
                     all_fused_nodes, fusion_instances = fuse_layers(src_model, all_fused_nodes, fusion_instances, fused_nodes, pf, layer_info)
+                    break
         nidx += 1
+    print(f"Fusion summary:")
+    for k, v in fusion_instances.items():
+        print(f"{k} - {v}")
 
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
@@ -1502,16 +1528,18 @@ if __name__ == "__main__":
         names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
 
         # new_name = optimize_graph(names[2])
-        new_name = f"{names[1]}-opt"
-        # new_name = f"resnet18"
-        # new_name = f"mobilenetv2"
-        # print_unique_model_layers(new_name)
-        # sequences = [['Conv', 'Relu'],
-        #              ['Conv', 'Add', 'Relu']]
-        sequences = [['Conv', 'Clip', 'DepthwiseConv'], ]
-        fusion_generator(new_name, sequences)
-        # optimize_yolo_onnx(False)
+        # new_name = f"{names[1]}-opt"
+        new_name = f"resnet50"
 
-        # create_resnet50(True, False, False, False,
-        #                 batch_size=1)
+        sequences = [['Conv', 'Relu'],
+                     ['Conv', 'Relu', 'MaxPool'],
+                     ['Conv', 'Add', 'Relu', 'GlobalAveragePool'],
+                     ['Conv', 'Add', 'Relu']]
+        # sequences = [['Conv', 'Relu', 'MaxPool'], ]
+        # sequences = [['Conv', 'Add'],
+        #              ['Conv', 'Clip', 'AveragePool'],
+        #              ['Conv', 'Clip', 'DepthwiseConv',],
+        #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        fusion_generator(new_name, sequences)
+
 #

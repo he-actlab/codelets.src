@@ -1,6 +1,8 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, ASIC_CONFIG
+from examples.genesys import OP_DTYPES
+from . import add_conv_constraints, add_gemm_constraints
+
 
 
 def gemm(hag: ArchitectureNode):
@@ -29,16 +31,14 @@ def gemm(hag: ArchitectureNode):
         with cdlt.loop(P) as p:
             with cdlt.loop(N) as n:
                 with cdlt.loop(M) as m:
-        # with cdlt.loop(M) as m:
-        #     with cdlt.loop(N) as n:
-        #         with cdlt.loop(P) as p:
-                    cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
-                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
-                    cdlt.transfer(bias[p], ["DRAM", "BBUF"])
-                    cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                    cdlt.transfer(bias, ["DRAM", "BBUF"])
+                    cdlt.transfer(out, ["DRAM", "OBUF"])
                     out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                    cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], out[m,p]], [out[m,p]], target="pe_array")
+
+                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -46,32 +46,8 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
-    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    # cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
-    # cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
 
-    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
-    wbuf_index_size = f"sizes['N']*sizes['P']"
-    obuf_index_size = f"sizes['M']*sizes['P']"
-    constraint = f"np.prod(list(splits.values())) > 1"
-
-    if not ASIC_CONFIG:
-        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-        bandwidth = sg_edge.bandwidth
-        fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
-                      f"{obuf_index_size} <= {obuf_elements} and " \
-                      f"sizes['N']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
-        constraint = f"{constraint} and {fpga_constr}"
-    cdlt.add_compilation_param("LEVEL1_hint", constraint)
-
-    ## DRAM to buffers
-    cdlt.add_compilation_param("N_hint1", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("P_hint1", f"size % {sys_array_dims[1]} == 0")
-
-    ## Buffer to systolic array
-    cdlt.add_compilation_param("N_hint0", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("P_hint0", f"size % {sys_array_dims[1]} == 0")
+    cdlt = add_gemm_constraints(hag, cdlt)
 
     return cdlt
 
@@ -94,27 +70,23 @@ def gemm_no_bias(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        # with cdlt.loop(P) as p:
-        #     with cdlt.loop(N) as n:
-        #         with cdlt.loop(M) as m:
         with cdlt.loop(M) as m:
             with cdlt.loop(N) as n:
                 with cdlt.loop(P) as p:
-                    cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
-                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
-                    cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                    cdlt.transfer(out, ["DRAM", "OBUF"])
                     out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                    cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], out[m,p]], [out[m,p]], target="pe_array")
+                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
-    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
-    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
+    cdlt = add_gemm_constraints(hag, cdlt)
+
     return cdlt
 
 
@@ -139,21 +111,20 @@ def matmul(hag: ArchitectureNode):
         with cdlt.loop(P) as p:
             with cdlt.loop(N) as n:
                 with cdlt.loop(M) as m:
-                    cdlt.transfer(data[m, n], ["DRAM", "IBUF"])
-                    cdlt.transfer(weight[n, p], ["DRAM", "WBUF"])
-                    cdlt.transfer(out[m, p], ["DRAM", "OBUF"])
+                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                    cdlt.transfer(out, ["DRAM", "OBUF"])
                     out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                    cdlt.transfer(out[m, p], ["OBUF", "DRAM"])
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], out[m,p]], [out[m,p]], target="pe_array")
+                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         # cdlt.configure("end", "WBUF")
         # cdlt.configure("end", "IBUF")
         # cdlt.configure("end", "OBUF")
         # cdlt.configure("end", "systolic_array")
-    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("N_hint2", f"size == {sys_array_dims[0]}")
-    cdlt.add_compilation_param("P_hint2", f"size == {sys_array_dims[1]}")
+    cdlt = add_gemm_constraints(hag, cdlt)
+
     return cdlt
 
 
@@ -193,12 +164,12 @@ def conv2d(hag: ArchitectureNode):
                         with cdlt.loop(KW) as kw:
                             with cdlt.loop(OH) as y:
                                 with cdlt.loop(OW) as x:
-                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
-                                    cdlt.transfer(data[n, ic, y*stride + kh, x*stride + kw], ["DRAM", "IBUF"])
-                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                                    cdlt.transfer(out, ["DRAM", "OBUF"])
                                     out.set_write_destination("OBUF")
-                                    cdlt.compute("MVMUL", [data, weight], [out], target="pe_array")
-                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
+                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw], weight[oc, ic, kh, kw], out[n, oc, y, x]], [out[n, oc, y, x]], target="pe_array")
+                                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -206,41 +177,10 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
-    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
 
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
-
-    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
-    wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
-    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
-
-    gt_one_tiles = f"np.prod(list(splits.values())) > 1"
-    ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
-    constraint = f"{gt_one_tiles} and {ic_tiling}"
-    if not ASIC_CONFIG:
-        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-        bandwidth = sg_edge.bandwidth
-        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
-        constraint = f"{constraint} and {ic_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
-
-    cdlt.add_compilation_param("LEVEL1_hint", constraint)
-
-
-    ## DRAM to buffers
-    cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint1", f"split == 1")
-    cdlt.add_compilation_param("KW_hint1", f"split == 1")
-
-    ## Buffer to systolic array
-    cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint0", f"size == 1")
-    cdlt.add_compilation_param("KW_hint0", f"size == 1")
-    ####
-
+    cdlt = add_conv_constraints(hag, cdlt)
     return cdlt
+
 
 
 def conv2d_bias(hag: ArchitectureNode):
@@ -281,13 +221,13 @@ def conv2d_bias(hag: ArchitectureNode):
                         with cdlt.loop(KW) as kw:
                             with cdlt.loop(OH) as y:
                                 with cdlt.loop(OW) as x:
-                                    cdlt.transfer(weight[oc, ic, kh, kw], ["DRAM", "WBUF"])
-                                    cdlt.transfer(bias[oc], ["DRAM", "BBUF"])
-                                    cdlt.transfer(data[n, ic, y*stride + kh, x*stride + kw], ["DRAM", "IBUF"])
-                                    cdlt.transfer(out[n, oc, y, x], ["DRAM", "OBUF"])
+                                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                                    cdlt.transfer(bias, ["DRAM", "BBUF"])
+                                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                                    cdlt.transfer(out, ["DRAM", "OBUF"])
                                     out.set_write_destination("OBUF")
-                                    cdlt.compute("MVMUL", [data, weight, bias], [out], target="pe_array")
-                                    cdlt.transfer(out[n, oc, y, x], ["OBUF", "DRAM"])
+                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw], weight[oc, ic, kh, kw], bias[oc], out[n, oc, y, x]], [out[n, oc, y, x]], target="pe_array")
+                                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -295,39 +235,8 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
-    sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    cdlt.add_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
-    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
-    wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
-    obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
-    gt_one_tiles = f"np.prod(list(splits.values())) > 1"
-
-    ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
-    constraint = f"{gt_one_tiles} and {ic_tiling}"
-    if not ASIC_CONFIG:
-        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-        bandwidth = sg_edge.bandwidth
-        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
-
-        constraint = f"{constraint} and {ic_hint} and {wbuf_index_size} <= {wbuf_elements} and " \
-                     f"{obuf_index_size} <= {obuf_elements}"
-    cdlt.add_compilation_param("LEVEL1_hint", constraint)
-    # bw/sys array width*bits
-
-    ## DRAM to buffers
-    cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint1", f"split == 1")
-    cdlt.add_compilation_param("KW_hint1", f"split == 1")
-
-    # Buffer to systolic array
-    cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
-    cdlt.add_compilation_param("OC_hint0", f"size % {sys_array_dims[1]} == 0")
-    cdlt.add_compilation_param("KH_hint0", f"size == 1")
-    cdlt.add_compilation_param("KW_hint0", f"size == 1")
-
+    cdlt = add_conv_constraints(hag, cdlt)
 
     return cdlt
 

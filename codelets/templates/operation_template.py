@@ -232,8 +232,8 @@ class ComputeTemplate(OperationTemplate):
         param_map = {}
         param_map['op_name'] = op_name
         param_map['target'] = target
-        assert all([isinstance(s, (OperandTemplate)) for s in sources])
-        assert all([isinstance(d, (OperandTemplate)) for d in dests])
+        assert all([isinstance(s, (OperandTemplate, IndexOperandTemplate)) for s in sources])
+        assert all([isinstance(d, (OperandTemplate, IndexOperandTemplate)) for d in dests])
         param_map['sources'] = sources
         param_map['dests'] = dests
         param_map['target'] = target
@@ -256,7 +256,9 @@ class TransferTemplate(OperationTemplate):
                  add_codelet=True,
                  **kwargs
                  ):
-        assert isinstance(operand, (OperandTemplate, IndexOperandTemplate))
+        assert isinstance(operand, (OperandTemplate)), f"Invalid type for operand {operand.name}.\n" \
+                                                       f"Transferred operands cannot use index offsets.\n" \
+                                                       f"Operand type: {type(operand)}"
         assert isinstance(path, (tuple, list)) and len(path) >= 2
 
         param_map = {}

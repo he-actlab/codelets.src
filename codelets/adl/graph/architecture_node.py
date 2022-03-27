@@ -444,6 +444,7 @@ class ArchitectureNode(Node):
         self.operation_mappings['loop'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_loop_end_template(self, target, template, template_fns=None):
+
         self.operation_mappings['loop_end'] = OpTemplate(instructions=template, functions=template_fns)
 
     def add_program_start_template(self, target, template, template_fns=None):
