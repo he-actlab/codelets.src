@@ -1,8 +1,7 @@
-from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, ASIC_CONFIG
 
 
-def add_simd_constraint(hag, cdlt, fixed_dim) -> CodeletTemplate:
+def add_simd_constraint(hag, cdlt, fixed_dim):
     assert isinstance(fixed_dim, str)
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
     cdlt.update_compilation_param(f"{fixed_dim}_hint2", f"size == {simd_dims[0]}")

@@ -387,8 +387,10 @@ class CodeletProgram(object):
         Operation.current_codelet = cdlt
         if output_type in ["operations", "operations_idx"]:
             input_str = ", ".join([f"{i.name}{i.shape_list}" for i in cdlt.inputs])
+            temp_str = ", ".join([f"{t.name}{t.shape_list}" for t in cdlt.temps])
             out_str = ", ".join([f"{o.name}{o.shape_list}" for o in cdlt.outputs])
             operand_str = f"inputs={input_str}\n" \
+                          f"intermediates={temp_str}\n" \
                           f"outputs={out_str}\n"
             op_str = f"// CODELET:\t{cdlt.op_name}{cdlt.instance_id}\n"
             op_str += operand_str
@@ -414,6 +416,7 @@ class CodeletProgram(object):
             op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
+            op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
             op_str['outputs'] = [o.emit(output_type) for o in cdlt.outputs]
             op_str['operation_sequence'] = [op.emit(output_type) for op in cdlt.ops]
         elif output_type == "json_no_ops":
@@ -433,6 +436,7 @@ class CodeletProgram(object):
             op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
+            op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
             op_str['outputs'] = [o.emit("json") for o in cdlt.outputs]
 
         elif output_type not in ["decimal", "binary"]:

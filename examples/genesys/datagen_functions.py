@@ -598,8 +598,8 @@ def manual_dw_conv(inputs, weights, cdlt, o_coord, dtype):
                         for y in range(OH):
                             for x in range(OW):
 
-
-                                partial_sum = quantize_np(inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc], dtype)
+                                partial_sum = inputs[n, kh + y*stride, kw + x*stride, ic] * weights[kh, kw, ic, oc]
+                                partial_sum = quantize_np(partial_sum, dtype)
                                 outputs[n, y, x, oc] += partial_sum
                                 if (n, y, x, oc) == o_coord:
                                     all_coords = (oc, n, ic, kh, kw, y, x)

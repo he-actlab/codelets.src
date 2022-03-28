@@ -1,5 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
-from codelets import initialize_program, tile, hoist, pad_operands, update_operand_dtypes, \
+from codelets import initialize_program
+from .compilation_stages.stages import tile, hoist, pad_operands, update_operand_dtypes, \
     add_simd_typecast, template_layout_pass, template_pad_pass, separate_simd_sa_ops
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES

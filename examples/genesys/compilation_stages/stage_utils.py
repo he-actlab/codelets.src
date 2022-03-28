@@ -9,7 +9,9 @@ if TYPE_CHECKING:
 from codelets.compiler.transformations import factors, factors_rand_sort,\
     factors_reversed, level_factors
 
-FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed,
+FACTOR_FN_MAP = {'default': factors,
+                 'random': factors_rand_sort,
+                 'reversed': factors_reversed,
                  'level': level_factors
                  }
 
@@ -51,14 +53,6 @@ def insert_simd_typecast(program: 'CodeletProgram', node, operand, cdlt: 'Codele
         flow = program.operand_mapping[key]
         assert len(flow.cdlt_write) == 1
         prev_cdlt = program.get_codelet(flow.cdlt_write[0])
-        # print(f"Producer: {prev_cdlt.op_name}\n"
-        #       f"NOOP: {prev_cdlt.is_noop()}")
-        # while prev_cdlt.is_noop():
-        #     key =
-
-        # print(f"Unequal datatypes in {cdlt.op_name}{cdlt.instance_id}\n"
-        #       f"Operand: {operand.name}, Node: {key}\n"
-        #       f"Output codelet: {codelet_output_map[key]}\n")
 
 def find_tiling(cdlt, level, perm_stack):
     if level > list(cdlt.tile_levels.keys())[-1] or level <= 0:

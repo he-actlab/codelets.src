@@ -131,24 +131,32 @@ class TilingInfo:
 
     def validate_splits(self, cdlt, perm, level):
         valid_splits = perm
+
         perm_map = self.get_permutation_map(perm)
         size_map = {}
+        access_setters = {}
         for level_access in self.accesses[level]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
             key = (level_access.src_node, level_access.dst_node)
 
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
-                    raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
-                                       f"Perm map: {perm_map}\n"
-                                       f"Operand: {level_access.operand_name}\n"
-                                       f"Size from splits: {size}\n"
-                                       f"Size map: {size_map}\n"
-                                       f"Level: {level}\n"
-                                       f"Key: {key}\n")
+                    return None
+                    # raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
+                    #                    f"Perm map: {perm_map}\n"
+                    #                    f"Operand: {level_access.operand_name}\n"
+                    #                    f"Offset map: {level_access.offset_map}\n"
+                    #                    f"Domain loop map: {cdlt.domain_loop_map}\n"
+                    #                    f"Size from splits: {size}\n"
+                    #                    f"Size map: {size_map}\n"
+                    #                    f"Level: {level}\n"
+                    #                    f"Key: {key}\n"
+                    #                    f"Name: {k} --> {v}\n"
+                    #                    f"Setter: {access_setters[k].op_name}, {access_setters[k].operand_name}")
 
                 else:
                     size_map[k] = v
+                    access_setters[k] = level_access
 
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bits()
             constraint_sat = self.evaluate_constraint(key, size, dtype_size)

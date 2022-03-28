@@ -142,6 +142,7 @@ def conv_relu_max_pool(hag: ArchitectureNode):
 
 
         min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
+        mp_pad = cdlt.dummy_op("max_pool_pad", cdlt.node.max_pool_pad[0])
         sy = cdlt.dummy_op("sy", cdlt.node.max_pool_stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.max_pool_stride[1])
         cdlt.configure("start", "SIMD")
@@ -216,104 +217,75 @@ def conv_add_relu(hag: ArchitectureNode):
     return cdlt
 
 
-def conv_clip_dw_conv(hag: ArchitectureNode):
+def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
     # MP padding:
     # iw1' = ((ow_conv + 2*p_mp) - 1) * stride + kw_conv
     # P1_update = (iw' - iw1)/2
-    with CodeletTemplate("conv_bias_elem_clip_depthwise_conv") as cdlt:
-        stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
-        OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+    with CodeletTemplate("conv_bias_elem_clip_depthwise_conv_bias") as cdlt:
+        # Setup conv arguments
+        cdlt, params = create_systolic_args(cdlt)
+        # Add parameter for clip
+        C, N = params['OC'], params['N']
         ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[3].shape[1])
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        OH = cdlt.dummy_op("OH", cdlt.node.conv_output.shape[2])
-        OW = cdlt.dummy_op("OW", cdlt.node.conv_output.shape[3])
+        OH = cdlt.dummy_op("OH1", cdlt.node.outputs[0].shape[2])
+        OW = cdlt.dummy_op("OW1", cdlt.node.outputs[0].shape[3])
+        KH = cdlt.dummy_op("KH1", cdlt.node.inputs[3].shape[2])
+        KW = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
-        OH1 = cdlt.dummy_op("OH1", cdlt.node.outputs[0].shape[2])
-        OW1 = cdlt.dummy_op("OW1", cdlt.node.outputs[0].shape[3])
+        # Add dw conv inputs
+        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
+        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        cdlt.add_input(weight)
+        cdlt.add_input(bias)
 
-        IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
-        KH = cdlt.dummy_op("KH", cdlt.node.inputs[1].shape[2])
-        KW = cdlt.dummy_op("KW", cdlt.node.inputs[1].shape[3])
+        s = cdlt.dummy_op("s2", cdlt.node.depthwise_conv_bias_stride)
+        pad = cdlt.dummy_op("p2", cdlt.node.depthwise_conv_bias_pad)
 
-        KH1 = cdlt.dummy_op("KH1", cdlt.node.inputs[3].shape[2])
-        KW1 = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
-        IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
-        IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
-
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=OP_DTYPES[2])
-        dw_conv_weights = cdlt.create_operand_template("dw_conv_weights", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-
-        cdlt.set_inputs([data, weight, bias, dw_conv_weights])
+        # Create outputs
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
         cdlt.set_outputs([out])
 
+        # Create temporary storage
+        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+
+
+        # Setup min/max params
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
 
-        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        clip_out = cdlt.create_operand_template("clip_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        clip_out.start_location = "VMEM2"
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
 
-
-        cdlt.add_temp_operand(conv_out)
-        cdlt.add_temp_operand(clip_out)
-        # SA Config
-        cdlt.configure("start", "systolic_array")
-        cdlt.configure("start", "WBUF")
-        cdlt.configure("start", "BBUF")
-        cdlt.configure("start", "IBUF")
-        cdlt.configure("start", "OBUF")
-
-        with cdlt.loop(OC) as oc:
-            with cdlt.loop(N) as n:
-                with cdlt.loop(IC) as ic:
-                    with cdlt.loop(KH) as kh:
-                        with cdlt.loop(KW) as kw:
-                            with cdlt.loop(OH) as y:
-                                with cdlt.loop(OW) as x:
-
-                                    cdlt.transfer(weight, ["DRAM", "WBUF"])
-                                    cdlt.transfer(bias, ["DRAM", "BBUF"])
-                                    cdlt.transfer(data, ["DRAM", "IBUF"])
-                                    cdlt.transfer(conv_out, ["DRAM", "OBUF"])
-                                    conv_out.set_write_destination("OBUF")
-                                    cdlt.compute("MVMUL", [data[n, ic, y * stride + kh, x * stride + kw],
-                                                           weight[oc, ic, kh, kw],
-                                                           bias[oc]],
-                                                 [conv_out[n, oc, y, x]], target="pe_array")
-        # TODO: Add store off chip
-        cdlt.configure("end", "WBUF")
-        cdlt.configure("end", "BBUF")
-        cdlt.configure("end", "IBUF")
-        cdlt.configure("end", "OBUF")
-        cdlt.configure("end", "systolic_array")
-
+        cdlt, conv_out = create_systolic_func(cdlt, params)
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
-
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=minval, index=1)
+        cdlt.configure("start", "IMM", immediate_value=maxval, index=2)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
-                with cdlt.loop(OC) as c:
-                    with cdlt.loop(OH1) as y1:
-                        with cdlt.loop(OW1) as x1:
-                            with cdlt.loop(KH1) as kh:
-                                with cdlt.loop(KW1) as kw:
+                with cdlt.loop(C) as c:
+                    with cdlt.loop(OH) as y:
+                        with cdlt.loop(OW) as x:
+                            with cdlt.loop(KH) as kh:
+                                with cdlt.loop(KW) as kw:
                                     cdlt.transfer(weight, ["DRAM", "VMEM1"])
+                                    cdlt.transfer(bias, ["DRAM", "VMEM1"])
                                     cdlt.transfer(out, ["DRAM", "VMEM2"])
                                     out.set_write_destination("VMEM2")
-                                    cdlt.compute("MACC", [clip_out[n, c, y1 * stride + kh, x1 * stride + kw],
-                                                          weight[c, one, kh, kw],
-                                                          out[n, c, y, x]],
-                                                 [out[n, c, y, x]], target="SIMD")
+                                    cdlt.compute("MACC",
+                                                 [conv_out[n, c, y * s + kh, x * s + kw], weight[c, one, kh, kw],
+                                                  out[n, c, y, x]], [out[n, c, y, x]],
+                                                 target="SIMD")
+                                    cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n,c,y,x]], target="SIMD")
                                     cdlt.transfer(out, ["VMEM2", "DRAM"])
+
         cdlt.configure("end", "SIMD")
 
     cdlt = add_conv_constraints(hag, cdlt, is_fusion=True)
-
+    cdlt = add_simd_constraint(hag, cdlt, "OC")
     return cdlt
 
 
@@ -329,9 +301,14 @@ FUSION_OP_INFO = {
         'seq': ['Conv', 'Add', 'Relu'],
 
     },
-    'conv_bias_relu_max_pool': {
-        'cdlt': conv_relu_max_pool,
-        'seq': ['Conv', 'Relu', 'MaxPool'],
+    # 'conv_bias_relu_max_pool': {
+    #     'cdlt': conv_relu_max_pool,
+    #     'seq': ['Conv', 'Relu', 'MaxPool'],
+    #
+    # },
+    'conv_bias_elem_clip_depthwise_conv_bias': {
+        'cdlt': conv_bias_elem_clip_depthwise_conv_bias,
+        'seq': ['Conv', 'Clip', 'DepthwiseConv'],
 
     },
     'single_layer_info':

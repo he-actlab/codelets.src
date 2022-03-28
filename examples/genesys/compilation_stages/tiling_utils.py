@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from codelets.adl import ArchitectureNode
     from codelets.codelet_impl import Codelet
 
-from . import TilingInfo
+from .stage_structures import TilingInfo
 from codelets.compiler.transformations import factors, factors_rand_sort, \
     factors_reversed, level_factors
 
@@ -151,7 +151,6 @@ def set_codelet_tiling(cdlt: 'Codelet',
             continue
         for i, access in enumerate(o.data_moves):
             if access.src_node != access.dst_node:
-                print(f"{o.name}: {access.src_node} --> {access.dst_node}")
                 level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
 
         loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
@@ -262,24 +261,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
 
             a.set_offset_map(cdlt, tile_info.shapes)
 
-    # ## Testing temporary data move updates
-    # for o in cdlt.temps:
-    #     for idx, a in enumerate(o.data_moves):
-    #         if all(a in [None, 0] for a in list(a.offset_map.values())) and a.src_node != "IMM":
-    #             if idx > 0:
-    #                 a.reinit_offset_map(o.data_moves[idx - 1].offset_map.copy())
-    #             else:
-    #                 assert "compute" in a.op_name, f"Operand: {o.name}\n" \
-    #                                                f"Operation: {a.op_name}\n" \
-    #                                                f"{a.src_node} --> {a.dst_node}\n" \
-    #                                                f"Offsets: {a.offset_map}\n"
-    #                 compute_op = cdlt.op_map[a.op_name]
-    #                 raise RuntimeError(f"Unable to handle this case right now: {a.op_name}")
-    #
-    #         if len(a.shape_map) == 0:
-    #             a.set_size_from_splits(cdlt, tile_info.selected_splits)
-    #
-    #         a.set_offset_map(cdlt, tile_info.shapes)
+
 
 
     ## Testing temporary

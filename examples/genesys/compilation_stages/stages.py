@@ -1,21 +1,18 @@
-from typing import TYPE_CHECKING
 from copy import deepcopy
 
-from codelets.templates.operand_template import IndexOperandTemplate, OperandTemplate
-from codelets.templates.operation_template import OperationTemplate
+from codelets.templates.operand_template import IndexOperandTemplate
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.codelet_impl import Codelet
 from codelets.codelet_impl.codelet import USE_LOOP_END
 from codelets.compiler.program import CodeletProgram
-from collections import defaultdict
 
-from .tiling_utils import set_codelet_tiling
-from .stage_utils import default_tile_heuristic, \
-    update_shape_from_arch, store_tile_checkpoint, \
+from examples.genesys.compilation_stages.tiling_utils import set_codelet_tiling
+from examples.genesys.compilation_stages.stage_utils import default_tile_heuristic, \
+    store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
+from examples.genesys.codelets import FUSION_CODELETS
 import polymath as pm
-import json
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
@@ -30,7 +27,9 @@ POST_TRANSPOSE_SHAPES = [
 ]
 
 # FLIP_SHAPE_PERM = [2, 3, 0, 1]
-FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'], ["C", "ONE", "KH", "KW"], ["OC", "ONE", "KH1", "KW1"]]
+FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'],
+               ["C", "ONE", "KH", "KW"],
+               ["OC", "ONE", "KH1", "KW1"]]
 
 
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
@@ -53,14 +52,22 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
-
-    if 'pad' in template.dummy_ops.keys():
-        if template.op_name == "max_pool":
-            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
-            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
+    if template.op_name in FUSION_CODELETS:
+        pad_attrs = [k for k in template.dummy_ops.keys() if 'pad' in k]
+        if 'max_pool' in template.op_name:
+            raise RuntimeError
         else:
             template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
             template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+
+    else:
+        if 'pad' in template.dummy_ops.keys():
+            if template.op_name == "max_pool":
+                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
+                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
+            else:
+                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
+                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
     compute_ops = template.get_ops_by_type('compute')
     if any([o.param_map['target'] == 'pe_array' for o in compute_ops]):
         # THis requires conv/gemm to be first operation
@@ -389,12 +396,14 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
-
+    operand = cdlt.temps[1]
+    # for dm in operand.data_moves:
+    #     if dm.src_node == "OBUF" and dm.dst_node == "SIMD":
+    #         print(f"Offsets: {dm.offset_map}")
     cdlt = propagate_offsets(cdlt, program.hag)
 
     # Find amount of splits for each loop by looking at dependencies
     loop_splits = {}
-    # for i, o in enumerate(cdlt.operands):
     for i, o in enumerate(cdlt.all_operands):
         if len(o.dependencies) == 0 and len(o.data_path) == 0:
             continue
@@ -596,8 +605,7 @@ def hoist(program, node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
             continue
         i = cdlt.ops.index(o)
         all_deps = o.dependencies
-        # print(f"Op: {o.op_str}\n"
-        #       f"Dependencies: {list(sorted(o.dependencies))}\n")
+
         loop_name = cdlt.get_max_loop_dep(o)
 
         if loop_name is None:
