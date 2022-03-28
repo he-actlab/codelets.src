@@ -399,10 +399,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
-    operand = cdlt.temps[1]
-    # for dm in operand.data_moves:
-    #     if dm.src_node == "OBUF" and dm.dst_node == "SIMD":
-    #         print(f"Offsets: {dm.offset_map}")
+
     cdlt = propagate_offsets(cdlt, program.hag)
 
     # Find amount of splits for each loop by looking at dependencies

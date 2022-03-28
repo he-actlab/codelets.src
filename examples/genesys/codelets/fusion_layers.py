@@ -248,7 +248,9 @@ def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
 
         # Create temporary storage
         clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
-        clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(clip_out1)
+
+        # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
 
 
         # Setup min/max params
@@ -274,9 +276,14 @@ def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
                                     cdlt.transfer(weight, ["DRAM", "VMEM1"])
                                     cdlt.transfer(bias, ["DRAM", "VMEM1"])
                                     cdlt.transfer(out, ["DRAM", "VMEM2"])
+                                    clip_out1.set_write_destination("VMEM2")
+                                    cdlt.compute("MAX", [conv_out[n, c, y * s + kh, x * s + kw], max_op], [clip_out1[n, c, y * s + kh, x * s + kw]],
+                                                 target="SIMD")
+                                    cdlt.compute("MIN", [clip_out1[n, c, y * s + kh, x * s + kw], min_op], [clip_out1[n, c, y * s + kh, x * s + kw]],
+                                                 target="SIMD")
                                     out.set_write_destination("VMEM2")
                                     cdlt.compute("MACC",
-                                                 [conv_out[n, c, y * s + kh, x * s + kw], weight[c, one, kh, kw],
+                                                 [clip_out1[n, c, y * s + kh, x * s + kw], weight[c, one, kh, kw],
                                                   out[n, c, y, x]], [out[n, c, y, x]],
                                                  target="SIMD")
                                     cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n,c,y,x]], target="SIMD")

@@ -105,13 +105,8 @@ class TilingInfo:
                 return False
 
         level_name = f"LEVEL{level}_hint"
-        # print(f"Sizes: {sizes}, Length: {len(sizes)}")
-        # print(f"Splits: {splits}, Length: {len(splits)}")
-        # print(f"Loop dim map: {self.loop_dim_map}, length: {len(self.loop_dim_map)}")
-        # print(f"Loop deps: {loop_deps}, length: {len(loop_deps)}")
+
         if level_name in self.tile_hints:
-            # sizes = {self.loop_dim_map[l]: sizes[i] for i, l in enumerate(loop_deps)}
-            # splits = {self.loop_dim_map[l]: splits[i] for i, l in enumerate(loop_deps)}
             sizes = {self.loop_dim_map[l]: sizes[self.loop_idx_mapping[l]] for l in loop_deps}
             splits = {self.loop_dim_map[l]: splits[self.loop_idx_mapping[l]] for l in loop_deps}
             valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
@@ -135,6 +130,8 @@ class TilingInfo:
         perm_map = self.get_permutation_map(perm)
         size_map = {}
         access_setters = {}
+        loc_sizes = {}
+
         for level_access in self.accesses[level]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
             key = (level_access.src_node, level_access.dst_node)
@@ -164,6 +161,8 @@ class TilingInfo:
             if not constraint_sat:
                 valid_splits = None
                 break
+
+
         self.print_debug = False
         return valid_splits
 
