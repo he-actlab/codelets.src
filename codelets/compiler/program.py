@@ -404,13 +404,14 @@ class CodeletProgram(object):
         elif output_type == "json":
             op_params = {}
             operand_dim_map = cdlt.operand_dim_mapping()
+            loop_order = [v for v in cdlt.loop_param_map.values()]
+
             for k, v in cdlt.required_params.items():
-                if k not in operand_dim_map:
+                if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
 
             op_str = {}
-            loop_order = cdlt.get_loop_order()
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
             op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
@@ -423,10 +424,10 @@ class CodeletProgram(object):
             op_params = {}
             operand_dim_map = cdlt.operand_dim_mapping()
 
-            loop_order = cdlt.get_loop_order()
+            loop_order = [v for v in cdlt.loop_param_map.values()]
 
             for k, v in cdlt.required_params.items():
-                if k not in operand_dim_map:
+                if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
 

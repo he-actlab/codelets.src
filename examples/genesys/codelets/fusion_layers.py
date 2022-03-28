@@ -7,10 +7,10 @@ def create_systolic_args(cdlt):
     params = {}
     stride = cdlt.dummy_op("stride", cdlt.node.stride)
     pad = cdlt.dummy_op("pad", cdlt.node.pad)
-    OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+    OC = cdlt.dummy_op("OC", cdlt.node.conv_output.shape[1])
     N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-    OH = cdlt.dummy_op("OH", cdlt.node.outputs[0].shape[2])
-    OW = cdlt.dummy_op("OW", cdlt.node.outputs[0].shape[3])
+    OH = cdlt.dummy_op("OH", cdlt.node.conv_output.shape[2])
+    OW = cdlt.dummy_op("OW", cdlt.node.conv_output.shape[3])
     IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
     KH = cdlt.dummy_op("KH", cdlt.node.inputs[1].shape[2])
     KW = cdlt.dummy_op("KW", cdlt.node.inputs[1].shape[3])

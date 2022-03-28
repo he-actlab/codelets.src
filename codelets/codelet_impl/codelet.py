@@ -317,7 +317,7 @@ class Codelet(object):
         return list(set(loops))
 
     def operand_dim_mapping(self):
-        operands = self.inputs + self.outputs
+        operands = self.inputs + self.outputs + self.temps
         operand_dims = {}
         for o in operands:
             operand_dims.update(o.shape_symbols)

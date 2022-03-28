@@ -60,6 +60,9 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
             template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
             template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
+            # template.update_dummy_op('OW', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
+            # template.update_dummy_op('OW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+
     else:
         if 'pad' in template.dummy_ops.keys():
             if template.op_name == "max_pool":

@@ -1356,11 +1356,12 @@ def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=
 
 
 if __name__ == "__main__":
-    fusion_testing("resnet18",
+    fusion_testing("efficientnet-lite4-11-opt",
                    # ['Conv', 'Relu'],
                    # ['Conv', 'Add', 'Relu'],
-                   ['Conv', 'Relu', 'MaxPool'],
-                   0,
+                   # ['Conv', 'Relu', 'MaxPool'],
+                   ['Conv', 'Clip', 'DepthwiseConv'],
+                   1,
                    # added_constr="splits['OW'] == 4",
                    testnum=0,
                    generate_data=False)
