@@ -30,9 +30,9 @@ def get_sizes_from_splits(loops, shapes, splits):
 def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: TilingInfo):
     path_constraints = {}
 
+    # for n in hag
+
     for o in cdlt.all_operands:
-        if "DRAM" not in o.data_path:
-            continue
         for access in o.data_moves:
             if (access.src_node, access.dst_node) in path_constraints or access.src_node == access.dst_node:
                 continue
@@ -128,6 +128,26 @@ def find_valid_splits(cdlt, p, lvl,
             break
     return valid_splits
 
+def get_tile_info(cdlt, hag, factor_fn_name) -> TilingInfo:
+    level_accesses = defaultdict(list)
+    loop_dependencies = []
+
+    # Collect accesses and loop dependencies
+    for o in cdlt.all_operands:
+        for i, access in enumerate(o.data_moves):
+            if access.src_node != access.dst_node:
+                level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
+
+        loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
+
+    tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
+                           cdlt.domain_loop_map,
+                           len(list(cdlt.tile_levels.keys())),
+                           loop_dependencies,
+                           level_accesses, factor_fn_name=factor_fn_name)
+    tile_info.update_loop_order(cdlt)
+    tile_info = get_tile_constraints(cdlt, hag, tile_info)
+    return tile_info
 
 def set_codelet_tiling(cdlt: 'Codelet',
                        hag: 'ArchitectureNode',
@@ -142,30 +162,11 @@ def set_codelet_tiling(cdlt: 'Codelet',
         RuntimeError("Selection metric for codelet tiling is not specified")
     # TODO: Try to look ahead and see if all paths lead to node, in which case
     # we can add additional constraints to the first level
-    level_accesses = defaultdict(list)
-    loop_dependencies = []
-
-    # Collect accesses and loop dependencies
-    for o in cdlt.all_operands:
-        if 'DRAM' not in o.data_path:
-            continue
-        for i, access in enumerate(o.data_moves):
-            if access.src_node != access.dst_node:
-                level_accesses[cdlt.get_tile_level(access.dst_node)].append(access)
-
-        loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
-
-
-    tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
-                           cdlt.domain_loop_map,
-                           len(list(cdlt.tile_levels.keys())),
-                           loop_dependencies,
-                           level_accesses, factor_fn_name=factor_fn_name)
+    tile_info = get_tile_info(cdlt, hag, factor_fn_name)
 
     # TODO: IF loop ordering is specified, need to figure out how to handle multiple loop blocks over the same
     # dimension
-    tile_info.update_loop_order(cdlt)
-    tile_info = get_tile_constraints(cdlt, hag, tile_info)
+
     first_perm = tile_info.initialize_shapes(cdlt)
 
     perm_stack = deque()
@@ -179,13 +180,14 @@ def set_codelet_tiling(cdlt: 'Codelet',
     prev_perm = None
     parent_perms.append(prev_perm)
     invalid_permutations = {}
-    # TODO:
 
-    # Add a data structure to accumulate results, possibly tied with a heuristic (called tiles)
-    # Stopping condition: is_valid ==> stop
-    # stopping condition: False
-    # selection metric/function: lambda tiles: min(tiles
-    # x_splits: min(prod(x)) key = splits, value = product of splits
+    eval_params = {}
+
+    for k, v in cdlt.required_params.items():
+        if k not in list(cdlt.loop_param_map.values()):
+            assert v.value is not None
+            eval_params[k] = v.value
+
 
     while tile_info.levels > level > 0:
         prev_level = level - 1
@@ -206,7 +208,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
                 continue
-            valid_splits = tile_info.validate_splits(cdlt, p, level)
+            valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
             if valid_splits is None:
                 continue
             last_valid_permutation = p
@@ -249,8 +251,6 @@ def set_codelet_tiling(cdlt: 'Codelet',
 
     # Lastly, update operands
     for o in cdlt.all_operands:
-        if 'DRAM' not in o.data_path:
-            continue
         for idx, a in enumerate(o.data_moves):
             if all(a in [None, 0] for a in list(a.offset_map.values())):
                 assert idx > 0
@@ -260,8 +260,6 @@ def set_codelet_tiling(cdlt: 'Codelet',
                 a.set_size_from_splits(cdlt, tile_info.selected_splits)
 
             a.set_offset_map(cdlt, tile_info.shapes)
-
-
 
 
     ## Testing temporary

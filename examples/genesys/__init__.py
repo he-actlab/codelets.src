@@ -35,6 +35,7 @@ FXP_CONFIGS = {
     "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32},
     "FXP8": {"signed": True, "n_int": 3, "n_frac": 4, "overflow": "saturate", "n_word": 8},
 }
+PAPER_CFG = True
 NON_ASIC_32CFG = False
 TINY_CFG = False
 SMALL_CFG = False
@@ -106,6 +107,19 @@ elif NON_ASIC_32CFG:
     GENESYS_CFG['WBUF_DEPTH'] = 4096*factor*factor
     GENESYS_CFG['OBUF_DEPTH'] = 2048*factor
     GENESYS_CFG['BBUF_DEPTH'] = 1024*factor
+elif PAPER_CFG:
+    factor = 4
+    GENESYS_CFG['ARRAY_N'] = 16
+    GENESYS_CFG['ARRAY_M'] = 16
+    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512 // factor // BIT
+    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512 // factor // BIT
+    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512 // factor // BIT
+    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512 // factor // BIT
+    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512 // factor // BIT
+    GENESYS_CFG['IBUF_DEPTH'] = 4096
+    GENESYS_CFG['WBUF_DEPTH'] = 512
+    GENESYS_CFG['OBUF_DEPTH'] = 512*factor*factor
+    GENESYS_CFG['BBUF_DEPTH'] = 128
 else:
     ## DEFAULT CONFIG
     GENESYS_CFG['ARRAY_N'] = 64
@@ -119,6 +133,7 @@ else:
     GENESYS_CFG['WBUF_DEPTH'] = 4096
     GENESYS_CFG['OBUF_DEPTH'] = 2048
     GENESYS_CFG['BBUF_DEPTH'] = 1024
+
     ## END DEFAULT CONFIG
 
 

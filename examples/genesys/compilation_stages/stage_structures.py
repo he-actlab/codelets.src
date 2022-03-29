@@ -75,7 +75,7 @@ class TilingInfo:
         return first_perm
 
     def add_constraint(self, src: str, dst: str, level: int, constraint_str: str):
-        self.constraint_fps[src,dst] = FlexParam(f"{self.name}_{src}_{dst}", ["size"], constraint_str)
+        self.constraint_fps[src, dst] = FlexParam(f"{self.name}_{src}_{dst}", ["size"], constraint_str)
         self.level_map[(src, dst)] = level
 
     def evaluate_constraint(self, key: Tuple[str, str], sizes: Dict[str, int], dtype_bits: int):
@@ -111,7 +111,6 @@ class TilingInfo:
             splits = {self.loop_dim_map[l]: splits[self.loop_idx_mapping[l]] for l in loop_deps}
             valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
             if not valid:
-
                 return False
         return True
 
@@ -124,14 +123,18 @@ class TilingInfo:
             pmap[l] = perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]]
         return pmap
 
-    def validate_splits(self, cdlt, perm, level):
+    # def are_splits_valid(self, cdlt, perm, level, hag):
+    #     for o in cdlt.all_operands:
+
+
+    def validate_splits(self, cdlt, perm, level, hag):
         valid_splits = perm
 
         perm_map = self.get_permutation_map(perm)
         size_map = {}
         access_setters = {}
-        loc_sizes = {}
-
+        # op_loc_set = []
+        # loc_sizes = defaultdict(int)
         for level_access in self.accesses[level]:
             size = level_access.get_size_from_splits(cdlt, perm_map)
             key = (level_access.src_node, level_access.dst_node)
@@ -139,29 +142,27 @@ class TilingInfo:
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
                     return None
-                    # raise RuntimeError(f"Size is not equal to collected sizes for access:\n"
-                    #                    f"Perm map: {perm_map}\n"
-                    #                    f"Operand: {level_access.operand_name}\n"
-                    #                    f"Offset map: {level_access.offset_map}\n"
-                    #                    f"Domain loop map: {cdlt.domain_loop_map}\n"
-                    #                    f"Size from splits: {size}\n"
-                    #                    f"Size map: {size_map}\n"
-                    #                    f"Level: {level}\n"
-                    #                    f"Key: {key}\n"
-                    #                    f"Name: {k} --> {v}\n"
-                    #                    f"Setter: {access_setters[k].op_name}, {access_setters[k].operand_name}")
-
                 else:
                     size_map[k] = v
                     access_setters[k] = level_access
 
+            # operand = cdlt.get_operand(level_access.operand_name)
+            # dtype_size = operand.dtype.bits()
             dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bits()
+            # if (key[1], level_access.operand_name) not in op_loc_set:
+            #     loc_sizes[key[1]] += dtype_size*np.prod([size[s] for s in operand.shape_symbols])
+            #     op_loc_set.append((key[1], level_access.operand_name))
             constraint_sat = self.evaluate_constraint(key, size, dtype_size)
 
             if not constraint_sat:
                 valid_splits = None
                 break
 
+        # if valid_splits is not None:
+        #     for node_name, val in loc_sizes.items():
+        #         node = hag.get_subgraph_node(node_name)
+        #         if node.node_type == "storage" and val > node.size:
+        #             return None
 
         self.print_debug = False
         return valid_splits
@@ -172,8 +173,8 @@ class TilingInfo:
 
             reversed_dom_map = {v: k for k, v in cdlt.domain_loop_map.items()}
             assert len(dim_order) == len(self.loop_dependencies), f"Invalid loop order specification due to missing loop names: " \
-                                                                  f"All loops: {self.loop_dependencies}\n" \
-                                                                  f"Specified loops: {[reversed_dom_map[d] for d in dim_order]}"
+                                                                  f"All loops: {[(l, cdlt.loop_param_map[l]) for l in self.loop_dependencies]}\n" \
+                                                                  f"Specified loops: {[(reversed_dom_map[d], d) for d in dim_order]}"
             self.loop_dependencies = [reversed_dom_map[d] for d in dim_order]
 
     def get_tile_permutations(self, level, perm_stack, cdlt):

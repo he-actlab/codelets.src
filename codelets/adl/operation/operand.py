@@ -144,6 +144,13 @@ class DataMovement:
     def get_size_from_splits(self, cdlt, splits):
         sizes = {}
 
+        src_level = cdlt.get_tile_level(self.src_node)
+        dst_level = cdlt.get_tile_level(self.dst_node)
+        if src_level > dst_level:
+            level = dst_level
+        else:
+            level = src_level
+
         for name, o in self.offset_map.items():
             if isinstance(o, Basic):
                 indices = self.get_symbol_atoms(o)
@@ -156,11 +163,16 @@ class DataMovement:
                     rel_splits.append(splits[i_as_str])
 
                     max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
+
                 max_vals.update({i: cdlt.required_params[self.get_symbol_str(i)].value for i in others})
+
                 size = self.resolve_offset(o, max_vals) + 1
 
-                if np.prod(rel_splits) == 1 and size < cdlt.get_operand(self.operand_name).shape_symbols[name]:
+                if np.prod(rel_splits) == 1 and \
+                        size < cdlt.get_operand(self.operand_name).shape_symbols[name]\
+                        and level == 0:
                     size = cdlt.get_operand(self.operand_name).shape_symbols[name]
+
                 # TODO: Add logic here to check for zero values
             else:
                 size = o
@@ -200,9 +212,7 @@ class DataMovement:
         for lev in range(level):
             for key, loop in split_levels[lev+1].items():
                 splits[key] *= loop
-
         self.shape_map = self.get_size_from_splits(cdlt, splits)
-
 
     def set_offset_map(self, cdlt, loop_shapes, dep_map=None):
         dep_map = dep_map or {}

@@ -783,6 +783,7 @@ class CodeletProgram(object):
             locs = defaultdict(int)
             loc_sizes = defaultdict(int)
             for o in (cdlt.operands + cdlt.temps):
+
                 for ml in o.unset_mem_locations:
 
                     mem_node = self.hag.get_subgraph_node(ml)
@@ -795,8 +796,9 @@ class CodeletProgram(object):
                     loc_sizes[ml] += o.dtype.bits()*np.prod(list(o.tiling[ml].values()))
                     if loc_sizes[ml] > mem_node.size:
                         raise RuntimeError(f"Invalid storage capacity for codelet\n"
-                                           f"Codelet: {cdlt.op_name}{cdlt.cdlt_uid} --> {ml}\n"
-                                           f"Input size: {cdlt.inputs[1].shape}")
+                                           f"Codelet: {cdlt.op_name} - {cdlt.cdlt_uid} --> {ml}\n"
+                                           f"Operand: {o.name}\n"
+                                           f"Tiling: {o.tiling[ml]}\n")
 
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:

@@ -344,6 +344,8 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                     single_elem_size = snode.data_size
                     assert single_elem_size == o.data_size
                     assert len(o.data_path) == 2
+                    assert list(dm.offset_map.keys()) == list(o.shape_symbols.keys())
+                    dm.reinit_offset_map(o.shape_symbols.copy())
                     break
 
                 if o in op.sources and cdlt.get_tile_level(dm.src_node) < cdlt.get_tile_level(dm.dst_node):
@@ -399,7 +401,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
-
     cdlt = propagate_offsets(cdlt, program.hag)
 
     # Find amount of splits for each loop by looking at dependencies
@@ -414,7 +415,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 loop_splits[l] = max_level
             else:
                 loop_splits[l] = max_level
-
     bands = cdlt.extract_bands()
     cdlt = set_codelet_tiling(cdlt, hag, factor_fn_name, stopping_condition, selection_metric, heuristic_fn)
 
