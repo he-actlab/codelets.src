@@ -55,10 +55,7 @@ LOOP_ITER = ('loop_op', f'cdlt.get_ops_by_type("loop")')
 # Stride calculation
 MVMT_TYPE = f"'up' if operand.data_path[0] == 'DRAM' else 'down'"
 RD_WRITE_OPERAND = f"(True if operand in op.dests else False)"
-# LOOP_STRIDE = f"operand.get_offset(cdlt, 2," \
-#               f"loop_op.loop_id," \
-#               f"hag, movement_type={MVMT_TYPE}, " \
-#               f"outer_loop=False)"
+
 LOOP_STRIDE = f"operand.get_offset(cdlt," \
               f"loop_op.loop_id," \
               f"hag, op.op_str, 'SIMD', write={RD_WRITE_OPERAND}, " \
@@ -66,9 +63,10 @@ LOOP_STRIDE = f"operand.get_offset(cdlt," \
 
 # Instruction generation conditions
 IS_DEP_COND = f'loop_op.op_str in cdlt.all_dependencies(op.dependencies)'
+COMPUTE_DEP = f'loop_op.op_str in op.operand_indices'
 OUTER_LOOP_COND = f'loop_op.loop_level < op.loop_level'
 IS_DIRECT_DEP_COND = f"cdlt.is_direct_loop_dep(loop_op, 'SIMD')"
-LOOP_CONDS = [IS_DEP_COND, OUTER_LOOP_COND, IS_DIRECT_DEP_COND]
+LOOP_CONDS = [IS_DEP_COND, COMPUTE_DEP, OUTER_LOOP_COND, IS_DIRECT_DEP_COND]
 
 # Operand location string
 OPERAND_LOC = f"op.get_operand_location(operand.name)"
@@ -213,12 +211,7 @@ def simd_transpose(hag):
 
     return instructions
 
-def simd_alu_template(op_name, hag: ArchitectureNode):
-    if op_name == "TRANSPOSE":
-        return simd_transpose(hag)
-    instructions = []
-
-    loop_idx_offset = 0 if op_name != "POW" else 1
+def add_pow_loop(hag):
     # Params
     simd_size = hag.get_subgraph_node("SIMD").dimensions[0]
 
@@ -229,58 +222,84 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     base_sign_ext = f"operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) if op.get_operand_location(operand.name) " \
                     f"!= 'IMM' else cdlt.temps.index(operand)"
 
+
+    instructions = []
+    pow_ns_idx = f"({ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_iterable(*OPERAND_ITER)
+    macro_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
+    macro_instr.set_field_flex_param('NS_INDEX_ID', pow_ns_idx)
+    macro_instr.set_field_flex_param('IMM', base_sign_ext)
+    #
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_iterable(*OPERAND_ITER)
+    sub_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
+    sub_instr.set_field_flex_param('NS_INDEX_ID', pow_ns_idx)
+    sub_instr.set_field_flex_param('IMM', '0')
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    exp_tabs = f"len(cdlt.get_ops_by_type('loop'))"
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.set_field_flex_param("LOOP_ID", f"0")
+    macro_instr.set_field_flex_param("NUM_ITER",
+                                     f"cdlt.required_params['exp'].value - 1")
+
+    # Extra set index
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    set_index_fmt = "({all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.set_field_flex_param("DST_NS_ID", "op.get_operand_location(op.dests[0].name)")
+    sub_instr.set_field_flex_param("DST_INDEX_ID",
+                                   set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.dests[0]",
+                                                        op_loc="op.get_operand_location(op.dests[0].name)"))
+    sub_instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID",
+                                   set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.sources[0]",
+                                                        op_loc="op.get_operand_location(op.sources[0].name)"))
+    sub_instr.set_field_flex_param("SRC2_NS_ID",
+                                   f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
+    src2_idx = f"0 if len(op.sources) == 1 else " + set_index_fmt.format(all_loop_id=ALL_LOOP_ID,
+                                                                         operand="op.sources[1]",
+                                                                         op_loc="op.get_operand_location(op.sources[1].name)")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", src2_idx)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+    return instructions
+
+def add_pow_compute(hag, rd_op_str):
+    instructions = []
+    instr = hag.get_primitive_template("MUL")
+    instr.set_field_flex_param("DST_NS_ID", "op.get_operand_location(op.dests[0].name)")
+    instr.set_field_flex_param("DST_INDEX_ID",
+                               f"op.dests[0].get_mem_index(op.get_operand_location(op.dests[0].name))")
+    instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
+    instr.set_field_flex_param("SRC1_INDEX_ID", rd_op_str.format(IDX=0))
+    instr.set_field_flex_param("SRC2_NS_ID", "op.get_operand_location(op.sources[1].name)")
+    instr.set_field_flex_param("SRC2_INDEX_ID", rd_op_str.format(IDX=1))
+    instructions.append(instr)
+    return instructions
+
+def simd_alu_template(op_name, hag: ArchitectureNode):
+    if op_name == "TRANSPOSE":
+        return simd_transpose(hag)
+    instructions = []
+
+    loop_idx_offset = 0 if op_name != "POW" else 1
+
+
     ### Base and stride first
     instructions += base_sign_ext_gen(op_name, hag)
 
 
     if op_name == "POW":
         # Additional loop requires additional base/offset
-        pow_ns_idx = f"({ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
-
-        macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
-        macro_instr.set_print_tabs(ALL_LOOP_ID)
-        macro_instr.add_iterable(*OPERAND_ITER)
-        macro_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
-        macro_instr.set_field_flex_param('NS_INDEX_ID', pow_ns_idx)
-        macro_instr.set_field_flex_param('IMM', base_sign_ext)
-        #
-        sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
-        sub_instr.set_print_tabs(ALL_LOOP_ID)
-        sub_instr.add_iterable(*OPERAND_ITER)
-        sub_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
-        sub_instr.set_field_flex_param('NS_INDEX_ID', pow_ns_idx)
-        sub_instr.set_field_flex_param('IMM', '0')
-        macro_instr.add_base_instruction(sub_instr)
-        instructions.append(macro_instr)
-
-        exp_tabs = f"len(cdlt.get_ops_by_type('loop'))"
-        macro_instr = hag.get_primitive_template("SET_ITER")
-        macro_instr.set_print_tabs(ALL_LOOP_ID)
-        macro_instr.set_field_flex_param("LOOP_ID", f"0")
-        macro_instr.set_field_flex_param("NUM_ITER",
-                                         f"cdlt.required_params['exp'].value - 1")
-
-        # Extra set index
-        sub_instr = hag.get_primitive_template("SET_INDEX")
-        set_index_fmt = "({all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
-
-        sub_instr.set_print_tabs(ALL_LOOP_ID)
-        sub_instr.set_field_flex_param("DST_NS_ID", "op.get_operand_location(op.dests[0].name)")
-        sub_instr.set_field_flex_param("DST_INDEX_ID",
-                                       set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.dests[0]",
-                                                            op_loc="op.get_operand_location(op.dests[0].name)"))
-        sub_instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
-        sub_instr.set_field_flex_param("SRC1_INDEX_ID",
-                                       set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.sources[0]",
-                                                            op_loc="op.get_operand_location(op.sources[0].name)"))
-        sub_instr.set_field_flex_param("SRC2_NS_ID",
-                                       f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
-        src2_idx = f"0 if len(op.sources) == 1 else " + set_index_fmt.format(all_loop_id=ALL_LOOP_ID,
-                                                                             operand="op.sources[1]",
-                                                                             op_loc="op.get_operand_location(op.sources[1].name)")
-        sub_instr.set_field_flex_param("SRC2_INDEX_ID", src2_idx)
-        macro_instr.add_base_instruction(sub_instr)
-        instructions.append(macro_instr)
+      instructions += add_pow_loop(hag)
 
     ### iters and index
     other_constr = LOOP_CONDS + ["loop_op.op_str in op.dependencies"]
@@ -289,7 +308,6 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     macro_instr.add_iterable(*LOOP_ITER)
     macro_instr.add_condition(" and ".join(other_constr))
     macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_level % {ALL_LOOP_ID}) + {loop_idx_offset}")
-    # macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // {simd_size} if cdlt.loop_param_map[loop_op.op_str] in ['C', 'IC', 'OC'] else loop_op.iter_count")
     macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]")
 
 
@@ -315,8 +333,6 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     sub_instr.set_field_flex_param("SRC2_INDEX_ID", src2_idx)
     macro_instr.add_base_instruction(sub_instr)
     instructions.append(macro_instr)
-
-
 
     # Compute instruction
     instr = hag.get_primitive_template("SET_INST")
@@ -347,15 +363,7 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
         instr.set_field_value("SRC2_INDEX_ID", 0)
         instructions.append(instr)
     else:
-        instr = hag.get_primitive_template("MUL")
-        instr.set_field_flex_param("DST_NS_ID", "op.get_operand_location(op.dests[0].name)")
-        instr.set_field_flex_param("DST_INDEX_ID",
-                                   f"op.dests[0].get_mem_index(op.get_operand_location(op.dests[0].name))")
-        instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
-        instr.set_field_flex_param("SRC1_INDEX_ID", rd_op_str.format(IDX=0))
-        instr.set_field_flex_param("SRC2_NS_ID", "op.get_operand_location(op.sources[1].name)")
-        instr.set_field_flex_param("SRC2_INDEX_ID", rd_op_str.format(IDX=1))
-        instructions.append(instr)
+        instructions += add_pow_compute(hag, rd_op_str)
 
 
     instructions += alu_noop(op_name, hag)

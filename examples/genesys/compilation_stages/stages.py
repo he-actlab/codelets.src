@@ -12,6 +12,7 @@ from examples.genesys.compilation_stages.stage_utils import default_tile_heurist
     store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
 from examples.genesys.codelets import FUSION_CODELETS
+from examples.genesys import PAPER_CFG
 import polymath as pm
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
@@ -52,6 +53,7 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
+    updated_dims = []
     if template.op_name in FUSION_CODELETS:
         pad_attrs = [k for k in template.dummy_ops.keys() if 'pad' in k]
         if 'max_pool' in template.op_name:
@@ -59,7 +61,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         else:
             template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
             template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
-
+            updated_dims.append('IH')
+            updated_dims.append('IW')
             # template.update_dummy_op('OW', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
             # template.update_dummy_op('OW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
 
@@ -71,6 +74,9 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
             else:
                 template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
                 template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+            updated_dims.append('IH')
+            updated_dims.append('IW')
+
     compute_ops = template.get_ops_by_type('compute')
     if any([o.param_map['target'] == 'pe_array' for o in compute_ops]):
         # THis requires conv/gemm to be first operation
@@ -82,24 +88,35 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
         inp_bw = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+
+        # if PAPER_CFG:
+        #     inp_bw = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
+        # else:
+        #     inp_bw = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
         new_inp_dim = dummy_inp_dim + (inp_bw - dummy_inp_dim) % inp_bw
         template.update_dummy_op(inp_dim.name, new_inp_dim)
-
+        updated_dims.append(inp_dim.name)
 
         # Need to pad OC
         wgt_bw = template.hag.edge_map[('DRAM', 'WBUF')].bandwidth_bytes
+        #
+        # if PAPER_CFG:
+        #     wgt_bw = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
+        # else:
+        #     wgt_bw = template.hag.edge_map[('DRAM', 'WBUF')].bandwidth_bytes
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
         # TODO: Need to validate
         dummy_out_dim = template.node.inputs[1].shape[0]
         new_out_dim = dummy_out_dim + (wgt_bw - dummy_out_dim) % wgt_bw
         template.update_dummy_op(out_dim.name, new_out_dim)
+        updated_dims.append(out_dim.name)
 
     # Need to figure out if this works for DW Conv
     if any([o.param_map['target'] == 'SIMD' for o in compute_ops]):
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
-        updated_dims = []
+        # updated_dims = []
         for c in compute_ops:
             if c.param_map['target'] == "SIMD":
                 for idx, i in enumerate(c.param_map['sources']):
@@ -574,7 +591,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     for d in op.dests:
                         d.update_op_accesses(cdlt, inner_op, dep_mapping)
                         d.compute_tile(op, "dest")
-
+                    op.update_operand_indices(dep_mapping)
                     inner_idx = target_idx
 
                 cdlt.insert_op(inner_op, inner_idx)
@@ -588,7 +605,6 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     cdlt = update_data_movements(cdlt)
 
     cdlt = update_temporary_data_moves(cdlt)
-
 
     if checkpoint_file is not None:
         store_tile_checkpoint(cdlt, checkpoint_file)

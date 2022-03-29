@@ -305,11 +305,11 @@ def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
     return cdlt
 
 
-def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
+def conv_bias_elem_clip_depthwise_conv_bias_elem_clip(hag: ArchitectureNode):
     # MP padding:
     # iw1' = ((ow_conv + 2*p_mp) - 1) * stride + kw_conv
     # P1_update = (iw' - iw1)/2
-    with CodeletTemplate("conv_bias_elem_clip_depthwise_conv_bias") as cdlt:
+    with CodeletTemplate("conv_bias_elem_clip_depthwise_conv_bias_elem_clip") as cdlt:
         # Setup conv arguments
         cdlt, params = create_systolic_args(cdlt)
         # Add parameter for clip
@@ -337,6 +337,9 @@ def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
         # Create temporary storage
         clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
         cdlt.add_temp_operand(clip_out1)
+
+        # dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        # cdlt.add_temp_operand(dw_conv_out)
 
         # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
 
@@ -384,6 +387,25 @@ def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
 
                                     cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n,c,y,x]], target="SIMD")
 
+                                    cdlt.compute("MAX", [out[n, c, y, x], max_op],
+                                                 [out[n, c, y, x]
+                                                  ],
+                                                 target="SIMD")
+
+                                    cdlt.compute("MIN", [out[n, c, y, x], min_op],
+                                                 [out[n, c, y, x]],
+                                                 target="SIMD")
+                                    # dw_conv_out.set_write_destination("VMEM1")
+                                    #
+                                    # cdlt.compute("MAX", [out[n, c, y, x], max_op],
+                                    #              [dw_conv_out[n, c, y, x]
+                                    #               ],
+                                    #              target="SIMD")
+                                    #
+                                    # cdlt.compute("MIN", [dw_conv_out[n, c, y, x], min_op],
+                                    #              [out[n, c, y, x]],
+                                    #              target="SIMD")
+
                                     cdlt.transfer(out, ["VMEM1", "DRAM"])
 
         cdlt.configure("end", "SIMD")
@@ -402,14 +424,14 @@ FUSION_OP_INFO = {
         'seq': ['Conv', 'Add', 'Relu'],
 
     },
-    # 'conv_bias_relu_max_pool': {
-    #     'cdlt': conv_relu_max_pool,
-    #     'seq': ['Conv', 'Relu', 'MaxPool'],
-    #
-    # },
     'conv_bias_elem_clip_depthwise_conv_bias': {
         'cdlt': conv_bias_elem_clip_depthwise_conv_bias,
         'seq': ['Conv', 'Clip', 'DepthwiseConv'],
+
+    },
+    'conv_bias_elem_clip_depthwise_conv_bias_elem_clip': {
+        'cdlt': conv_bias_elem_clip_depthwise_conv_bias_elem_clip,
+        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
 
     },
     'single_layer_info':

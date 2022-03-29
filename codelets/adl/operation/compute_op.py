@@ -13,6 +13,7 @@ class Compute(Operation):
         self._op_name = op_name
         self._sources = []
         self._dests = []
+        self._operand_indices = []
         req_params = {}
         assert target is not None
 
@@ -28,6 +29,8 @@ class Compute(Operation):
                                       **kwargs)
 
         for s_call in sources:
+            if isinstance(s_call, IndexedOperandTemplate):
+                self._operand_indices += s_call.atomic_loop_offsets
             s = s_call.add_compute_access(target, self.op_str, "source")
 
             self._dependencies += [dep for dep in s.dependencies if dep not in dependencies and dep != self.op_str]
@@ -35,6 +38,8 @@ class Compute(Operation):
 
 
         for d_call in dests:
+            if isinstance(d_call, IndexedOperandTemplate):
+                self._operand_indices += d_call.atomic_loop_offsets
             d = d_call.add_compute_access(target, self.op_str, "dest")
             self._dependencies += [dep for dep in d.dependencies if dep not in dependencies and dep != self.op_str]
             d.dependencies.append(self.op_str)
@@ -46,6 +51,11 @@ class Compute(Operation):
                         loop_deps = [dep for dep in s.dependencies if "loop" in dep]
                         d.dependencies = list(set(d.dependencies + loop_deps))
                         break
+        self._operand_indices = list(set(self._operand_indices))
+
+    @property
+    def operand_indices(self) -> List[str]:
+        return self._operand_indices
 
     def source_names(self):
         return [s.name for s in self.sources]
@@ -102,6 +112,11 @@ class Compute(Operation):
                 keys.append(key)
                 operands.append(o)
         return operands
+
+    def update_operand_indices(self, dep_map):
+        for i, idx in enumerate(self.operand_indices):
+            if idx in dep_map:
+                self._operand_indices[i] = dep_map[idx]
 
     def get_operand(self, name):
         op = None

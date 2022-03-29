@@ -1212,5 +1212,22 @@ class IndexedOperandTemplate:
         return [str(o) for o in self.offsets]
 
 
+    @property
+    def atomic_offsets(self):
+        offs = []
+        for o in self.offsets:
+            if isinstance(o, Basic):
+                offs += [str(off) for off in o.atoms(Idx)]
+                offs += [str(i) for i in list(o.free_symbols) if str(i) not in offs]
+        return offs
+
+    @property
+    def atomic_loop_offsets(self):
+        offs = []
+        for o in self.offsets:
+            if isinstance(o, Basic):
+                offs += [str(off) for off in o.atoms(Idx)]
+        return offs
+
 
 

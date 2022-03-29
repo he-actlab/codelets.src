@@ -123,8 +123,10 @@ class TilingInfo:
             pmap[l] = perm[self.dims.index(self.loop_dim_map[l])] * self.accumulated_splits[self.loop_dim_map[l]]
         return pmap
 
-    # def are_splits_valid(self, cdlt, perm, level, hag):
-    #     for o in cdlt.all_operands:
+    def are_splits_valid(self, cdlt, perm, level, hag):
+
+        for o in cdlt.all_operands:
+            pass
 
 
     def validate_splits(self, cdlt, perm, level, hag):
@@ -133,12 +135,16 @@ class TilingInfo:
         perm_map = self.get_permutation_map(perm)
         size_map = {}
         access_setters = {}
-        # op_loc_set = []
-        # loc_sizes = defaultdict(int)
+        checked_accesses = []
         for level_access in self.accesses[level]:
-            size = level_access.get_size_from_splits(cdlt, perm_map)
-            key = (level_access.src_node, level_access.dst_node)
 
+            key = (level_access.src_node, level_access.dst_node)
+            if (key, level_access.operand_name) in checked_accesses:
+                continue
+
+            checked_accesses.append((key, level_access.operand_name))
+
+            size = level_access.get_size_from_splits(cdlt, perm_map)
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
                     return None

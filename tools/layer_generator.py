@@ -1360,15 +1360,17 @@ if __name__ == "__main__":
                    # ['Conv', 'Relu'],
                    # ['Conv', 'Add', 'Relu'],
                    # ['Conv', 'Relu', 'MaxPool'],
-                   ['Conv', 'Clip', 'DepthwiseConv'],
+                   # ['Conv', 'Clip', 'DepthwiseConv'],
+                   ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
                    1,
-                   # added_constr="splits['OW'] == 4",
+                   # added_constr="splits['OW'] == 2",
                    testnum=0,
                    generate_data=False)
+
     # systolic_array_conv_bench(32, num=40)
-    # simd_benchmarks1(tests=["t0"], layers=["elem_sigmoid"], num=0)
+    # simd_benchmarks1(tests=["t0"], layers=["max_pool"], num=0)
     # simd_benchmarks3(tests=["t0"], layers=["elem_tanh"], num=0)
-    # simd_benchmarks1(tests=["t0"], layers=["elem_add"])
+    # simd_benchmarks1(tests=["t0"], layers=["elem_add"], num=0)
     # simd_benchmarks2(tests=["t1"], layers=["elem_clip"], num=0)
     # simd_benchmarks2(tests=["t3"], layers=["global_avg_pool"], num=0)
     # systolic_array_conv_bench(sys_array_size=64,
@@ -1386,11 +1388,11 @@ if __name__ == "__main__":
     # model = "efficientnet-lite4-11-opt"
     # model = "resnet18"
     # model_benches(model,
-    #               sa_size=8,
+    #               sa_size=64,
     #               debug_output=False,
-    #               # layer_start=15,
-    #               # layer_end=2,
-    #               ext="t12_",
+    #               layer_start=0,
+    #               layer_end=1,
+    #               ext="t14_",
     #               verbose=False,
     #               do_scaling=False)
 
