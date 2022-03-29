@@ -403,7 +403,6 @@ class CodeletProgram(object):
                 op_str += ostr
         elif output_type == "json":
             op_params = {}
-            operand_dim_map = cdlt.operand_dim_mapping()
             loop_order = [v for v in cdlt.loop_param_map.values()]
 
             for k, v in cdlt.required_params.items():
@@ -414,7 +413,7 @@ class CodeletProgram(object):
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
-            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
             op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
@@ -422,7 +421,6 @@ class CodeletProgram(object):
             op_str['operation_sequence'] = [op.emit(output_type) for op in cdlt.ops]
         elif output_type == "json_no_ops":
             op_params = {}
-            operand_dim_map = cdlt.operand_dim_mapping()
 
             loop_order = [v for v in cdlt.loop_param_map.values()]
 
@@ -434,7 +432,7 @@ class CodeletProgram(object):
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
-            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
             op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
