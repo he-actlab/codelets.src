@@ -858,7 +858,8 @@ def model_benches(model_name,
                              added_constraint=tile_constraint,
                              layers=layers,
                              debug_output=debug_output,
-                             verbose=verbose, do_scaling=do_scaling)
+                             verbose=verbose,
+                             do_scaling=do_scaling)
 
 
 def simd_benchmarks1(tests=None, layers=None, num=0):
@@ -870,7 +871,7 @@ def simd_benchmarks1(tests=None, layers=None, num=0):
         "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] == 1", "scale_factor": 2},
         "t3" : {"constraint": "splits['N'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
     }
-    ops = ["relu", "elem_add", "elem_mul", "max_pool", "elem_sigmoid"]
+    ops = ["relu", "elem_add", "elem_mul", "max_pool", "elem_sigmoid", "elem_sub"]
     if layers is None:
         layers = ops
     if tests is None:
@@ -1356,21 +1357,21 @@ def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=
 
 
 if __name__ == "__main__":
-    fusion_testing("efficientnet-lite4-11-opt",
-                   # ['Conv', 'Relu'],
-                   # ['Conv', 'Add', 'Relu'],
-                   # ['Conv', 'Relu', 'MaxPool'],
-                   # ['Conv', 'Clip', 'DepthwiseConv'],
-                   ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
-                   1,
-                   # added_constr="splits['OW'] == 2",
-                   testnum=0,
-                   generate_data=False)
+    # fusion_testing("efficientnet-lite4-11-opt",
+    #                # ['Conv', 'Relu'],
+    #                # ['Conv', 'Add', 'Relu'],
+    #                # ['Conv', 'Relu', 'MaxPool'],
+    #                # ['Conv', 'Clip', 'DepthwiseConv'],
+    #                ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
+    #                1,
+    #                # added_constr="splits['OW'] == 2",
+    #                testnum=0,
+    #                generate_data=False)
 
     # systolic_array_conv_bench(32, num=40)
     # simd_benchmarks1(tests=["t0"], layers=["max_pool"], num=0)
     # simd_benchmarks3(tests=["t0"], layers=["elem_tanh"], num=0)
-    # simd_benchmarks1(tests=["t0"], layers=["elem_add"], num=0)
+    simd_benchmarks1(tests=["t0"], layers=["elem_add", "elem_sub"], num=0)
     # simd_benchmarks2(tests=["t1"], layers=["elem_clip"], num=0)
     # simd_benchmarks2(tests=["t3"], layers=["global_avg_pool"], num=0)
     # systolic_array_conv_bench(sys_array_size=64,

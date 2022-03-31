@@ -25,9 +25,13 @@ ALL_MODEL_NAMES = ["resnet18", "resnet50", "lenet", "lenet_bn", "custom_conv", "
 ALL_MODEL_TRAIN_NAMES = ["resnet18_train", "resnet50_train", "lenet_train"]
 import numpy as np
 
+OUTPUT_TYPES = ["arch_cfg", "operations_idx", "json", "string_final", "decimal", "binary"]
 CWD = Path(f"{__file__}").parent
 BENCH_DIR = f"{CWD}/input_files"
-
+OUT_DIR = Path(f"{Path(__file__).parent}/compilation_output")
+ONNX_BENCH_DIR = Path(f"{Path(__file__).parent}/../benchmarks")
+MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
+LAYER_DIR = Path(f"{Path(__file__).parent}/../benchmarks/layers")
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -111,7 +115,7 @@ def store_outputs(model_name,
                   use_random=False,
                   store_partials=False,
                   program=None,
-                  added_constr=None):
+                  added_constr=None, generate_data=False):
     name = model_name
     tile_method = "min_tiles"
     # tile_method = "valid_split"
@@ -200,7 +204,8 @@ def store_outputs(model_name,
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_values(program, model_name, base_path, use_random=use_random, load_path=load_path,
+    if generate_data:
+        store_values(program, model_name, base_path, use_random=use_random, load_path=load_path,
                  actual_data=actual_data,
                  store_partials=store_partials)
     return program
@@ -222,6 +227,78 @@ def store_compilation_output(program: CodeletProgram, output_type, extension="tx
     with open(f"{out_path}/{program.name}_{output_type}.{extension}", "w") as outfile:
         outfile.write(result)
     return out_path
+
+def store_program_codelets(program: CodeletProgram, identifier, dir_ext=None, output_types=None, filtered_layers=None):
+    if output_types is not None:
+        assert all([o in OUTPUT_TYPES for o in output_types])
+    else:
+        output_types = OUTPUT_TYPES
+
+    output_dir = f"{OUT_DIR}/{program.name}"
+    if dir_ext:
+        output_dir = f"{output_dir}_{dir_ext}"
+    output_dir = f"{output_dir}_{identifier}"
+    arch_cfg = get_arch(None, None, None)
+
+    if not Path(output_dir).exists():
+        try:
+            os.makedirs(output_dir)
+        except OSError as e:
+            print(f"Creation of directory {output_dir} failed:\n {e}")
+        else:
+            print(f"Successfully created of directory {output_dir}")
+        # # First, store architecture config
+
+    if 'arch_cfg' in output_types:
+        assert arch_cfg is not None
+        arch_cfg['IBUF_END'] = int(BENCH_BASE_ADDR['IBUF'] + np.prod(program.codelets[0].inputs[0].shape))
+        res = json.dumps(arch_cfg, indent=2)
+        with open(f"{output_dir}/{program.name}_arch_cfg.json", "w") as outfile:
+            outfile.write(res)
+
+    for layer_id, cdlt in enumerate(program.codelets):
+        output_location = f"{output_dir}/layer{layer_id}_{cdlt.cdlt_uid}"
+        if not Path(output_location).exists():
+            try:
+                os.makedirs(output_location)
+            except OSError as e:
+                raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+
+        if 'operations_idx' in output_types:
+            otype = 'operations_idx'
+            ext = 'txt'
+            res = program.emit_codelet_as_program(cdlt.instance_id, otype)
+            with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'string_final' in output_types:
+            otype = 'string_final'
+            ext = 'txt'
+            res = program.emit_codelet_as_program(cdlt.instance_id, otype)
+            with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'decimal' in output_types:
+            otype = 'decimal'
+            ext = 'txt'
+            res = program.emit_codelet_as_program(cdlt.instance_id, otype)
+            with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'binary' in output_types:
+            otype = 'binary'
+            ext = 'txt'
+            res = program.emit_codelet_as_program(cdlt.instance_id, otype)
+            with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'json' in output_types:
+            otype = 'json'
+            ext = 'json'
+            res = program.emit_codelet_as_program(cdlt.instance_id, otype)
+            res = json.dumps(res, indent=2)
+            with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
 
 def run_cdlt_benchmarks():
     all_benchmarks =  ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',

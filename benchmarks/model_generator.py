@@ -923,25 +923,85 @@ def optimize_bert_onnx(to_polymath, batch_size=1):
 def optimize_yolo_onnx(to_polymath, batch_size=1):
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/yolov3.onnx"
-    store_path = f"{MODEL_DIR}/yolov3-opt.onnx"
-    n_candidates = 80
-    n_box = 40
+    store_path = f"{MODEL_DIR}/yolov3-opt2.onnx"
+    # n_candidates = 80
+    # n_box = 40
+    n_candidates = 'n_candidates'
+    n_box = 'n_box'
     inpt_shapes = {"input_1": (batch_size, 3, 416, 416),
               "image_shape": (batch_size, 2),
               }
-    out_shapes = {"yolonms_layer_1/ExpandDims_1:0": (batch_size, n_candidates, 4),
+    out_shapes = {
+                "yolonms_layer_1/ExpandDims_1:0": (batch_size, n_candidates, 4),
                   "yolonms_layer_1/ExpandDims_3:0": (batch_size, 80, n_candidates),
                   "yolonms_layer_1/concat_2:0": (n_box, 3)
                   }
     optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
 
-def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath):
+def extract_static_yolo():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
+    store_path = f"{MODEL_DIR}/yolov3-opt-static1.onnx"
+
+
+    input_names = ["input_1"]
+    output_names = ["convolution_output_", "convolution_output1_", "convolution_output2_"]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+def rename_yolo_ops():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
+    store_path = f"{MODEL_DIR}/yolov3-opt-static1.onnx"
     model = onnx.load(load_path)
-    # for o in model.graph.output:
-    #     print(o)
-    #
-    # for o in model.graph.input:
-    #     print(o)
+    model = rename_out_edges(model, 'convolution_output')
+    with open(store_path, "wb") as f:
+        f.write(model.SerializeToString())
+
+def remove_softmax_efficientnet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt.onnx"
+    store_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax.onnx"
+    input_names = ['images:0']
+    output_names = ['efficientnet-lite4/model/head/dense/BiasAdd:0']
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+
+def collect_unset_dims(model):
+    dim_param_set = set()
+    def init_dim_param_set(dim_param_set, value_infos) -> None:
+        for info in value_infos:
+            shape = info.type.tensor_type.shape
+            for dim in shape.dim:
+                if dim.HasField('dim_param'):
+                    dim_param_set.add(dim.dim_param)  # type: ignore
+
+    init_dim_param_set(dim_param_set, model.graph.input)  # type: ignore
+    init_dim_param_set(dim_param_set, model.graph.output)  # type: ignore
+    init_dim_param_set(dim_param_set, model.graph.value_info)  # type: ignore
+    return list(dim_param_set)
+
+def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath, single_params=None):
+    model = onnx.load(load_path)
+    unset_params = collect_unset_dims(model)
+
+    if len(unset_params) > 0 and inpt_shapes is None and out_shapes is None:
+        assert single_params is not None and set(single_params.keys()) == set(unset_params)
+        for i in model.graph.input:
+            for dim in i.type.tensor_type.shape.dim:
+                if dim.HasField('dim_param') and dim.dim_param in single_params:
+                    if dim.HasField('dim_value') and dim.dim_value != single_params[dim.dim_param]:
+                        raise RuntimeError(f"Invalid dim value")
+                    dim.dim_value = single_params[dim.dim_param]
+
+        for o in model.graph.output:
+            for dim in o.type.tensor_type.shape.dim:
+                if dim.HasField('dim_param') and dim.dim_param in single_params:
+                    if dim.HasField('dim_value') and dim.dim_value != single_params[dim.dim_param]:
+                        raise RuntimeError(f"Invalid dim value")
+                    dim.dim_value = single_params[dim.dim_param]
+
+    # print
     if inpt_shapes is not None and out_shapes is not None:
         model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
                                                          out_shapes)
@@ -1101,6 +1161,49 @@ def update_edge_names(model_proto):
 
     for o in model_proto.graph.output:
         o.name = node_name_map[o.name]
+
+    return model_proto
+
+def rename_out_edges(model_proto, base_string):
+    node_name_map = {}
+
+    for n in model_proto.graph.node:
+        for idx, i in enumerate(n.input):
+            if i not in node_name_map and base_string in i:
+                new_name = f"{i}_"
+                node_name_map[i] = new_name
+
+        for idx, o in enumerate(n.output):
+            if o not in node_name_map and base_string in o:
+                new_name = f"{o}_"
+
+                node_name_map[o] = new_name
+
+    for v in model_proto.graph.value_info:
+        if v.name in node_name_map:
+            assert v.name in node_name_map
+            v.name = node_name_map[v.name]
+
+    for i in model_proto.graph.initializer:
+        if i.name in node_name_map:
+            i.name = node_name_map[i.name]
+
+    for n in model_proto.graph.node:
+        for idx in range(len(n.input)):
+            if n.input[idx] in node_name_map:
+                n.input[idx] = node_name_map[n.input[idx]]
+
+        for idx in range(len(n.output)):
+            if n.output[idx] in node_name_map:
+                n.output[idx] = node_name_map[n.output[idx]]
+
+    for i in model_proto.graph.input:
+        if i.name in node_name_map:
+            i.name = node_name_map[i.name]
+
+    for o in model_proto.graph.output:
+        if o.name in node_name_map:
+            o.name = node_name_map[o.name]
 
     return model_proto
 
@@ -1338,11 +1441,11 @@ def print_unique_model_layers(model_name):
     print(f"{csv_res}")
 
 
-def optimize_graph(model_name):
+def optimize_graph(model_name, single_params=None):
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/{model_name}.onnx"
     store_path = f"{MODEL_DIR}/{model_name}-opt.onnx"
-    optimize_onnx(load_path, store_path, None, None, False)
+    optimize_onnx(load_path, store_path, None, None, False, single_params=single_params)
     return f"{model_name}-opt"
 
 def get_fusable_layer(graph, layer_name, input_node, layer_info):
@@ -1525,21 +1628,25 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
-
-        # new_name = optimize_graph(names[2])
+        # names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
+        # model = "mobilenet27"
+        # new_name = optimize_graph(model, single_params={"batch_size": 1})
+        extract_static_yolo()
+        # remove_softmax_efficientnet()
+        # rename_yolo_ops()
+        # optimize_yolo_onnx(False)
         # new_name = f"{names[1]}-opt"
-        new_name = f"resnet50"
-
-        sequences = [['Conv', 'Relu'],
-                     ['Conv', 'Relu', 'MaxPool'],
-                     ['Conv', 'Add', 'Relu', 'GlobalAveragePool'],
-                     ['Conv', 'Add', 'Relu']]
-        # sequences = [['Conv', 'Relu', 'MaxPool'], ]
-        # sequences = [['Conv', 'Add'],
-        #              ['Conv', 'Clip', 'AveragePool'],
-        #              ['Conv', 'Clip', 'DepthwiseConv',],
-        #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
-        fusion_generator(new_name, sequences)
+        # new_name = f"resnet50"
+        #
+        # sequences = [['Conv', 'Relu'],
+        #              ['Conv', 'Relu', 'MaxPool'],
+        #              ['Conv', 'Add', 'Relu', 'GlobalAveragePool'],
+        #              ['Conv', 'Add', 'Relu']]
+        # # sequences = [['Conv', 'Relu', 'MaxPool'], ]
+        # # sequences = [['Conv', 'Add'],
+        # #              ['Conv', 'Clip', 'AveragePool'],
+        # #              ['Conv', 'Clip', 'DepthwiseConv',],
+        # #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        # fusion_generator(new_name, sequences)
 
 #

@@ -5,6 +5,7 @@ from examples.genesys import OP_DTYPES
 
 def tensor_reshape(hag: ArchitectureNode):
 
+    # TODO: Right now, shapes are fixed. Need to enable different dimension combinations
     with CodeletTemplate("tensor_reshape") as cdlt:
 
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -13,10 +14,9 @@ def tensor_reshape(hag: ArchitectureNode):
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
-        cdlt.configure("end", "SIMD")
     return cdlt
 
 
@@ -54,8 +54,30 @@ def tensor_flip(hag: ArchitectureNode):
 
     return cdlt
 
+
+def concat(hag: ArchitectureNode):
+
+    with CodeletTemplate("concat") as cdlt:
+
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        IC1 = cdlt.dummy_op("IC1", cdlt.node.inputs[0].shape[1])
+        IC2 = cdlt.dummy_op("IC2", cdlt.node.inputs[1].shape[1])
+        OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, IC1, H, W], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, IC2, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+
+    return cdlt
+
 TRANSFORM_CDLTS = {
     'tensor_reshape': tensor_reshape,
     'tensor_flip': tensor_flip,
     'tensor_pad': tensor_pad,
+    'concat': concat
 }
+# 0, 2, 3, 1

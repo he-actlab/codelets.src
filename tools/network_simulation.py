@@ -49,7 +49,9 @@ def compile_layer(model_name, layer_name, layer_id, identifier, batch_size = 1,
                   tile_method="min_tiles",
                   store_compile=True,
                   dir_ext=None,
-                  added_constr=None):
+                  added_constr=None,
+                  fuse_layers=False,
+                  generate_data=False):
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
@@ -71,7 +73,8 @@ def compile_layer(model_name, layer_name, layer_id, identifier, batch_size = 1,
                             do_tile_stage=True,
                             print_config=False,
                             tiling_search_algorithm=tile_method,
-                                    do_compile=False
+                                    do_compile=False,
+                                    fuse_layers=fuse_layers
                                     # relocation_offsets=reloc_offsets
                               )
 
@@ -88,10 +91,13 @@ def compile_layer(model_name, layer_name, layer_id, identifier, batch_size = 1,
                       use_random=True,
                       dir_ext=f"{dir_ext}",
                       actual_data=False,
-                      store_partials=False, program=program)
+                      store_partials=False,
+                      program=program,
+                      generate_data=generate_data)
     return program
 
-def compile_network(model_name, identifier=0):
+def compile_network(model_name, identifier=0, generate_data=False, fuse_layers=False):
+    skip_layers = ["flatten"]
     assert model_name in SUPPORTED_MODELS
     model_location = f"{MODEL_DIR}/{model_name}.onnx"
     output_location = f"{OUT_DIR}/{model_name}_{identifier}"
@@ -109,7 +115,7 @@ def compile_network(model_name, identifier=0):
     layer_info = defaultdict(int)
     for n in model.graph.node:
         layer_id = n.op_type.lower()
-        if layer_id == "flatten":
+        if layer_id in skip_layers:
             continue
         layer_num = layer_info[layer_id]
         layer_path_name = f"{model_name}_test{identifier}_{layer_id}{layer_num}"

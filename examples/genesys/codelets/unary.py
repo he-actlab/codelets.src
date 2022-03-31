@@ -55,7 +55,6 @@ def coarse_flatten(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
-        cdlt.configure("end", "SIMD")
     return cdlt
 
 
@@ -531,6 +530,43 @@ def tensor_transpose2d(hag: ArchitectureNode):
 
     return cdlt
 
+
+def tensor_transpose4d(hag: ArchitectureNode):
+    #
+
+    # # TODO: Add option to create operand
+    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
+    with CodeletTemplate("tensor_transpose4d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[3])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, H, W], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        # Change this to be the reciprocal as a FXP value
+
+        # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
+                cdlt.transfer(data, ["DRAM", "VMEM1"])
+                out.set_write_destination("VMEM2")
+                cdlt.compute("TRANSPOSE", [data[n, c]], [out[c, n]], target="SIMD")
+            cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+
+    return cdlt
 
 def clip(hag: ArchitectureNode):
 

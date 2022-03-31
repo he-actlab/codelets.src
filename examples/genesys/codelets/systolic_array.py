@@ -1,7 +1,41 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES
-from . import add_conv_constraints, add_gemm_constraints
+from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT
+from . import add_conv_constraints, add_gemm_constraints,\
+    create_immediate_with_operand, add_scale_op, add_simd_constraint
+
+
+def add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW):
+    simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+    cdlt.configure('start', 'SIMD')
+    m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
+    nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+    with cdlt.loop(OC) as oc:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(OH) as y:
+                with cdlt.loop(OW) as x:
+                    out.set_write_destination('VMEM1')
+                    indices = (n, oc, y, x)
+                    add_scale_op(cdlt, conv_out, out, m0, nshift, indices)
+                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+
+    cdlt.configure('end', 'SIMD')
+    return cdlt
+
+def add_gemm_quant(cdlt, gemm_out, out, M, P):
+    simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+    cdlt.configure('start', 'SIMD')
+    m0 = create_immediate_with_operand(cdlt,  QUANT_SCALE, simd_size=simd_size)
+    nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+    with cdlt.loop(M) as m:
+        with cdlt.loop(P) as p:
+            out.set_write_destination('VMEM1')
+            indices = (m, p)
+            add_scale_op(cdlt, gemm_out, out, m0, nshift, indices)
+            cdlt.transfer(out, ["VMEM1", "DRAM"])
+
+    cdlt.configure('end', 'SIMD')
+    return cdlt
 
 
 
@@ -18,6 +52,8 @@ def gemm(hag: ArchitectureNode):
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
         bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(gemm_out)
 
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
@@ -34,11 +70,10 @@ def gemm(hag: ArchitectureNode):
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
                     cdlt.transfer(bias, ["DRAM", "BBUF"])
-                    cdlt.transfer(out, ["DRAM", "OBUF"])
-                    out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], out[m,p]], [out[m,p]], target="pe_array")
+                    cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
+                    gemm_out.set_write_destination("OBUF")
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], gemm_out[m,p]], [gemm_out[m,p]], target="pe_array")
 
-                    cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -46,6 +81,8 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
+        cdlt = add_gemm_quant(cdlt, gemm_out, out, M, P)
+
 
     cdlt = add_gemm_constraints(hag, cdlt)
 
@@ -61,6 +98,8 @@ def gemm_no_bias(hag: ArchitectureNode):
         data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
         out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(gemm_out)
 
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
@@ -75,57 +114,20 @@ def gemm_no_bias(hag: ArchitectureNode):
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
-                    cdlt.transfer(out, ["DRAM", "OBUF"])
+                    cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
                     out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], out[m,p]], [out[m,p]], target="pe_array")
-                    cdlt.transfer(out, ["OBUF", "DRAM"])
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], gemm_out[m,p]], [gemm_out[m,p]], target="pe_array")
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+        cdlt = add_gemm_quant(cdlt, gemm_out, out, M, P)
     cdlt = add_gemm_constraints(hag, cdlt)
 
     return cdlt
 
-
-def matmul(hag: ArchitectureNode):
-
-    with CodeletTemplate("matmul") as cdlt:
-        P = cdlt.dummy_op("P", cdlt.node.outputs[0].shape[1])
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
-        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
-
-        cdlt.set_inputs([data, weight])
-        cdlt.set_outputs([out])
-
-        # cdlt.configure("start", "systolic_array")
-        # cdlt.configure("start", "WBUF")
-        # cdlt.configure("start", "IBUF")
-        # cdlt.configure("start", "OBUF")
-
-        with cdlt.loop(P) as p:
-            with cdlt.loop(N) as n:
-                with cdlt.loop(M) as m:
-                    cdlt.transfer(data, ["DRAM", "IBUF"])
-                    cdlt.transfer(weight, ["DRAM", "WBUF"])
-                    cdlt.transfer(out, ["DRAM", "OBUF"])
-                    out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], out[m,p]], [out[m,p]], target="pe_array")
-                    cdlt.transfer(out, ["OBUF", "DRAM"])
-
-        # TODO: Add store off chip
-        # cdlt.configure("end", "WBUF")
-        # cdlt.configure("end", "IBUF")
-        # cdlt.configure("end", "OBUF")
-        # cdlt.configure("end", "systolic_array")
-    cdlt = add_gemm_constraints(hag, cdlt)
-
-    return cdlt
 
 
 def conv2d(hag: ArchitectureNode):
@@ -146,17 +148,16 @@ def conv2d(hag: ArchitectureNode):
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(conv_out)
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
         cdlt.configure("start", "systolic_array")
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "BBUF")
-
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
-
         # OS ->
-
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(IC) as ic:
@@ -166,10 +167,12 @@ def conv2d(hag: ArchitectureNode):
                                 with cdlt.loop(OW) as x:
                                     cdlt.transfer(weight, ["DRAM", "WBUF"])
                                     cdlt.transfer(data, ["DRAM", "IBUF"])
-                                    cdlt.transfer(out, ["DRAM", "OBUF"])
-                                    out.set_write_destination("OBUF")
-                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw], weight[oc, ic, kh, kw], out[n, oc, y, x]], [out[n, oc, y, x]], target="pe_array")
-                                    cdlt.transfer(out, ["OBUF", "DRAM"])
+                                    cdlt.transfer(conv_out, ["DRAM", "OBUF"])
+                                    conv_out.set_write_destination("OBUF")
+                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw],
+                                                           weight[oc, ic, kh, kw],
+                                                           conv_out[n, oc, y, x]],
+                                                 [conv_out[n, oc, y, x]], target="pe_array")
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -177,6 +180,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+        cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
     cdlt = add_conv_constraints(hag, cdlt)
     return cdlt
@@ -204,6 +208,8 @@ def conv2d_bias(hag: ArchitectureNode):
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
         bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=OP_DTYPES[2])
+        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(conv_out)
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
 
         cdlt.set_inputs([data, weight, bias])
@@ -224,10 +230,13 @@ def conv2d_bias(hag: ArchitectureNode):
                                     cdlt.transfer(weight, ["DRAM", "WBUF"])
                                     cdlt.transfer(bias, ["DRAM", "BBUF"])
                                     cdlt.transfer(data, ["DRAM", "IBUF"])
-                                    cdlt.transfer(out, ["DRAM", "OBUF"])
-                                    out.set_write_destination("OBUF")
-                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw], weight[oc, ic, kh, kw], bias[oc], out[n, oc, y, x]], [out[n, oc, y, x]], target="pe_array")
-                                    cdlt.transfer(out, ["OBUF", "DRAM"])
+                                    cdlt.transfer(conv_out, ["DRAM", "OBUF"])
+                                    conv_out.set_write_destination("OBUF")
+                                    cdlt.compute("MVMUL", [data[n, ic, y*stride + kh, x*stride + kw],
+                                                           weight[oc, ic, kh, kw],
+                                                           bias[oc],
+                                                           conv_out[n, oc, y, x]],
+                                                 [conv_out[n, oc, y, x]], target="pe_array")
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -235,6 +244,7 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "IBUF")
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
+        cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
     cdlt = add_conv_constraints(hag, cdlt)
 
@@ -246,5 +256,5 @@ SA_CDLTS = {
     "conv": conv2d,
     "gemm": gemm,
     'gemm_no_bias': gemm_no_bias,
-    "matmul": matmul,
+    # "matmul": matmul,
 }

@@ -1,4 +1,5 @@
 from codelets import Datatype
+from fxpmath import Fxp
 OP_LOCATIONS = {"OBUF": 0, "IBUF": 1, "VMEM": 2, "IMM": 3, "EXTMEM": 4}
 SIMD_OP_READ_NS = ["OBUF", "VMEM", "IMM"]
 SIMD_OP_WRITE_NS = ["IBUF", "VMEM", "IMM"]
@@ -35,6 +36,7 @@ FXP_CONFIGS = {
     "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32},
     "FXP8": {"signed": True, "n_int": 3, "n_frac": 4, "overflow": "saturate", "n_word": 8},
 }
+
 PAPER_CFG = True
 NON_ASIC_32CFG = False
 TINY_CFG = False
@@ -42,6 +44,12 @@ SMALL_CFG = False
 MED_CFG = False
 ASIC_CONFIG = False
 
+## Quantization
+QUANT_SCALE = 0.6
+SIGN_SHIFT = 30
+QUANT_SCALE = Fxp(QUANT_SCALE, **FXP_CONFIGS['FXP32']).val.item()
+SIGN_SHIFT = Fxp(SIGN_SHIFT, **FXP_CONFIGS['FXP32']).val.item()
+### End quantization
 ## SHIYU CONFIG
 if ASIC_CONFIG:
     GENESYS_CFG['ARRAY_N'] = 32
@@ -108,7 +116,7 @@ elif NON_ASIC_32CFG:
     GENESYS_CFG['OBUF_DEPTH'] = 2048*factor
     GENESYS_CFG['BBUF_DEPTH'] = 1024*factor
 elif PAPER_CFG:
-    bw_factor = 1
+    bw_factor = 4
     mem_factor = 1
     GENESYS_CFG['ARRAY_N'] = 16
     GENESYS_CFG['ARRAY_M'] = 16

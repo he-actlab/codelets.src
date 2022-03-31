@@ -1,7 +1,8 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, ASIC_CONFIG, FXP_CONFIGS
-from . import add_conv_constraints, range_from_cfg, add_simd_constraint
+from examples.genesys import OP_DTYPES, ASIC_CONFIG, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
+from . import add_conv_constraints, range_from_cfg, \
+    add_simd_constraint, create_immediate_with_operand, add_scale_op
 
 def create_systolic_args(cdlt):
     params = {}
@@ -98,13 +99,47 @@ def conv_relu(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
+        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
         cdlt.configure("start", "IMM", immediate_value=16, index=0)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
                     with cdlt.loop(OW) as x:
                         out.set_write_destination("VMEM2")
-                        cdlt.compute("RELU", [conv_out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
+                        indices = (n, oc, y, x)
+                        add_scale_op(cdlt, conv_out, out, m0, nshift, indices)
+                        # cdlt.compute("RELU", [conv_out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("RELU", [out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
+                        cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=True)
+
+    return cdlt
+
+
+def conv_leaky_relu(hag: ArchitectureNode):
+    with CodeletTemplate("conv_bias_leaky_relu") as cdlt:
+
+        cdlt, params = create_systolic_args(cdlt)
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt, conv_out = create_systolic_func(cdlt, params)
+
+        OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "SIMD")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
+        with cdlt.loop(OC) as oc:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(OH) as y:
+                    with cdlt.loop(OW) as x:
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("LEAKY_RELU", [conv_out[n, oc, y, x], alpha], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -216,6 +251,54 @@ def conv_add_relu(hag: ArchitectureNode):
 
     return cdlt
 
+
+def conv_add_leaky_relu(hag: ArchitectureNode):
+    # MP padding:
+    # iw1' = ((ow_conv + 2*p_mp) - 1) * stride + kw_conv
+    # P1_update = (iw' - iw1)/2
+    # Halo effect
+    # constraint =
+    with CodeletTemplate("conv_bias_elem_add_leaky_relu") as cdlt:
+        cdlt, params = create_systolic_args(cdlt)
+
+        # Use initial params to setup subsequent operation details
+        OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        cdlt.add_input(add_lhs)
+        cdlt.set_outputs([out])
+
+        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        add_out.start_location = "VMEM2"
+        cdlt.add_temp_operand(add_out)
+
+        # Add the convolution
+        cdlt, conv_out = create_systolic_func(cdlt, params)
+
+        cdlt.configure("start", "SIMD")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
+        with cdlt.loop(OC) as oc:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(OH) as y:
+                    with cdlt.loop(OW) as x:
+                        cdlt.transfer(add_lhs, ["DRAM", "VMEM1"])
+                        out.set_write_destination("VMEM1")
+                        add_out.set_write_destination("VMEM2")
+                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("LEAKY_RELU", [add_out[n, oc, y, x], alpha], [out[n, oc, y, x]], target="SIMD")
+
+                        # cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
+                        # cdlt.compute("RELU", [out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
+
+                        cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=True)
+
+    return cdlt
 
 def conv_bias_elem_clip_depthwise_conv_bias(hag: ArchitectureNode):
     # MP padding:
@@ -414,6 +497,30 @@ def conv_bias_elem_clip_depthwise_conv_bias_elem_clip(hag: ArchitectureNode):
     cdlt = add_simd_constraint(hag, cdlt, "OC")
     return cdlt
 
+def inv_sqrt(hag: ArchitectureNode):
+    with CodeletTemplate("elem_sqrt_reciprocal") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(data, ["DRAM", "VMEM1"])
+                        out.set_write_destination('VMEM1')
+                        cdlt.compute('INV_SQRT', [data[n, c, h, w]], [out[n, c, h, w]], target='SIMD')
+                        cdlt.transfer(out, ['VMEM1', 'DRAM'])
+        cdlt.configure("end", "SIMD")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+    return cdlt
+
 FUSION_OP_INFO = {
     'conv_bias_relu': {
         'cdlt': conv_relu,
@@ -422,7 +529,14 @@ FUSION_OP_INFO = {
     'conv_bias_elem_add_relu': {
         'cdlt': conv_add_relu,
         'seq': ['Conv', 'Add', 'Relu'],
-
+    },
+    'conv_bias_leaky_relu': {
+        'cdlt': conv_leaky_relu,
+        'seq': ['Conv', 'LeakyRelu']
+    },
+    'conv_bias_elem_add_leaky_relu': {
+        'cdlt': conv_add_leaky_relu,
+        'seq': ['Conv', 'Add', 'LeakyRelu'],
     },
     'conv_bias_elem_clip_depthwise_conv_bias': {
         'cdlt': conv_bias_elem_clip_depthwise_conv_bias,
@@ -438,9 +552,10 @@ FUSION_OP_INFO = {
         {
             'Conv' : {'inputs': 3, 'outputs': 1},
             'Relu' : {'inputs': 1, 'outputs': 1},
+            'LeakyRelu' : {'inputs': 1, 'outputs': 1},
             'Add' : {'inputs': 2, 'outputs': 1},
             'MaxPool': {'inputs': 1, 'outputs': 1}
         }
 }
 
-FUSION_CODELETS = { k : v['cdlt'] for k,v in FUSION_OP_INFO.items() if k != 'single_layer_info'}
+FUSION_CODELETS = {k : v['cdlt'] for k,v in FUSION_OP_INFO.items() if k != 'single_layer_info'}

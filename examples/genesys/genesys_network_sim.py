@@ -302,12 +302,15 @@ def compile_full_model(model_name,
                        verbose=False,
                        model_data=None,
                        fuse_layers=False,
-                       generate_data=True):
+                       generate_data=True,
+                       tile_method=None,
+                       graph=None
+                       ):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     batch_size = 1
-    tile_method = "min_tiles"
+    tile_method = tile_method or "min_tiles"
 
     update_cfg_dtypes = False
     tiling_path = None
@@ -333,7 +336,8 @@ def compile_full_model(model_name,
                             print_config=False,
                             tiling_search_algorithm=tile_method,
                                     do_compile=False,
-                              fuse_layers=fuse_layers
+                              fuse_layers=fuse_layers,
+                              graph=graph
                               )
     if store_compile:
 
@@ -341,7 +345,6 @@ def compile_full_model(model_name,
             program = update_tile_constraints(program, added_constr)
 
         dir_ext = dir_ext or ''
-        print(f"Codelet length: {len(program.codelets)}")
 
         store_model_outputs(model_name,
                             False,

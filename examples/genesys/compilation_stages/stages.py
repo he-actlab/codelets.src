@@ -33,6 +33,10 @@ FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'],
                ["OC", "ONE", "KH1", "KW1"]]
 
 
+def quantize_codelet(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
+
+    return cdlt
+
 def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None) -> 'Codelet':
 
     compute_ops = cdlt.get_ops_by_type('compute')
@@ -209,36 +213,40 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
 
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None,
                       codelet_output_map=None) -> 'Codelet':
+    cdlt_idx = program.codelets.index(cdlt)
+
     if cdlt.is_noop():
-        output_key = node.outputs[0].name
-        input_key = node.inputs[0].name
-
-        if input_key not in dtype_map:
-            input_key = find_node_key(node.inputs[0], dtype_map)
-
-        dtype_map[output_key] = dtype_map[input_key]
-        codelet_output_map[output_key] = (cdlt.op_name, cdlt.instance_id)
-        insert_simd_typecast(program, node, cdlt.inputs[0], cdlt, dtype_map, codelet_output_map, input_key)
+        pass
+        # output_key = node.outputs[0].name
+        # input_key = node.inputs[0].name
+        #
+        # if input_key not in dtype_map:
+        #     input_key = find_node_key(node.inputs[0], dtype_map)
+        #
+        # dtype_map[output_key] = dtype_map[input_key]
+        # codelet_output_map[output_key] = (cdlt.op_name, cdlt.instance_id)
+        # insert_simd_typecast(program, node, cdlt.inputs[0], cdlt, dtype_map, codelet_output_map, input_key)
 
     else:
-        for idx, operand in enumerate(cdlt.inputs):
-            i = node.inputs[idx]
-            if not isinstance(i, (pm.input, pm.state)):
-                i_key = i.name
-                if i_key not in dtype_map:
-                    i_key = find_node_key(i, dtype_map)
-                    dtype_map[i.name] = dtype_map[i_key]
-                    codelet_output_map[i.name] = codelet_output_map[i_key]
-                insert_simd_typecast(program, node, operand, cdlt, dtype_map, codelet_output_map, i_key)
-            else:
-                dtype_map[i.name] = cdlt.get_operand_by_node_name(i.name).dtype
-                codelet_output_map[i.name] = (cdlt.op_name, cdlt.instance_id)
-
-        # for o in node.outputs:
-        for idx in range(len(cdlt.outputs)):
-            o = node.outputs[idx]
-            dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
-            codelet_output_map[o.name] = (cdlt.op_name, cdlt.instance_id)
+        pass
+        # for idx, operand in enumerate(cdlt.inputs):
+        #     i = node.inputs[idx]
+        #     if not isinstance(i, (pm.input, pm.state)):
+        #         i_key = i.name
+        #         if i_key not in dtype_map:
+        #             i_key = find_node_key(i, dtype_map)
+        #             dtype_map[i.name] = dtype_map[i_key]
+        #             codelet_output_map[i.name] = codelet_output_map[i_key]
+        #         insert_simd_typecast(program, node, operand, cdlt, dtype_map, codelet_output_map, i_key)
+        #     else:
+        #         dtype_map[i.name] = cdlt.get_operand_by_node_name(i.name).dtype
+        #         codelet_output_map[i.name] = (cdlt.op_name, cdlt.instance_id)
+        #
+        # # for o in node.outputs:
+        # for idx in range(len(cdlt.outputs)):
+        #     o = node.outputs[idx]
+        #     dtype_map[o.name] = cdlt.get_operand_by_node_name(o.name).dtype
+        #     codelet_output_map[o.name] = (cdlt.op_name, cdlt.instance_id)
 
     return cdlt
 

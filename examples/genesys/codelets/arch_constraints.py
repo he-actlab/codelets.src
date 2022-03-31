@@ -10,8 +10,8 @@ def add_simd_constraint(hag, cdlt, fixed_dim):
 
 def add_conv_constraints(hag, cdlt, is_fusion=False):
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
-    if not is_fusion:
-        cdlt.update_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
+    # if not is_fusion:
+    #     cdlt.update_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
     wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
     obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
@@ -22,8 +22,8 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     gt_one_tiles = f"np.prod(list(splits.values())) > 1"
     if is_fusion:
         ic_tiling = f"(splits['IC'] == 1)"
-        # ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
     else:
+        # ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
         ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
 
 

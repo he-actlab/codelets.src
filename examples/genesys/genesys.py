@@ -1,7 +1,7 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program
 from .compilation_stages.stages import tile, hoist, pad_operands, update_operand_dtypes, \
-    add_simd_typecast, template_layout_pass, template_pad_pass, separate_simd_sa_ops
+    add_simd_typecast, template_layout_pass, template_pad_pass, separate_simd_sa_ops, quantize_codelet
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
@@ -219,7 +219,7 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
             if opname != "single_layer_info":
                 assert 'seq' in info
                 fusions.append(info['seq'])
-        fusion_pass = pm.FuseOps(fusions)
+        fusion_pass = pm.FuseOps(fusions, pad_conv_constraint=True)
         graph = fusion_pass(graph)
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
@@ -272,7 +272,9 @@ def compile_genesys(model_name,
                     relocation_offsets=None,
                     train=False,
                     tiling_search_algorithm='valid_split',
-                    do_compile=True
+                    do_compile=True,
+                    graph=None,
+                    do_srdfg_passes=True
                     ):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
@@ -286,8 +288,10 @@ def compile_genesys(model_name,
 
     if train:
         model_name = f"{model_name}_train"
-    graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+    if graph is None:
+        graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
+    if do_srdfg_passes:
+        graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -310,12 +314,21 @@ def compile_genesys(model_name,
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("insert_quantization", quantize_codelet, preproc=True)
     if tiling_search_algorithm == 'min_tiles':
-        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
-                        'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+        tile_kwargs = {
+                'factor_fn_name': factor_fn,
+                       'stopping_condition': exhaustive_search_stopping_condition,
+                        'selection_metric': min_tiles_selection_metric,
+                       'heuristic_fn': n_tiles_heuristic
+                       }
     else:
-        tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
-                        'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
+        tile_kwargs = {
+            'factor_fn_name': factor_fn,
+                       'stopping_condition': valid_split_stopping_condition,
+                        'selection_metric': current_permutation_selection_metric,
+                       'heuristic_fn': n_tiles_heuristic
+                       }
 
     if store_tiling:
         tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
@@ -339,9 +352,10 @@ def compile_genesys(model_name,
 
     if do_compile:
         if tiling_path is not None:
-            program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose)
+            program.compile(tiling_path=f"{TILING_DIR}/{tiling_path}", verbose=verbose,
+                            finalize_instructions=finalize_instructions)
         else:
-            program.compile(verbose=verbose)
+            program.compile(verbose=verbose, finalize_instructions=finalize_instructions)
 
         if store_tiling:
             program.store_tiling(f"{TILING_DIR}")
@@ -367,18 +381,14 @@ def compile_genesys(model_name,
                         json.dump(res, outfile, indent=4)
     return program
 
-
 def valid_split_stopping_condition(search_space):
     return True
-
 
 def exhaustive_search_stopping_condition(search_space):
     return False
 
-
 def current_permutation_selection_metric(search_space, permutation):
     return permutation
-
 
 def min_tiles_selection_metric(search_space, permutation):
     # Get valid permutation with minimum number of tiles
@@ -392,7 +402,6 @@ def min_tiles_selection_metric(search_space, permutation):
         return min_tiles_permutation
     else:
         return None
-
 
 # Number of tiles as tiling heuristc
 def n_tiles_heuristic(permutation):
@@ -419,6 +428,7 @@ def compile_genesys_layer(layer_file,
                           do_tile_stage=True,
                           do_hoist_stage=True,
                           batch_size=1,
+                          fuse_layers=False,
                           save_genesys_filename=None,
                           load_genesys_filename=None,
                           relocation_offsets=None,
@@ -435,7 +445,7 @@ def compile_genesys_layer(layer_file,
         def_cfg = GENESYS_CFG
 
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
-    graph = run_srdfg_passes(graph, train=False, batch_size=batch_size, verbose=verbose)
+    graph = run_srdfg_passes(graph, train=False, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
     if load_genesys_filename is None:
         genesys = define_genesys(def_cfg)
     else:
