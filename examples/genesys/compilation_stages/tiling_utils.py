@@ -188,7 +188,6 @@ def set_codelet_tiling(cdlt: 'Codelet',
             assert v.value is not None
             eval_params[k] = v.value
 
-
     while tile_info.levels > level > 0:
         prev_level = level - 1
         perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)

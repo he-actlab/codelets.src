@@ -233,7 +233,7 @@ class CodeletTemplate(object):
     def dummy_op(self, key: str, op: DummyOp, check_key=True, dtype=None):
         if key in self.dummy_ops:
             if check_key:
-                raise KeyError(f"Key {key} already exists in dummy ops:\n"
+                raise KeyError(f"Key {key} already exists in dummy ops for {self.op_name} codelet {self.codelet_id}:\n"
                                f"Previous op: {self.dummy_ops[key]}\n"
                                f"Updated op: {op}")
             else:

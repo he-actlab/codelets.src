@@ -19,6 +19,22 @@ def tensor_reshape(hag: ArchitectureNode):
         cdlt.set_outputs([out])
     return cdlt
 
+def tensor_squeeze(hag: ArchitectureNode):
+
+    # TODO: Right now, shapes are fixed. Need to enable different dimension combinations
+    with CodeletTemplate("tensor_squeeze") as cdlt:
+
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+    return cdlt
+
 
 def tensor_pad(hag: ArchitectureNode):
 
@@ -78,6 +94,7 @@ TRANSFORM_CDLTS = {
     'tensor_reshape': tensor_reshape,
     'tensor_flip': tensor_flip,
     'tensor_pad': tensor_pad,
-    'concat': concat
+    'concat': concat,
+    'tensor_squeeze' : tensor_squeeze
 }
 # 0, 2, 3, 1

@@ -56,6 +56,58 @@ def depthwise_conv(hag: ArchitectureNode):
     return cdlt
 
 
+def depthwise_conv_bias(hag: ArchitectureNode):
+    # TODO: De-duplicate replicated outer loops for a given VMEM
+    # TODO: Add zero constant
+    # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
+    # TODO: Make sure the output operands use 0 for it's offset
+    # TODO: Need to figure out how to change the memory layout
+    with CodeletTemplate("depthwise_conv_bias") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[1].shape[1])
+        KH = cdlt.dummy_op("KH", cdlt.node.inputs[1].shape[2])
+        KW = cdlt.dummy_op("KW", cdlt.node.inputs[1].shape[3])
+        OH = cdlt.dummy_op("OH", cdlt.node.outputs[0].shape[2])
+        OW = cdlt.dummy_op("OW", cdlt.node.outputs[0].shape[3])
+        IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
+        IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data, weight, bias])
+        cdlt.set_outputs([out])
+
+        stride = cdlt.dummy_op("stride", cdlt.node.stride)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        # OS ->
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+
+        with cdlt.loop(ONE) as one:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(C) as c:
+                    with cdlt.loop(OH) as y:
+                        with cdlt.loop(OW) as x:
+                            with cdlt.loop(KH) as kh:
+                                with cdlt.loop(KW) as kw:
+                                    cdlt.transfer(weight, ["DRAM", "VMEM1"])
+                                    cdlt.transfer(data, ["DRAM", "VMEM2"])
+                                    cdlt.transfer(bias, ["DRAM", "VMEM1"])
+                                    cdlt.transfer(out, ["DRAM", "VMEM2"])
+                                    out.set_write_destination("VMEM2")
+                                    cdlt.compute("MACC", [data[n, c, y * stride + kh, x * stride + kw], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
+                                    cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n, c, y, x]], target="SIMD")
+                                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+
+    return cdlt
+
+
 def batch_norm(hag: ArchitectureNode):
 
     with CodeletTemplate("batch_norm") as cdlt:
@@ -278,8 +330,8 @@ def averagepool2d(hag: ArchitectureNode):
                                 cdlt.transfer(out, ["DRAM", "VMEM2"])
                                 out.set_write_destination("VMEM2")
                                 cdlt.compute("ADD", [data[n, c, y*sy + kh, x*sx + kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
-                cdlt.compute("MUL", [out[n, c, y, x], denom_op], [out[n, c, y, x]], target="SIMD")
-                cdlt.transfer(out, ["VMEM1", "DRAM"])
+                                cdlt.compute("MUL", [out[n, c, y, x], denom_op], [out[n, c, y, x]], target="SIMD")
+                                cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     cdlt = add_simd_constraint(hag, cdlt, "C")
 
@@ -399,6 +451,7 @@ DNN_CDLTS = {
     "batch_norm": batch_norm,
     "cross_entropy_loss": cross_entropy_loss,
     "depthwise_conv": depthwise_conv,
+    "depthwise_conv_bias": depthwise_conv_bias,
     "global_avg_pool": global_avg_pool,
     "max_pool": maxpool2d,
     "mean_var": mean_var,

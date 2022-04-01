@@ -960,11 +960,63 @@ def rename_yolo_ops():
 
 def remove_softmax_efficientnet():
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    load_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt.onnx"
-    store_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax.onnx"
-    input_names = ['images:0']
+    load_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax.onnx"
+    store_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax1.onnx"
+    input_names = ['efficientnet-lite4/model/stem/conv2d/Conv2D__5:0']
+
     output_names = ['efficientnet-lite4/model/head/dense/BiasAdd:0']
     onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+
+def trim_bert():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt1.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt2.onnx"
+    store_path2 = f"{MODEL_DIR}/bertsquad-12-opt3.onnx"
+
+    input_names = [
+        # Result from reshape x2, gather, reshape
+        'bert/embeddings/Reshape_1:0',
+        # one-hot encoded segment ids
+        'bert/embeddings/one_hot:0',
+        # All of these are the same value, but redundant computation is removed
+        'bert/encoder/layer_0/attention/self/mul_1:0',
+        'bert/encoder/layer_1/attention/self/mul_1:0',
+        'bert/encoder/layer_2/attention/self/mul_1:0',
+        'bert/encoder/layer_3/attention/self/mul_1:0',
+        'bert/encoder/layer_4/attention/self/mul_1:0',
+        'bert/encoder/layer_5/attention/self/mul_1:0',
+        'bert/encoder/layer_6/attention/self/mul_1:0',
+        'bert/encoder/layer_7/attention/self/mul_1:0',
+        'bert/encoder/layer_8/attention/self/mul_1:0',
+        'bert/encoder/layer_9/attention/self/mul_1:0',
+        'bert/encoder/layer_10/attention/self/mul_1:0',
+        'bert/encoder/layer_11/attention/self/mul_1:0',
+        #
+    ]
+    output_names = ['BiasAdd:0']
+    # onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+    replacements = input_names[3:]
+    model = onnx.load(store_path)
+    for n in model.graph.node:
+        for i in range(len(n.input)):
+            inpt = n.input[i]
+            if inpt in replacements:
+                n.input[i] = input_names[2]
+
+    onnx.checker.check_model(model)
+    with open(store_path2, "wb") as f:
+        f.write(model.SerializeToString())
+    input_names = [
+        # Result from reshape x2, gather, reshape
+        'bert/embeddings/Reshape_1:0',
+        # one-hot encoded segment ids
+        'bert/embeddings/one_hot:0',
+        # All of these are the same value, but redundant computation is removed
+        'bert/encoder/layer_0/attention/self/mul_1:0',
+    ]
+    onnx.utils.extract_model(store_path2, store_path2, input_names, output_names)
+
 
 
 def collect_unset_dims(model):
@@ -1631,8 +1683,9 @@ if __name__ == "__main__":
         # names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
         # model = "mobilenet27"
         # new_name = optimize_graph(model, single_params={"batch_size": 1})
-        extract_static_yolo()
-        # remove_softmax_efficientnet()
+        # extract_static_yolo()
+        trim_bert()
+        remove_softmax_efficientnet()
         # rename_yolo_ops()
         # optimize_yolo_onnx(False)
         # new_name = f"{names[1]}-opt"

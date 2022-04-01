@@ -46,6 +46,8 @@ OP_COMPUTE_CYCLES = {
     "CEIL": 0,
     "TRANSPOSE": 0
 }
+DTYPE_CAST_NAMES = ["32FXP_16FXP", "32FXP_8FXP", "32FXP_4FXP", "16FXP_32FXP", "8FXP_32FXP", "4FXP_32FXP",
+                        "32FP_16FP", "16FP_32FP"]
 # Loops
 # ALL_LOOP_ID = f"(len(cdlt.get_ops_by_type('loop'))//2)"
 ALL_LOOP_ID = f"(len(cdlt.compute_node_loops('SIMD')))"
@@ -285,6 +287,17 @@ def add_pow_compute(hag, rd_op_str):
     instructions.append(instr)
     return instructions
 
+def insert_dtype_cfg_from_cast(op_name, hag):
+    instructions = []
+    instr = hag.get_primitive_template("DTYPE_CFG")
+    instr.set_field_flex_param("DTYPE", "str(op.dests[0].dtype.bits()) + op.dests[0].dtype.type")
+    instr.set_field_flex_param("DST_BITS", "op.dests[0].dtype.exp")
+    instr.set_field_flex_param("SRC1_BITS", "op.sources[0].dtype.exp")
+    instr.set_field_flex_param("SRC2_BITS", "op.sources[0].dtype.exp")
+    instructions.append(instr)
+    return instructions
+
+
 def simd_alu_template(op_name, hag: ArchitectureNode):
     if op_name == "TRANSPOSE":
         return simd_transpose(hag)
@@ -292,7 +305,8 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
 
     loop_idx_offset = 0 if op_name != "POW" else 1
 
-
+    if op_name in DTYPE_CAST_NAMES:
+        instructions += insert_dtype_cfg_from_cast(op_name, hag)
     ### Base and stride first
     instructions += base_sign_ext_gen(op_name, hag)
 
@@ -372,11 +386,12 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
     instr.set_field_by_name("START_END", "END")
     instr.set_field_by_name("EXEC_BUF", "BUF")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
+    instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
     instr.set_field_flex_param("NUM_INSTR", "0")
     instructions.append(instr)
 
     return instructions
+
 
 
 def base_sign_ext_gen(op_name, hag: ArchitectureNode):

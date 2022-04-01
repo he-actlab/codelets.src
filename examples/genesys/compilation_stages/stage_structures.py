@@ -136,14 +136,14 @@ class TilingInfo:
         size_map = {}
         access_setters = {}
         checked_accesses = []
+        operand_sizes = {}
+        loc_sizes = defaultdict(int)
+        op_loc_set = []
         for level_access in self.accesses[level]:
-
             key = (level_access.src_node, level_access.dst_node)
             if (key, level_access.operand_name) in checked_accesses:
                 continue
-
             checked_accesses.append((key, level_access.operand_name))
-
             size = level_access.get_size_from_splits(cdlt, perm_map)
             for k, v in size.items():
                 if k in size_map and v != size_map[k]:
@@ -152,23 +152,24 @@ class TilingInfo:
                     size_map[k] = v
                     access_setters[k] = level_access
 
-            # operand = cdlt.get_operand(level_access.operand_name)
-            # dtype_size = operand.dtype.bits()
-            dtype_size = cdlt.get_operand(level_access.operand_name).dtype.bits()
-            # if (key[1], level_access.operand_name) not in op_loc_set:
-            #     loc_sizes[key[1]] += dtype_size*np.prod([size[s] for s in operand.shape_symbols])
-            #     op_loc_set.append((key[1], level_access.operand_name))
+            operand = cdlt.get_operand(level_access.operand_name)
+            dtype_size = operand.dtype.bits()
+            if (key[1], level_access.operand_name) not in op_loc_set:
+                loc_sizes[key[1]] += dtype_size*np.prod([size[s] for s in operand.shape_symbols])
+                op_loc_set.append((key[1], level_access.operand_name))
+                operand_sizes[(key[1], level_access.operand_name)] = {s: size[s] for s in operand.shape_symbols}
             constraint_sat = self.evaluate_constraint(key, size, dtype_size)
 
             if not constraint_sat:
                 valid_splits = None
                 break
 
-        # if valid_splits is not None:
-        #     for node_name, val in loc_sizes.items():
-        #         node = hag.get_subgraph_node(node_name)
-        #         if node.node_type == "storage" and val > node.size:
-        #             return None
+        if valid_splits is not None:
+            for node_name, val in loc_sizes.items():
+                node = hag.get_subgraph_node(node_name)
+                if node.node_type == "storage" and val > node.size:
+                    return None
+
 
         self.print_debug = False
         return valid_splits

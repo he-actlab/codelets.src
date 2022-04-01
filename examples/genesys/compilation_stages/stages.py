@@ -12,7 +12,7 @@ from examples.genesys.compilation_stages.stage_utils import default_tile_heurist
     store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
 from examples.genesys.codelets import FUSION_CODELETS
-from examples.genesys import PAPER_CFG
+from examples.genesys import PAPER_CFG1, PAPER_CFG2
 import polymath as pm
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
@@ -356,6 +356,7 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
         if len(o.data_path) == 0 or (len(o.data_path) == 1 and o.data_path[0] != "IMM") :
             raise RuntimeError(f"Operand {o.name} has invalid data path: {o.data_path}")
         dm_idx = 0
+
         while dm_idx < len(o.data_moves):
             dm = o.data_moves[dm_idx]
             op = cdlt.op_map[dm.op_name]
@@ -372,14 +373,14 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                     assert list(dm.offset_map.keys()) == list(o.shape_symbols.keys())
                     dm.reinit_offset_map(o.shape_symbols.copy())
                     break
-
+                # print(f"{op.op_str}, {op.op_name}, {o.name}, {dm.src_node} --> {dm.dst_node}")
                 if o in op.sources and cdlt.get_tile_level(dm.src_node) < cdlt.get_tile_level(dm.dst_node):
                     # Case 1: It is an operand which is read from in the compute.
                     # For this case, we need to backtrack, starting with the compute, and updating the offsets
                     # for transfers which were used to send data to the compute unit.
 
                     # Need to validate the movement to see that it is indeed reading the data, not writing
-                    if dm_idx == 0:
+                    if dm_idx == 0 and op.op_name != "MACC":
                         raise RuntimeError(f"Operand {o.name} included\n"
                                            f"as source operand, but data movement tile level does not match:\n"
                                            f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n")
@@ -417,7 +418,6 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                                        f"Is dest operand: {o in op.dests}\n"
                                        f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n")
             dm_idx += 1
-
 
     return cdlt
 

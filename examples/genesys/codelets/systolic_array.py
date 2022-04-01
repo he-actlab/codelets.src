@@ -17,8 +17,8 @@ def add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW):
                     out.set_write_destination('VMEM1')
                     indices = (n, oc, y, x)
                     add_scale_op(cdlt, conv_out, out, m0, nshift, indices)
+                    cdlt.compute("32FXP_8FXP", [out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
-
     cdlt.configure('end', 'SIMD')
     return cdlt
 

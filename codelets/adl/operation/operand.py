@@ -1117,8 +1117,6 @@ class Operand:
                 return self.data_moves[idx]
             idx += 1
 
-        for dm in self.data_moves:
-            print(f"({dm.op_name}){dm.src_node} --> {dm.dst_node}")
         raise RuntimeError(f"Unable to find store movement between {src_node} "
                            f"and {dst_node} for {self.name} in {compute_name}")
 

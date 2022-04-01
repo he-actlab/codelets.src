@@ -41,12 +41,12 @@ def define_genesys(cfg):
         INSTR_PARTITIONS = [cfg['INSTR_DEPTH'], cfg['INSTR_WIDTH']]
 
         vmem1 = StorageNode("VMEM1", access_type='RAM', banks=cfg['SIMD_WIDTH'],
-                            buffering_scheme="double",
+                            buffering_scheme="single",
                             width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
                             partitions=VMEM_PARTITIONS, latency=1, input_ports=2, output_ports=2)
 
         vmem2 = StorageNode("VMEM2", access_type='RAM', banks=cfg['SIMD_WIDTH'],
-                            buffering_scheme="double", width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
+                            buffering_scheme="single", width=cfg['ACC_WIDTH'], depth=cfg['VMEM_DEPTH'],
                             partitions=VMEM_PARTITIONS, latency=1, input_ports=2, output_ports=2)
 
         imm = StorageNode("IMM", access_type='RAM', banks=cfg['SIMD_WIDTH'],

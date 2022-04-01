@@ -991,8 +991,9 @@ class CodeletProgram(object):
         self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
 
 
-    def filtered_compile(self, cdlt_uids, verbose=False, sequence_algorithm="default", tiling_path=None,
+    def filtered_compile(self, cdlt_uids=None, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True, force_recompile=False,
+                         filter_op_types=None,
                 **compile_kwargs):
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
@@ -1003,7 +1004,15 @@ class CodeletProgram(object):
         start = time()
 
         unfiltered_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
-        node_sequence = [unfiltered_sequence[i] for i in cdlt_uids]
+        if cdlt_uids is not None:
+            node_sequence = [unfiltered_sequence[i] for i in cdlt_uids]
+        else:
+            node_sequence = unfiltered_sequence
+
+        if filter_op_types is not None:
+            assert isinstance(filter_op_types, list)
+            node_sequence = [n for n in node_sequence if n.op_name in filter_op_types]
+
         self.update_compilation_state('sequenced_nodes')
 
 
@@ -1042,23 +1051,31 @@ class CodeletProgram(object):
     def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True,
                 force_recompile=False,
+                stop_stage=None,
                 **compile_kwargs):
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
         # 2. Generate operands/operations within codelets
         # 3. Generate instruction templates within operations
+        stop_stage = stop_stage or 'instruction_stages'
         if force_recompile:
             self.reset_compilation_state()
         start = time()
 
         node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
         self.update_compilation_state('sequenced_nodes')
+        if stop_stage == 'sequenced_nodes':
+            return
 
         self.run_template_stages(node_sequence, verbose=verbose)
         self.update_compilation_state('template_stages')
+        if stop_stage == 'template_stages':
+            return
 
         codelets = self.instantiate_all_codelets(node_sequence, verbose=verbose)
         self.update_compilation_state('codelet_instantiation')
+        if stop_stage == 'codelet_instantiation':
+            return
 
 
         if tiling_path is not None:
@@ -1068,21 +1085,29 @@ class CodeletProgram(object):
 
         codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
         self.update_compilation_state('preprocessed')
-
+        if stop_stage == 'preprocessed':
+            return
         codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
         self.update_compilation_state('operation_instantiation')
+        if stop_stage == 'operation_instantiation':
+            return
 
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
         self.update_compilation_state('compilation_stages')
-
+        if stop_stage == 'compilation_stages':
+            return
         print(f"Finalizing instructions")
 
         if finalize:
             self.finalize_program(node_sequence, codelets, verbose=verbose)
             self.update_compilation_state('finalized')
 
+        if stop_stage == 'finalize':
+            return
+
         self.run_instruction_stages(codelets, verbose=verbose)
         self.update_compilation_state('instruction_stages')
+
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")
