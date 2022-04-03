@@ -1,6 +1,6 @@
 import json
 import polymath as pm
-from examples.genesys import GENESYS_DTYPES, GENESYS_CFG
+from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION
 from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
 from tools.compile_layer import store_program_codelets
@@ -76,7 +76,7 @@ def check_fused_layer_count(model_path, program):
             layer_count += len(FUSION_OP_INFO[c.op_name]['seq'])
             for o in FUSION_OP_INFO[c.op_name]['seq']:
                 cdlt_layers[FUSION_NAME_MAPPING[o.lower()]] += 1
-            cdk
+            cdlt_layers[o.lower()] += 1
         else:
             cdlt_layers[c.op_name] += 1
             layer_count += 1
@@ -99,8 +99,10 @@ def compile_benchmark(model_name,
                       stop_stage=None,
                       skip_layers=None,
                       skip_broken_layers=False,
+                      only_systolic=False,
                       filter_op_types=None):
     if fuse_layers:
+        assert not only_systolic
         num_layers = BENCHMARK_INFO[model_name]['num_layers_fused']
     else:
         num_layers = BENCHMARK_INFO[model_name]['num_layers_unfused']
@@ -120,7 +122,15 @@ def compile_benchmark(model_name,
                                     graph=graph
                                      )
 
-    if skip_broken_layers:
+    if only_systolic:
+        if verbose:
+            print(f"Compiling {model_name} without quantization, only systolic layers.")
+        assert not USE_QUANTIZATION
+        systolic_layers = ["conv_bias", "gemm", "gemm_no_bias", "conv"]
+        program.filtered_compile(verbose=verbose, finalize=True, filter_op_types=systolic_layers)
+    elif skip_broken_layers:
+        if verbose:
+            print(f"Compiling {model_name} without broken layers.")
         assert 'fused_skipped' in BENCHMARK_INFO[model_name] and fuse_layers
         all_layers = [i for i in range(num_layers) if i not in BENCHMARK_INFO[model_name]['fused_skipped']]
         program.filtered_compile(all_layers, verbose=verbose, finalize=True, filter_op_types=filter_op_types)
@@ -133,10 +143,15 @@ def compile_benchmark(model_name,
         all_layers = [i for i in range(num_layers) if i not in skip_layers]
         program.filtered_compile(all_layers, verbose=verbose, finalize=True, filter_op_types=filter_op_types)
     elif filter_op_types:
+        if verbose:
+            print(f"Performing full compilation of {model_name} for layers {filter_op_types}.")
         program.filtered_compile(verbose=verbose, finalize=True, filter_op_types=filter_op_types)
     else:
+        if verbose:
+            print(f"Performing full compilation of {model_name}.")
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         check_fused_layer_count(model_path, program)
+
 
     if stop_stage is None:
         store_program_codelets(program, identifier, dir_ext="benchmark")
@@ -145,8 +160,9 @@ def compile_benchmark(model_name,
 
 if __name__ == "__main__":
 
-    compile_benchmark('resnet18',
-                      fuse_layers=True,
+    compile_benchmark('yolov3-opt-static',
+                      fuse_layers=False,
+                      only_systolic=True,
                       verbose=True,
-                      skip_broken_layers=True,
-                      identifier=6)
+                      skip_broken_layers=False,
+                      identifier=1)

@@ -157,7 +157,6 @@ def define_genesys(cfg):
 
     hag.add_util_fn("get_ld_st_loop_id", ["buffer_name", "index", "ld_st"],
                     f"index + {LD_STORE_LOOPS} + ({LD_STORE_OFFSET_MAP})[ld_st][buffer_name]")
-    node = hag.get_subgraph_node("SIMD")
     return hag
 
 

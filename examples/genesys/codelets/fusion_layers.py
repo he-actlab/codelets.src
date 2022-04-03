@@ -276,7 +276,6 @@ def conv_add(hag: ArchitectureNode):
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
         add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         cdlt.add_input(add_lhs)
@@ -301,8 +300,8 @@ def conv_add(hag: ArchitectureNode):
                         out.set_write_destination("VMEM1")
                         add_out.set_write_destination("VMEM2")
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, add_lhs, add_lhs, m0, nshift, indices)
-                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
+                        add_scale_op(cdlt, add_lhs, add_out, m0, nshift, indices)
+                        cdlt.compute("ADD", [add_out[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
                                      target="SIMD")
                         add_scale_op(cdlt, add_out, add_out, m0, nshift, indices)
                         cdlt.compute("32FXP_8FXP", [add_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
@@ -399,6 +398,8 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
                         cdlt.transfer(add_lhs, ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
                         leaky_relu_out.set_write_destination("VMEM2")
+                        add_lhs.set_write_destination("VMEM1")
+
                         indices = (n, oc, y, x)
                         cdlt.compute("LEAKY_RELU", [conv_out[n, oc, y, x], alpha], [leaky_relu_out[n, oc, y, x]], target="SIMD")
                         add_scale_op(cdlt, add_lhs, add_lhs, m0, nshift, indices)

@@ -1501,6 +1501,7 @@ def optimize_graph(model_name, single_params=None):
     return f"{model_name}-opt"
 
 def get_fusable_layer(graph, layer_name, input_node, layer_info):
+    fusable_layers = []
     for n in graph.node:
         lname = get_layer_name(n, layer_info)
         if lname == layer_name and input_node in n.input:
@@ -1520,6 +1521,8 @@ def get_fused_nodes(graph, sequence, initial_layer, layer_info):
     for l in sequence[1:]:
         fl = get_fusable_layer(graph, l, tgt_input, layer_info)
         if fl is None:
+            if initial_layer.output[0] == "bert/encoder/layer_0/output/dense/BiasAdd:0":
+                print(f"Couldnt find layer {l} with target input {tgt_input}")
             return None
         else:
             assert isinstance(fl, dict)
@@ -1684,8 +1687,8 @@ if __name__ == "__main__":
         # model = "mobilenet27"
         # new_name = optimize_graph(model, single_params={"batch_size": 1})
         # extract_static_yolo()
-        trim_bert()
-        remove_softmax_efficientnet()
+        # trim_bert()
+        # remove_softmax_efficientnet()
         # rename_yolo_ops()
         # optimize_yolo_onnx(False)
         # new_name = f"{names[1]}-opt"
@@ -1700,6 +1703,17 @@ if __name__ == "__main__":
         # #              ['Conv', 'Clip', 'AveragePool'],
         # #              ['Conv', 'Clip', 'DepthwiseConv',],
         # #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
-        # fusion_generator(new_name, sequences)
+        name = "bertsquad-12-opt-trimmed"
+        # sequences = [["Matmul", "Add", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean", "Add", "Sqrt", "Reciprocal", "Mul", "Sub", "Mul", "Add"],
+        #              ["Gemm", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean",
+        #                                                    "Add", "Sqrt", "Reciprocal", "Mul", "Mul",
+        #                                                    "Sub", "Mul", "Add"],
+        #              ["Matmul", "Mul", "Add", "Softmax"],
+        #              ["Gemm", "Transpose"], ["Matmul", "Transpose"],
+        #              ["Gemm","Pow","Mul","Add", "Mul", "Tanh", "Add", "Mul", "Mul",]]
+        seq = [["Gemm", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean",
+                                                           "Add", "Sqrt", "Reciprocal", "Mul", "Mul",
+                                                           "Sub", "Mul", "Add"]]
+        fusion_generator(name, seq)
 
 #

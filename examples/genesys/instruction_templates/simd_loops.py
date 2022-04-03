@@ -16,7 +16,6 @@ def outer_simd_loops(hag: ArchitectureNode):
     simd_target = f'cdlt.is_loop_node_target(op, "SIMD")'
     not_dir_loop_dep = f'not cdlt.is_direct_loop_dep(op, "SIMD")'
     off_chip_operand = f'"DRAM" in operand.data_path'
-    # ld_st_cond = f"(operand.get_ld_storage_location(cdlt, 1) in ['OBUF', 'IBUF', 'VMEM1', 'VMEM2', 'IMM'])"
     ld_check = f"(operand.has_transfer(['DRAM', operand.get_ld_storage_location(cdlt, 1), 'SIMD']))"
     st_check = f"(operand.has_transfer(['SIMD', operand.get_ld_storage_location(cdlt, 1), 'DRAM']))"
     ld_st_cond = f"(hag.is_adjacent(operand.get_ld_storage_location(cdlt, 1), 'SIMD'))"
@@ -60,16 +59,14 @@ def outer_simd_loops(hag: ArchitectureNode):
     loop_cond_str = " and ".join(loop_conds)
 
     macro_instr.add_iterable('operand', f'{st_operand_str}')
-    macro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond}")
+    macro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond} and {st_check}")
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
     macro_instr.set_field_flex_param("NUM_ITERS", f"op.iter_count - 1")
 
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
     micro_instr.add_iterable('operand', f'{st_operand_str}')
-    # micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
-    micro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond}")
-
+    micro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond} and {st_check}")
     micro_instr.set_field_by_name("LSB_MSB", "LSB")
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
@@ -78,8 +75,7 @@ def outer_simd_loops(hag: ArchitectureNode):
 
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_LOOP_STRIDE")
     micro_instr.add_iterable('operand', f'{st_operand_str}')
-    # micro_instr.add_condition(f'cdlt.is_loop_node_target(op, "SIMD") and not cdlt.is_direct_loop_dep(op, "SIMD")')
-    micro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond}")
+    micro_instr.add_condition(f"{loop_cond_str} and {ld_st_cond} and {st_check}")
     micro_instr.set_field_by_name("LSB_MSB", "MSB")
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"op.loop_id")
