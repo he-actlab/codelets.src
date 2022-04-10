@@ -1,5 +1,9 @@
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.templates.operand_template import IndexOperandTemplate
+from examples.genesys import FXP_CONFIGS
+from fxpmath import Fxp
+
+CAST_FUNC = lambda x, dtype: Fxp(x, **FXP_CONFIGS[dtype]).val.item()
 
 def range_from_cfg(cfg, as_int=True):
     if cfg['signed']:
@@ -16,8 +20,10 @@ def range_from_cfg(cfg, as_int=True):
     return (lower_val, upper_val)
 
 
-def create_immediate_with_operand(cdlt: CodeletTemplate, value, simd_size):
+def create_immediate_with_operand(cdlt: CodeletTemplate, value, simd_size, cast_float_to_fxp=False):
     idx = len(cdlt.temps)
+    if isinstance(value, float) and cast_float_to_fxp:
+        value = CAST_FUNC(value, 'FXP32')
     cdlt.configure("start", "IMM", immediate_value=value, index=idx)
     op = cdlt.create_temp_operand([simd_size], "IMM")
     return op
@@ -31,6 +37,13 @@ def add_scale_op(cdlt: CodeletTemplate, input_op, output_op, multiplier_op, shif
     assert not isinstance(output_op, IndexOperandTemplate)
     cdlt.compute("MUL", [input_op[indices], multiplier_op], [output_op[indices]], target="SIMD")
     cdlt.compute("RSHIFT", [output_op[indices], shift_op], [output_op[indices]], target="SIMD")
+
+def add_scale_and_cast_op(cdlt: CodeletTemplate, input_op, output_op, multiplier_op, shift_op, indices):
+    assert not isinstance(input_op, IndexOperandTemplate)
+    assert not isinstance(output_op, IndexOperandTemplate)
+    cdlt.compute("MUL", [input_op[indices], multiplier_op], [input_op[indices]], target="SIMD")
+    cdlt.compute("RSHIFT", [input_op[indices], shift_op], [input_op[indices]], target="SIMD")
+    cdlt.compute("32FXP_8FXP", [input_op[indices]], [output_op[indices]], target="SIMD")
 
 
 def add_quantization(cdlt, operand):

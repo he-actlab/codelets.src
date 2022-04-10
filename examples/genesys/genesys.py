@@ -1,6 +1,6 @@
 from codelets.adl.graph import ComputeNode, StorageNode
 from codelets import initialize_program
-from .compilation_stages.stages import tile, hoist, pad_operands, update_operand_dtypes, \
+from .compilation_stages.stages import tile, hoist, remove_unused_variables, update_operand_dtypes, \
     add_simd_typecast, template_layout_pass, template_pad_pass, separate_simd_sa_ops, quantize_codelet
 from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
@@ -312,7 +312,7 @@ def compile_genesys(model_name,
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("remove_unused_variables", remove_unused_variables, preproc=True, stage_kwargs={'shaped_nodes': {}})
     program.add_compilation_step("insert_quantization", quantize_codelet, preproc=True)
     if tiling_search_algorithm == 'min_tiles':
         tile_kwargs = {
@@ -471,7 +471,7 @@ def compile_genesys_layer(layer_file,
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("remove_unused_variables", remove_unused_variables, preproc=True, stage_kwargs={'shaped_nodes': {}})
     if tiling_search_algorithm == 'min_tiles':
         tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': exhaustive_search_stopping_condition,
                         'selection_metric': min_tiles_selection_metric, 'heuristic_fn': n_tiles_heuristic}
@@ -586,7 +586,7 @@ def compile_extracted_genesys_layer(model_name,
 
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
-    program.add_compilation_step("pad_operands", pad_operands, preproc=True, stage_kwargs={'shaped_nodes': {}})
+    program.add_compilation_step("remove_unused_variables", remove_unused_variables, preproc=True, stage_kwargs={'shaped_nodes': {}})
     tile_kwargs = {'factor_fn_name': factor_fn, 'stopping_condition': valid_split_stopping_condition,
                    'selection_metric': current_permutation_selection_metric, 'heuristic_fn': n_tiles_heuristic}
     program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)

@@ -19,6 +19,8 @@ OP_COMPUTE_CYCLES = {
     "AND": 0,
     "OR": 0,
     "NOP": 0,
+    "ABS": 0,
+    "SIGN": 0,
     "TANH": 4,
     "EXP": 0,
     "POW": 0,
@@ -63,6 +65,8 @@ LOOP_STRIDE = f"operand.get_offset(cdlt," \
               f"hag, op.op_str, 'SIMD', write={RD_WRITE_OPERAND}, " \
               f"outer_loop=False)"
 
+
+
 # Instruction generation conditions
 IS_DEP_COND = f'loop_op.op_str in cdlt.all_dependencies(op.dependencies)'
 COMPUTE_DEP = f'loop_op.op_str in op.operand_indices'
@@ -72,6 +76,15 @@ LOOP_CONDS = [IS_DEP_COND, COMPUTE_DEP, OUTER_LOOP_COND, IS_DIRECT_DEP_COND]
 
 # Operand location string
 OPERAND_LOC = f"op.get_operand_location(operand.name)"
+
+BASE_SIGN_EXT_TEMPLATE = "({OPERAND}.get_mem_offset({OP_LOC})//(hag.get_subgraph_node({OP_LOC}).data_size) + 1) if op.get_operand_location({OPERAND}.name) " \
+                "!= 'IMM' else cdlt.temps.index({OPERAND})"
+
+BASE_SIGN_EXT = BASE_SIGN_EXT_TEMPLATE.format(OPERAND="operand", OP_LOC=OPERAND_LOC)
+# BASE_SIGN_EXT = f"(operand.get_mem_offset({OPERAND_LOC})//(hag.get_subgraph_node({OPERAND_LOC}).data_size) + 1) if op.get_operand_location(operand.name) " \
+#                 f"!= 'IMM' else cdlt.temps.index(operand)"
+
+
 
 ENUM_IS_DEP_COND = f'loop_op[1].op_str in cdlt.all_dependencies(op.dependencies)'
 ENUM_OUTER_LOOP_COND = f'loop_op[1].loop_level < op.loop_level'
@@ -94,9 +107,9 @@ def simd_transpose_rd(hag):
 
     src_ns_idx = f"(loop_op[1].loop_id % {ALL_LOOP_ID}) + ({operand}.get_mem_index({src_op_loc}) * {ALL_LOOP_ID}) if op.get_operand_location({operand}.name) != 'IMM' " \
                  f"else cdlt.temps.index({operand})"
-    src_base_sign_ext = f"({operand}.get_mem_offset({src_op_loc})//({operand}.dtype.bits()) + 1) if {src_op_loc} " \
-                        f"!= 'IMM' else cdlt.temps.index({operand})"
-
+    # src_base_sign_ext = f"({operand}.get_mem_offset({src_op_loc})//({operand}.dtype.bits()) + 1) if {src_op_loc} " \
+    #                     f"!= 'IMM' else cdlt.temps.index({operand})"
+    src_base_sign_ext = BASE_SIGN_EXT_TEMPLATE.format(OPERAND=operand, OP_LOC=src_op_loc)
     src_loop_stride = f"cdlt.inner_stride({operand}, loop_op[1], loop_op[0])"
 
     src_base_instr = hag.get_primitive_template("PERM_SET_BASE_ADDR")
@@ -146,8 +159,9 @@ def simd_transpose_wr(hag):
     dst_ns_idx = f"(loop_op[1].loop_id % {ALL_LOOP_ID}) + ({operand}.get_mem_index({dst_op_loc}) * {ALL_LOOP_ID}) + 1 if op.get_operand_location({operand}.name) != 'IMM' " \
              f"else cdlt.temps.index({operand}) + 1"
 
-    dst_base_sign_ext = f"({operand}.get_mem_offset({dst_op_loc})//({operand}.dtype.bits()) + 1) if {dst_op_loc} " \
-                    f"!= 'IMM' else cdlt.temps.index({operand})"
+    # dst_base_sign_ext = f"({operand}.get_mem_offset({dst_op_loc})//({operand}.dtype.bits()) + 1) if {dst_op_loc} " \
+    #                 f"!= 'IMM' else cdlt.temps.index({operand})"
+    dst_base_sign_ext = BASE_SIGN_EXT_TEMPLATE.format(OPERAND=operand, OP_LOC=dst_op_loc)
 
     dst_loop_stride = f"cdlt.inner_stride({operand}, loop_op[1], loop_op[0])"
 
@@ -221,8 +235,8 @@ def add_pow_loop(hag):
 
     # Index generation
     ns_idx = f"(loop_op.loop_id % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
-    base_sign_ext = f"operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) if op.get_operand_location(operand.name) " \
-                    f"!= 'IMM' else cdlt.temps.index(operand)"
+    # base_sign_ext = f"operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) if op.get_operand_location(operand.name) " \
+    #                 f"!= 'IMM' else cdlt.temps.index(operand)"
 
 
     instructions = []
@@ -233,7 +247,7 @@ def add_pow_loop(hag):
     macro_instr.add_iterable(*OPERAND_ITER)
     macro_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
     macro_instr.set_field_flex_param('NS_INDEX_ID', pow_ns_idx)
-    macro_instr.set_field_flex_param('IMM', base_sign_ext)
+    macro_instr.set_field_flex_param('IMM', BASE_SIGN_EXT)
     #
     sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
     sub_instr.set_print_tabs(ALL_LOOP_ID)
@@ -401,14 +415,19 @@ def base_sign_ext_gen(op_name, hag: ArchitectureNode):
     # ns_idx = f"(loop_op.loop_id % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
 
     ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID}) + (operand.get_mem_index({OPERAND_LOC}) * {ALL_LOOP_ID}) if op.get_operand_location(operand.name) != 'IMM' else cdlt.temps.index(operand)"
-    base_sign_ext = f"(operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) + 1) if op.get_operand_location(operand.name) " \
-                    f"!= 'IMM' else cdlt.temps.index(operand)"
+    # base_sign_ext = f"(operand.get_mem_offset({OPERAND_LOC})//(operand.dtype.bits()) + 1) if op.get_operand_location(operand.name) " \
+    #                 f"!= 'IMM' else cdlt.temps.index(operand)"
 
-    base_sign_ext_low = f"program.extract_bits({base_sign_ext}, 16, 0)"
-    base_sign_ext_high = f"program.extract_bits({base_sign_ext}, 16, 16)"
+    # base_sign_ext = f"(operand.get_mem_offset({OPERAND_LOC})//(hag.get_subgraph_node({OPERAND_LOC}).data_size) + 1) if op.get_operand_location(operand.name) " \
+    #                 f"!= 'IMM' else cdlt.temps.index(operand)"
+    # base_sign_ext = f"(operand.get_mem_offset({OPERAND_LOC})) if op.get_operand_location(operand.name) " \
+    #                 f"!= 'IMM' else cdlt.temps.index(operand)"
+
+    base_sign_ext_low = f"program.extract_bits({BASE_SIGN_EXT}, 16, 0)"
+    base_sign_ext_high = f"program.extract_bits({BASE_SIGN_EXT}, 16, 16)"
 
 
-    bitwidth = f"len(np.binary_repr({base_sign_ext})) + int(np.signbit({base_sign_ext}))"
+    bitwidth = f"len(np.binary_repr({BASE_SIGN_EXT})) + int(np.signbit({BASE_SIGN_EXT}))"
     bitwidth_cond = f"{bitwidth} <= 16"
     single_base_ext_conds = LOOP_CONDS + [bitwidth_cond]
     multi_base_ext_conds = LOOP_CONDS + [f"not {bitwidth_cond}"]
@@ -421,7 +440,7 @@ def base_sign_ext_gen(op_name, hag: ArchitectureNode):
     macro_instr.add_condition(" and ".join(single_base_ext_conds))
     macro_instr.set_field_flex_param('NS_ID', OPERAND_LOC)
     macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
-    macro_instr.set_field_flex_param('IMM', base_sign_ext)
+    macro_instr.set_field_flex_param('IMM', BASE_SIGN_EXT)
 
     sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
     sub_instr.set_print_tabs(ALL_LOOP_ID)

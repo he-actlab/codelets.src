@@ -264,6 +264,9 @@ class Codelet(object):
                 ptiling[l][self.loop_param_map[loopname]] = tile_size
         return ptiling
 
+    def remove_input(self, operand):
+        self._inputs.remove(operand)
+
     def filtered_read_operands(self, compute_name):
         ops = []
         for c in self.get_ops_by_type("compute"):

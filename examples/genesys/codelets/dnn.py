@@ -2,7 +2,7 @@ from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, FXP_CONFIGS
 import numpy as np
-from . import range_from_cfg, add_simd_constraint, create_immediate_with_operand
+from . import range_from_cfg, add_simd_constraint, create_immediate_with_operand, add_simd_tile_constraint
 
 
 
@@ -31,7 +31,7 @@ def depthwise_conv(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         # OS ->
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
@@ -81,7 +81,7 @@ def depthwise_conv_bias(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         # OS ->
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=0, index=0)
@@ -386,6 +386,7 @@ def global_avg_pool(hag: ArchitectureNode):
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_simd_tile_constraint(hag, cdlt, ["OH", "OW", "IH", "IW"])
 
     return cdlt
 
@@ -445,9 +446,85 @@ def softmax(hag):
     cdlt = add_simd_constraint(hag, cdlt, "C")
     return cdlt
 
+def softmax4d(hag):
+    with CodeletTemplate("softmax4d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+
+
+        cdlt.configure("start", "SIMD")
+        aval = create_immediate_with_operand(cdlt, np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        bval = create_immediate_with_operand(cdlt, -1/np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        cval = create_immediate_with_operand(cdlt, 1.353, simd_size=simd_size, cast_float_to_fxp=True)
+        dval = create_immediate_with_operand(cdlt, 0.3585, simd_size=simd_size, cast_float_to_fxp=True)
+        eval = create_immediate_with_operand(cdlt, 0.344, simd_size=simd_size, cast_float_to_fxp=True)
+        zero = create_immediate_with_operand(cdlt, 0, simd_size=simd_size)
+        min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
+        cdlt.configure("start", "IMM", immediate_value=min_val, index=len(cdlt.temps))
+
+        min_op = cdlt.create_temp_operand([simd_size], "IMM")
+        # Max reduce output
+        mx = cdlt.create_operand_template("mx", OP_DTYPES, [N, C, W], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(mx)
+
+        # Expontential temporaries
+        z1 = cdlt.create_operand_template("z1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(z1)
+
+        y = cdlt.create_operand_template("y", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(y)
+        with cdlt.loop(H) as h:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(C) as c:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(data, ["DRAM", "VMEM1"])
+                        mx.start_location = "VMEM2"
+                        mx.set_write_destination("VMEM2")
+                        out.set_write_destination("VMEM1")
+                        z1.set_write_destination("VMEM1")
+                        y.set_write_destination("VMEM2")
+
+                        # First, do compute max and then subtract
+                        cdlt.compute("MOVE", [min_op], [mx[n, c, w]], target="SIMD")
+                        cdlt.compute("MAX", [data[n, c, h, w], mx[n, c, w]], [mx[n, c, w]], target="SIMD")
+                        cdlt.compute("SUB", [data[n,c,h,w], mx[n, c, w]], [out[n,c,h,w]], target="SIMD")
+
+                        # Now, Comptue exp
+                        cdlt.compute("MUL", [out[n,c,h,w], bval], [y[n, c, h, w]], target="SIMD")
+                        cdlt.compute("FLOOR", [y[n, c, h, w]], [y[n, c, h, w]], target="SIMD")
+                        cdlt.compute("MUL", [y[n,c,h,w], aval], [y[n,c,h,w]], target="SIMD")
+                        cdlt.compute("ADD", [out[n,c, h, w], y[n, c, h, w]], [out[n,c,h,w]], target="SIMD")
+                        cdlt.compute("ADD", [out[n, c, h, w], cval], [out[n,c,h, w]], target="SIMD")
+
+                        cdlt.compute("MOVE", [out[n,c,h,w]], [y[n, c, h, w]], target="SIMD")
+                        cdlt.compute("MUL", [out[n,c,h,w], y[n,c,h,w]], [out[n, c, h, w]], target="SIMD")
+
+                        cdlt.compute("MUL", [out[n,c,h,w], dval], [out[n, c, h, w]], target="SIMD")
+                        cdlt.compute("ADD", [out[n,c,h,w], eval], [out[n, c, h, w]], target="SIMD")
+
+                        # Next, compute sum for denominator
+                        cdlt.compute("MOVE", [zero], [mx[n, c, w]], target="SIMD")
+                        cdlt.compute("ADD", [out[n,c,h,w], mx[n,c,w]], [mx[n, c, w]], target="SIMD")
+
+
+                        cdlt.transfer(out, ["VMEM1", "DRAM"])
+
+    cdlt = add_simd_constraint(hag, cdlt, "W")
+    cdlt = add_simd_tile_constraint(hag, cdlt, ["H"])
+    return cdlt
 
 DNN_CDLTS = {
-"avg_pool": averagepool2d,
+    "avg_pool": averagepool2d,
+    "softmax4d": softmax4d,
     "batch_norm": batch_norm,
     "cross_entropy_loss": cross_entropy_loss,
     "depthwise_conv": depthwise_conv,

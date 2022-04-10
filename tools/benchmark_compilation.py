@@ -7,7 +7,8 @@ from tools.compile_layer import store_program_codelets
 from collections import defaultdict
 from pathlib import Path
 import os
-
+import onnxruntime as ort
+from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 import onnx
 
 MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
@@ -33,17 +34,17 @@ BENCHMARK_INFO = {
         "num_layers_fused": 57,
         "fused_skipped": [45, 49, 52]
     },
-    "efficientnet-lite4-11-opt-no-softmax": {
+    "efficientnet-lite4-opt-no-softmax": {
         "num_layers_unfused": 179,
         "num_layers_fused": 68,
         "fused_skipped": []
     },
-    "mobilenet27-opt": {
+    "mobilenetv2-opt": {
         "num_layers_unfused": 100,
         "num_layers_fused": 42,
         "fused_skipped": []
     },
-    "bertsquad-12-opt-trimmed": {
+    "bert-base-cased-transpose-opt-trimmed-ort": {
         "num_layers_unfused": 0,
         "num_layers_fused": 0,
     },
@@ -54,7 +55,7 @@ BENCHMARK_INFO = {
     },
 }
 
-NOOP_LAYERS = ['Resize']
+NOOP_LAYERS = []
 BENCHMARK_NAMES = list(BENCHMARK_INFO.keys())
 
 
@@ -154,15 +155,45 @@ def compile_benchmark(model_name,
 
 
     if stop_stage is None:
-        store_program_codelets(program, identifier, dir_ext="benchmark")
-
-
+        sys_array_size = GENESYS_CFG['ARRAY_M']
+        store_program_codelets(program, identifier, dir_ext=f"benchmark{sys_array_size}x{sys_array_size}")
 
 if __name__ == "__main__":
+    benchmarks = ['resnet18', 'resnet50',
+                  'efficientnet-lite4-opt-no-softmax',
+                  'mobilenetv2-opt',
+                  'yolov3-opt-static',
+                  'bert-base-cased-transpose-opt-trimmed-ort']
 
-    compile_benchmark('yolov3-opt-static',
-                      fuse_layers=False,
-                      only_systolic=True,
+    # load_path = f"{MODEL_DIR}/{benchmarks[-1]}.onnx"
+    # model = onnx.load(load_path)
+    # t = SymbolicShapeInference.infer_shapes(model, 2**31 - 1, True,
+    #                                     False, False)
+    # print(model.domain)
+    # print(model.producer_name)
+    # print(model.producer_name)
+    # print(dir(model))
+
+    compile_benchmark(benchmarks[-1],
+                      fuse_layers=True,
+                      only_systolic=False,
                       verbose=True,
+                      # filter_op_types=['tensor_transpose3d'],
                       skip_broken_layers=False,
                       identifier=1)
+
+    # compile_benchmark(benchmarks[2],
+    #                   fuse_layers=True,
+    #                   only_systolic=False,
+    #                   verbose=True,
+    #                   # filtered_layers=[4],
+    #                   filtered_layers=[1],
+    #                   skip_broken_layers=False,
+    #                   identifier=17)
+    # for b in benchmarks[1:-1]:
+    #     compile_benchmark(b,
+    #                       fuse_layers=True,
+    #                       only_systolic=False,
+    #                       verbose=True,
+    #                       skip_broken_layers=False,
+    #                       identifier=16)

@@ -542,7 +542,6 @@ class Operand:
             loop = cdlt.op_map[loop_str]
             stride_val *= loop.stride
 
-
         return np.ceil(stride_val / width).astype(np.int64)
 
     # 'up' -> dram -> compute unit

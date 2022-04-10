@@ -7,6 +7,13 @@ def add_simd_constraint(hag, cdlt, fixed_dim):
     cdlt.update_compilation_param(f"{fixed_dim}_hint2", f"size == {simd_dims[0]}")
     return cdlt
 
+def add_simd_tile_constraint(hag, cdlt, fixed_dims):
+    if isinstance(fixed_dims, str):
+        fixed_dims = [fixed_dims]
+    assert isinstance(fixed_dims, list)
+    for fd in fixed_dims:
+        cdlt.update_compilation_param(f"{fd}_hint1", f"split == 1")
+    return cdlt
 
 def add_conv_constraints(hag, cdlt, is_fusion=False):
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions

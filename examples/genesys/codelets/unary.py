@@ -1,46 +1,66 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, FXP_CONFIGS
+from codelets.templates.operation_template import OperationTemplate
+from examples.genesys import OP_DTYPES
 from . import range_from_cfg, add_simd_constraint
 from functools import partial
-
-
-def elem_unary_op(cdlt_name: str,
-                  instr_name: str,
-                  imm_val,
-                  hag: ArchitectureNode):
-
+#
+def elem_unary_nd(cdlt_name, instr_name, num_dims, imm_val, hag):
+    DIM_NAMES = ["N", "C", "H", "W"]
     with CodeletTemplate(cdlt_name) as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+
+        op1_dims = []
+        assert num_dims <= len(DIM_NAMES)
+        for i in range(num_dims):
+            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[0].shape[i])
+            op1_dims.append(dim)
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, op1_dims, default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, op1_dims, default_dtype=OP_DTYPES[2])
+
         cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-
-        if imm_val is not None:
-            assert isinstance(imm_val, int)
+        if isinstance(imm_val, int):
             cdlt.configure("start", "IMM", immediate_value=imm_val, index=0)
             param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(H) as h:
-                    with cdlt.loop(W) as w:
-                        cdlt.transfer(op1, ["DRAM", "VMEM1"])
-                        out.set_write_destination("VMEM2")
-                        if imm_val is not None:
-                            cdlt.compute(instr_name, [op1[n, c, h, w], param], [out[n, c, h, w]], target="SIMD")
-                        else:
-                            cdlt.compute(instr_name, [op1[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
-                        cdlt.transfer(out, ["VMEM2", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
-    return cdlt
+        elif isinstance(imm_val, str):
+            dummy_imm = cdlt.dummy_op(imm_val, cdlt.node.kwargs[imm_val], dtype="FXP32")
+            cdlt.configure("start", "IMM", immediate_value=dummy_imm, index=0)
+            param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        else:
+            assert imm_val is None
+            param = None
+        loops = []
+        op1_indices = []
+        for i, d in enumerate(op1_dims):
+            l = cdlt.loop(d)
+            loops.append(l)
+            op1_indices.append(l)
 
+            OperationTemplate.loop_ctxt_level += 1
+            OperationTemplate.loop_stack.append(l.loop_id)
+            OperationTemplate.loop_ctx_dependencies.append(l.op_str)
+
+        cdlt.transfer(op1, ["DRAM", "VMEM1"])
+        out.set_write_destination("VMEM2")
+        if param is not None:
+            cdlt.compute(instr_name, [op1[tuple(op1_indices)], param], [out[tuple(op1_indices)]], target="SIMD")
+        else:
+            cdlt.compute(instr_name, [op1[tuple(op1_indices)]], [out[tuple(op1_indices)]], target="SIMD")
+
+        cdlt.transfer(out, ["VMEM2", "DRAM"])
+
+        for d in reversed(op1_dims):
+            OperationTemplate.loop_ctxt_level -= 1
+            OperationTemplate.loop_stack.pop()
+            OperationTemplate.loop_ctx_dependencies.pop()
+
+        cdlt.configure("end", "SIMD")
+
+        cdlt = add_simd_constraint(hag, cdlt, "C")
+    return cdlt
 
 def coarse_flatten(hag: ArchitectureNode):
 
@@ -94,26 +114,25 @@ def tensor_transpose(hag: ArchitectureNode):
     return cdlt
 
 
-def reduce_sum(hag: ArchitectureNode):
+def elem_sqrt(hag, num_dims):
+    if num_dims < 4:
+        name = f"elem_sqrt{num_dims}d"
+    else:
+        name = f"elem_sqrt"
+    DIM_NAMES = ["N", "C", "H", "W"]
 
-    with CodeletTemplate("reduce_sum") as cdlt:
+    with CodeletTemplate(name) as cdlt:
+        op1_dims = []
+        assert num_dims <= len(DIM_NAMES)
+        for i in range(num_dims):
+            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[0].shape[i])
+            op1_dims.append(dim)
 
-
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([data])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, op1_dims, default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, op1_dims, default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                cdlt.transfer(data, ["DRAM", "VMEM1"])
-                out.set_write_destination("VMEM1")
-                cdlt.compute("ADD", [data[n,c], data[n,c]], [out[c]], target="SIMD")
-                cdlt.transfer(out, ["VMEM1", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
+        cdlt.configure("start", "SIMD")
 
     return cdlt
 
@@ -226,67 +245,6 @@ def inv_sqrt(hag):
         cdlt.configure("end", "SIMD")
     cdlt = add_simd_constraint(hag, cdlt, "C")
 
-
-    return cdlt
-
-
-def leaky_relu(hag):
-
-    with CodeletTemplate("leaky_relu") as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([op1])
-
-        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        cdlt.set_outputs([out])
-
-
-        cdlt.configure("start", "SIMD")
-        alpha = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        cdlt.configure("start", "IMM", immediate_value=alpha, index=0)
-        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
-        # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        # fix C dim to array size
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(H) as h:
-                    with cdlt.loop(W) as w:
-
-                        cdlt.transfer(op1, ["DRAM", "VMEM1"])
-                        out.set_write_destination("VMEM2")
-                        cdlt.compute("LEAKY_RELU", [op1[n, c, h, w], alpha], [out[n, c, h, w]], target="SIMD")
-                        cdlt.transfer(out, ["VMEM2", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
-
-
-    return cdlt
-
-
-def relu2d(hag):
-
-    with CodeletTemplate("relu2d") as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([op1])
-
-        out = cdlt.create_operand_template("out_relu", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        cdlt.set_outputs([out])
-        cdlt.configure("start", "SIMD")
-        with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                cdlt.transfer(op1, ["DRAM", "VMEM1"])
-                out.set_write_destination("VMEM1")
-                cdlt.compute("RELU", [op1[n, c]], [out[n, c]], target="SIMD")
-                cdlt.transfer(out, ["VMEM1", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
 
     return cdlt
 
@@ -405,94 +363,6 @@ def elem_pow2d(hag: ArchitectureNode):
     return cdlt
 
 
-def reduce_mean2d(hag: ArchitectureNode):
-    #
-
-    # # TODO: Add option to create operand
-    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
-    with CodeletTemplate("reduce_mean2d") as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
-
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
-
-        cdlt.set_inputs([data])
-        cdlt.set_outputs([out])
-        # Change this to be the reciprocal as a FXP value
-
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
-        axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
-        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-
-        cdlt.configure("start", "SIMD")
-        ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
-        # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        with cdlt.loop(ONE) as o:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(N) as n:
-                    cdlt.transfer(data, ["DRAM", "VMEM1"])
-                    # TODO: Zero out output data at compile time
-                    cdlt.transfer(out, ["DRAM", "VMEM2"])
-                    out.set_write_destination("VMEM2")
-                    cdlt.compute("ADD", [data[n,c], out[o, c]], [out[o, c]], target="SIMD")
-                    cdlt.compute("MUL", [out[o, c], denom_op], [out[o, c]], target="SIMD")
-                cdlt.transfer(out, ["VMEM2", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
-
-    return cdlt
-
-
-def reduce_min2d(hag: ArchitectureNode):
-    #
-    # # TODO: Add option to create operand
-    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
-    with CodeletTemplate("reduce_min2d") as cdlt:
-        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
-        ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
-
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
-
-        cdlt.set_inputs([data])
-        cdlt.set_outputs([out])
-        # Change this to be the reciprocal as a FXP value
-
-        axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
-        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-
-        cdlt.configure("start", "SIMD")
-        ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
-        # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        _, max_val = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
-
-        cdlt.configure("start", "IMM", immediate_value=max_val, index=0)
-
-        with cdlt.loop(ONE) as o:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(N) as n:
-                    cdlt.transfer(data, ["DRAM", "VMEM1"])
-                    # TODO: Zero out output data at compile time
-                    cdlt.transfer(out, ["DRAM", "VMEM2"])
-                    out.set_write_destination("VMEM2")
-                    cdlt.compute("MIN", [data[n, c], out[o, c]], [out[o, c]], target="SIMD")
-                cdlt.transfer(out, ["VMEM2", "DRAM"])
-        cdlt.configure("end", "SIMD")
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
-
-    return cdlt
-
-
 def tensor_transpose2d(hag: ArchitectureNode):
     #
 
@@ -528,6 +398,41 @@ def tensor_transpose2d(hag: ArchitectureNode):
 
     return cdlt
 
+def tensor_transpose3d(hag: ArchitectureNode):
+    #
+
+    # # TODO: Add option to create operand
+    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
+    with CodeletTemplate("tensor_transpose3d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, H, C], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        # Change this to be the reciprocal as a FXP value
+
+        # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(H) as h:
+                with cdlt.loop(C) as c:
+                    cdlt.transfer(data, ["DRAM", "VMEM1"])
+                    out.set_write_destination("VMEM2")
+                    cdlt.compute("TRANSPOSE", [data[n, c, h]], [out[n, h, c]], target="SIMD")
+                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['C'] == 1")
+    cdlt = add_simd_constraint(hag, cdlt, "H")
+
+    return cdlt
 
 def tensor_transpose4d(hag: ArchitectureNode):
     #
@@ -539,30 +444,32 @@ def tensor_transpose4d(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, H, W, C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, W, H], default_dtype=OP_DTYPES[2])
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
         # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
-        # SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         cdlt.configure("start", "SIMD")
 
+
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
-                with cdlt.loop(H) as h:
-                    with cdlt.loop(W) as w:
+                with cdlt.loop(W) as w:
+                    with cdlt.loop(H) as h:
                         cdlt.transfer(data, ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM2")
-                        cdlt.compute("TRANSPOSE", [data[n, c, h, w]], [out[c, n, h, w]], target="SIMD")
+                        cdlt.compute("TRANSPOSE", [data[n, c, h, w]], [out[n, c, w, h]], target="SIMD")
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['N'] == 1")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['W'] == 1")
+    cdlt = add_simd_constraint(hag, cdlt, "W")
 
     return cdlt
 
@@ -610,22 +517,20 @@ def clip(hag: ArchitectureNode):
 UNARY_CODELETS = {
     "coarse_flatten": coarse_flatten,
     "coarse_flatten2d": coarse_flatten2d,
-    "elem_tanh": partial(elem_unary_op, "elem_tanh", "TANH", 16),
+    "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
     "elem_tanh2d": elem_tanh2d,
     # TODO: Check if this needs to be 'sigmoid'
-    "elem_sigmoid": partial(elem_unary_op, "elem_sigmoid", "SIGMOID", 16),
-    "leaky_relu": leaky_relu,
+    "elem_sigmoid": partial(elem_unary_nd, "elem_sigmoid", "SIGMOID", 4, 16),
+    "leaky_relu": partial(elem_unary_nd, "leaky_relu", "LEAKY_RELU", 4, 'alpha'),
     "elem_clip": clip,
     "elem_ceil2d": elem_ceil2d,
     "elem_pow2d": elem_pow2d,
     "elem_exp": elem_exp,
-    "relu": partial(elem_unary_op, "relu", "RELU", 16),
-    "relu2d": relu2d,
+    "relu": partial(elem_unary_nd, "relu", "RELU", 4, 16),
+    "relu2d": partial(elem_unary_nd, "relu2d", "RELU", 2, 16),
     'tensor_transpose2d': tensor_transpose2d,
+    'tensor_transpose3d': tensor_transpose3d,
     'tensor_transpose4d': tensor_transpose4d,
-    "reduce_mean2d": reduce_mean2d,
-    "reduce_min2d": reduce_min2d,
-    "reduce_sum": reduce_sum,
     'elem_cast': elem_cast,
     'elem_cast2d': elem_cast2d,
     "inv_sqrt": inv_sqrt,

@@ -240,6 +240,17 @@ class ComputeTemplate(OperationTemplate):
         super(ComputeTemplate, self).__init__("compute", {**param_map, **kwargs}, add_codelet=add_codelet)
 
     @property
+    def operands(self):
+        operands = []
+        for o in (self.param_map['sources'] + self.param_map['dests']):
+            if isinstance(o, IndexOperandTemplate):
+                operands.append(o.operand)
+            else:
+                assert isinstance(o, OperandTemplate)
+                operands.append(o)
+        return operands
+
+    @property
     def positional_args(self):
         return ComputeTemplate.PARAM_KEYS
 
@@ -266,6 +277,10 @@ class TransferTemplate(OperationTemplate):
         param_map['operand'] = operand
 
         super(TransferTemplate, self).__init__("transfer", {**param_map, **kwargs}, add_codelet=add_codelet)
+
+    @property
+    def operand(self):
+        return self.param_map['operand']
 
     @property
     def positional_args(self):

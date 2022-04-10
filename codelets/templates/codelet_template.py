@@ -230,6 +230,9 @@ class CodeletTemplate(object):
     def __repr__(self):
         return f"codelet_template {self.op_name}{self.codelet_id}"
 
+    def remove_input(self, operand):
+        self._inputs.remove(operand)
+
     def dummy_op(self, key: str, op: DummyOp, check_key=True, dtype=None):
         if key in self.dummy_ops:
             if check_key:
@@ -392,6 +395,16 @@ class CodeletTemplate(object):
                 op_str += ostr
         return op_str
 
+    def is_used(self, operand):
+        assert isinstance(operand, OperandTemplate)
+        for o in self.ops:
+            if isinstance(o, ComputeTemplate):
+                if operand in o.operands:
+                    return True
+            elif isinstance(o, TransferTemplate):
+                if operand == o.operand:
+                    return True
+        return False
 
     def get_ops_by_type(self, op_type):
         return [o for o in self.ops if o.op_type == op_type]

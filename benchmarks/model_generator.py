@@ -16,7 +16,12 @@ import sys
 import onnx
 from onnx.tools import update_model_dims
 from onnx.utils import Extractor
+from onnx import helper
+import numpy as np
 import csv
+from onnxruntime.transformers import optimizer
+import onnxruntime as ort
+
 CWD = Path(f"{__file__}").parent
 
 Targets = namedtuple('Targets', ['boxes', 'masks', 'labels'])
@@ -578,6 +583,7 @@ def create_inception(optimize_model, training_mode, convert_data_format, to_poly
 
 def create_mobilenet(optimize_model, training_mode, convert_data_format, to_polymath, batch_size=1):
     model = models.mobilenet_v2(pretrained=not training_mode)
+    # model = torch.hub.load('pytorch/vision:v0.10.0', 'mobilenet_v2', pretrained=True)
     input_var = torch.randn(batch_size, 3, 224, 224)
     model_name = "mobilenetv2"
     if batch_size != 1:
@@ -846,7 +852,8 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           verbose=False,
                           input_names=['input'],  # the model's input names
                           output_names=['output'],
-                          opset_version=opset)
+                          # opset_version=opset
+                          )
     else:
         model.eval()
         # input_var = [(input_var,)]
@@ -904,19 +911,63 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
 
 
 def optimize_bert_onnx(to_polymath, batch_size=1):
+    from collections import defaultdict
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    load_path = f"{MODEL_DIR}/bertsquad-12.onnx"
-    store_path = f"{MODEL_DIR}/bertsquad-12-opt.onnx"
-    inpt_shapes = {"unique_ids_raw_output___9:0": (batch_size,),
-              "segment_ids:0": (batch_size,256),
-              "input_mask:0": (batch_size,256),
-              "input_ids:0": (batch_size,256)
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed-xposed.onnx"
+    model_init = onnx.load(load_path)
+    added_xpose = 0
+    for i in range(len(model_init.graph.node)):
+        n = model_init.graph.node[i]
+        if n.op_type == "ReduceMean":
+            axes_val = get_attribute(n, 'axes')
+            print(f"Here: {axes_val}")
+            # xpose_node = helper.make_node(
+            #     'Transpose',
+            #     inputs=[n.input[0]],
+            #     outputs=[f'added_expose{added_xpose}_'],
+            #     perm =
+            # )
+            # added_xpose += 1
+
+    # with open(store_path, "wb") as f:
+    #     f.write(model_init.SerializeToString())
+    # providers = ['CPUExecutionProvider']
+    # inputs = {}
+    # inputs['bert/embeddings/Reshape_1:0'] = torch.randn(1, 256, 768).numpy()
+    # inputs['bert/embeddings/one_hot:0'] = torch.randn(256, 2).numpy()
+    # inputs['bert/encoder/layer_0/attention/self/mul_1:0'] = torch.randn(1, 1, 256, 256).numpy()
+    # sess = ort.InferenceSession(load_path, providers=ort.get_available_providers())
+    # result = sess.run(None, inputs)[0]
+    #
+    # new_sess = ort.InferenceSession(load_path, providers=ort.get_available_providers())
+    # new_result = new_sess.run(None, inputs)[0]
+    # np.testing.assert_allclose(new_result, result)
+
+
+    # inpt_shapes = {"unique_ids_raw_output___9:0": (batch_size,),
+    #           "segment_ids:0": (batch_size,256),
+    #           "input_mask:0": (batch_size,256),
+    #           "input_ids:0": (batch_size,256)
+    #           }
+    # out_shapes = {"unstack:1": (batch_size,256),
+    #               "unstack:0": (batch_size,256),
+    #               "unique_ids:0": (batch_size,)
+    #               }
+    # optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+
+def set_bert_shapes(batch_size=1):
+    bert_name = f"bert-base-case"
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{bert_name}.onnx"
+    store_path = f"{MODEL_DIR}/{bert_name}-opt.onnx"
+    inpt_shapes = {"bert/embeddings/Reshape_1:0": (batch_size, 256, 768),
+              "bert/embeddings/one_hot:0": (256, 2),
+              "bert/encoder/layer_0/attention/self/mul_1:0": (batch_size,1, 256, 256),
               }
-    out_shapes = {"unstack:1": (batch_size,256),
-                  "unstack:0": (batch_size,256),
-                  "unique_ids:0": (batch_size,)
+    out_shapes = {"BiasAdd:0": (256, 2),
                   }
-    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, False)
 
 
 
@@ -949,6 +1000,19 @@ def extract_static_yolo():
 
     onnx.utils.extract_model(load_path, store_path, input_names, output_names)
 
+def extract_bert_layer():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed-fuse-tester.onnx"
+
+
+    input_names = ["bert/encoder/layer_0/intermediate/dense/mul_3:0",
+                   "bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0",
+                   ]
+    output_names = ["bert/encoder/layer_0/output/LayerNorm/batchnorm/add_1:0"]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
 def rename_yolo_ops():
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
@@ -960,8 +1024,8 @@ def rename_yolo_ops():
 
 def remove_softmax_efficientnet():
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    load_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax.onnx"
-    store_path = f"{MODEL_DIR}/efficientnet-lite4-11-opt-no-softmax1.onnx"
+    load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
+    store_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt-no-softmax.onnx"
     input_names = ['efficientnet-lite4/model/stem/conv2d/Conv2D__5:0']
 
     output_names = ['efficientnet-lite4/model/head/dense/BiasAdd:0']
@@ -1035,6 +1099,7 @@ def collect_unset_dims(model):
 
 def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath, single_params=None):
     model = onnx.load(load_path)
+
     unset_params = collect_unset_dims(model)
 
     if len(unset_params) > 0 and inpt_shapes is None and out_shapes is None:
@@ -1057,11 +1122,12 @@ def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath, s
     if inpt_shapes is not None and out_shapes is not None:
         model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
                                                          out_shapes)
+
+
     model = onnx.shape_inference.infer_shapes(model)
 
-
     model, check = simplify(model)
-    assert check
+    # assert check
     # model = update_node_names(model)
     # model = update_edge_names(model)
     with open(store_path, "wb") as f:
@@ -1500,71 +1566,6 @@ def optimize_graph(model_name, single_params=None):
     optimize_onnx(load_path, store_path, None, None, False, single_params=single_params)
     return f"{model_name}-opt"
 
-def get_fusable_layer(graph, layer_name, input_node, layer_info):
-    fusable_layers = []
-    for n in graph.node:
-        lname = get_layer_name(n, layer_info)
-        if lname == layer_name and input_node in n.input:
-            assert hasattr(n, "output") and len(n.output) == 1
-            return {'output': n.output[0], 'layer': n}
-    return None
-
-def get_fused_nodes(graph, sequence, initial_layer, layer_info):
-    # TODO: Make sure the output isnt used in multiple places
-    assert len(initial_layer.output) == 1
-    tgt_input = initial_layer.output[0]
-    fdescriptors = []
-    fdescriptors.append({
-        'layer': initial_layer,
-        'output': tgt_input
-    })
-    for l in sequence[1:]:
-        fl = get_fusable_layer(graph, l, tgt_input, layer_info)
-        if fl is None:
-            if initial_layer.output[0] == "bert/encoder/layer_0/output/dense/BiasAdd:0":
-                print(f"Couldnt find layer {l} with target input {tgt_input}")
-            return None
-        else:
-            assert isinstance(fl, dict)
-            tgt_input = fl['output']
-            fdescriptors.append(fl)
-    return fdescriptors
-
-def fuse_layers(model_name,
-                all_fused_nodes,
-                fusion_instances,
-                layers,
-                fusion_ops,
-                layer_info):
-
-
-    intermediate_nodes = [l['output'] for l in layers[:-1]]
-    fused_templates = [l['layer'] for l in layers]
-    layer_inputs = []
-    for l in layers:
-        for i in l['layer'].input:
-            if i not in intermediate_nodes:
-                layer_inputs.append(i)
-
-    result = layers[-1]['output']
-    all_fused_nodes['intermediate'] += intermediate_nodes
-    all_fused_nodes['layers'] += fused_templates
-    all_fused_nodes['fusion_inputs'] += layer_inputs
-    all_fused_nodes['fusion_outputs'].append(result)
-
-    fusion_name = "_".join(fusion_ops)
-    instance_name = f"{fusion_name}{fusion_instances[fusion_name]}"
-    fusion_instances[fusion_name] += 1
-
-    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    src_path = f"{MODEL_DIR}/{model_name}.onnx"
-    model = onnx.load(src_path)
-    dst_path = f"{MODEL_DIR}/{model_name}_{instance_name}.onnx"
-    layer_inputs = [l for l in layer_inputs if l not in layer_info['initializer_names']]
-    onnx.utils.extract_model(src_path, dst_path, layer_inputs, [result])
-
-    return all_fused_nodes, fusion_instances
-
 def is_dw_conv(node, layer_info):
     inpt_name = node.input[0]
     assert inpt_name in layer_info
@@ -1582,7 +1583,97 @@ def get_layer_name(node, layer_info):
         lname = node.op_type
     return lname
 
-def fusion_generator(src_model, fusion_sequences):
+def get_fusable_layer(graph, layer_name, input_node, layer_info):
+    if isinstance(layer_name, list):
+        out_layers = []
+        outputs = []
+        for l in layer_name:
+            for n in graph.node:
+                lname = get_layer_name(n, layer_info)
+                if lname == l and input_node in n.input and n.output[0] not in outputs:
+                    assert hasattr(n, "output") and len(n.output) == 1
+                    out_layers.append({'output': n.output[0], 'layer': n})
+                    outputs.append(n.output[0])
+        if len(out_layers) == len(layer_name):
+            return out_layers
+    else:
+        for n in graph.node:
+            lname = get_layer_name(n, layer_info)
+            if lname == layer_name and input_node in n.input:
+                assert hasattr(n, "output") and len(n.output) == 1
+                return [{'output': n.output[0], 'layer': n}]
+    return None
+
+def get_fused_nodes(graph, sequence, initial_layer, layer_info):
+    # TODO: Make sure the output isnt used in multiple places
+    assert len(initial_layer.output) == 1
+    tgt_input = initial_layer.output[0]
+    fdescriptors = []
+    fdescriptors.append([{
+        'layer': initial_layer,
+        'output': tgt_input
+    }])
+    for l in sequence[1:]:
+        fl = get_fusable_layer(graph, l, tgt_input, layer_info)
+        if fl is None:
+            return None
+        else:
+            assert isinstance(fl, list)
+            tgt_input = fl[0]['output']
+            fdescriptors.append(fl)
+    return fdescriptors
+
+def fuse_layers(model_name,
+                all_fused_nodes,
+                fusion_instances,
+                layers,
+                fusion_ops,
+                layer_info, test_run=False):
+    intermediate_nodes = []
+    for layer_list in layers[:-1]:
+        for l in layer_list:
+            intermediate_nodes.append(l['output'])
+
+    # intermediate_nodes = [l['output'] for l in layers[:-1]]
+    fused_templates = []
+    for layer_list in layers:
+        for l in layer_list:
+            fused_templates.append(l['layer'])
+    # fused_templates = [l['layer'] for l in layers]
+    layer_inputs = []
+    for layer_list in layers:
+        for l in layer_list:
+            for i in l['layer'].input:
+                if i not in intermediate_nodes:
+                    layer_inputs.append(i)
+
+    result = layers[-1][0]['output']
+    all_fused_nodes['intermediate'] += intermediate_nodes
+    all_fused_nodes['layers'] += fused_templates
+    all_fused_nodes['fusion_inputs'] += layer_inputs
+    all_fused_nodes['fusion_outputs'].append(result)
+    flattened_ops = flatten_seq(fusion_ops)
+    fusion_name = "_".join(flattened_ops)
+    instance_name = f"{fusion_name}{fusion_instances[fusion_name]}"
+    fusion_instances[fusion_name] += 1
+    if not test_run:
+        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        src_path = f"{MODEL_DIR}/{model_name}.onnx"
+        model = onnx.load(src_path)
+        dst_path = f"{MODEL_DIR}/{model_name}_{instance_name}.onnx"
+        layer_inputs = [l for l in layer_inputs if l not in layer_info['initializer_names']]
+        onnx.utils.extract_model(src_path, dst_path, layer_inputs, [result])
+
+    return all_fused_nodes, fusion_instances
+
+def flatten_seq(list_of_lists):
+    if len(list_of_lists) == 0:
+        return list_of_lists
+    if isinstance(list_of_lists[0], list):
+        return flatten_seq(list_of_lists[0]) + flatten_seq(list_of_lists[1:])
+    return list_of_lists[:1] + flatten_seq(list_of_lists[1:])
+
+def fusion_generator(src_model, fusion_sequences, test_run=False):
     from collections import defaultdict
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     model_path = f"{MODEL_DIR}/{src_model}.onnx"
@@ -1595,7 +1686,8 @@ def fusion_generator(src_model, fusion_sequences):
                        'fusion_outputs': [],
                        'intermediate': []
                        }
-    fusion_sequences = sorted(fusion_sequences, key= lambda x: len(x), reverse=True)
+
+    fusion_sequences = sorted(fusion_sequences, key=lambda x: len(x), reverse=True)
     fusion_starts = [s[0] for s in fusion_sequences]
     fusion_instances = defaultdict(int)
 
@@ -1617,12 +1709,27 @@ def fusion_generator(src_model, fusion_sequences):
             for pf in possible_fusions:
                 fused_nodes = get_fused_nodes(model.graph, pf, n, layer_info)
                 if fused_nodes is not None:
-                    all_fused_nodes, fusion_instances = fuse_layers(src_model, all_fused_nodes, fusion_instances, fused_nodes, pf, layer_info)
+                    all_fused_nodes, fusion_instances = fuse_layers(src_model,
+                                                                    all_fused_nodes,
+                                                                    fusion_instances,
+                                                                    fused_nodes,
+                                                                    pf,
+                                                                    layer_info, test_run=test_run)
                     break
         nidx += 1
     print(f"Fusion summary:")
     for k, v in fusion_instances.items():
         print(f"{k} - {v}")
+
+def quantize_model(model_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_path = f"{MODEL_DIR}/{model_name}-int8.onnx"
+
+def optimize_mobilenet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/mobilenetv2-12.onnx"
+    store_path = f"{MODEL_DIR}/mobilenetv2-12-opt.onnx"
 
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
@@ -1683,16 +1790,14 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        # names = ["3d_unet", "efficientnet-lite4-11", "ssd-12"]
-        # model = "mobilenet27"
-        # new_name = optimize_graph(model, single_params={"batch_size": 1})
-        # extract_static_yolo()
-        # trim_bert()
+        # MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        # load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
+        # optimize_bert_onnx(False)
+        # model = onnx.load(load_path)
+        # print(dir(model))
+        # print(model.producer_version)
         # remove_softmax_efficientnet()
-        # rename_yolo_ops()
-        # optimize_yolo_onnx(False)
-        # new_name = f"{names[1]}-opt"
-        # new_name = f"resnet50"
+        # extract_bert_layer()
         #
         # sequences = [['Conv', 'Relu'],
         #              ['Conv', 'Relu', 'MaxPool'],
@@ -1703,17 +1808,52 @@ if __name__ == "__main__":
         # #              ['Conv', 'Clip', 'AveragePool'],
         # #              ['Conv', 'Clip', 'DepthwiseConv',],
         # #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
-        name = "bertsquad-12-opt-trimmed"
-        # sequences = [["Matmul", "Add", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean", "Add", "Sqrt", "Reciprocal", "Mul", "Sub", "Mul", "Add"],
+        # optimize_graph('efficientnet-lite4-new')
+        # create_mobilenet(True, False, False, False,
+        #                  batch_size=1)
+        # optimize_graph('mobilenetv2-12', single_params={'batch_size': 1})
+        # quantize_model('bertsquad-12-opt-trimmed')
+        # optimize_bert_onnx(False)
+        # set_bert_shapes()
+        # name = "bertsquad-12-opt-trimmed"
+        # # name = "bertsquad-12-opt-trimmed-fuse-tester"
+        # sequences = [
+        #                 ["MatMul", "Reshape", "Add", "Add",
+        #                  "ReduceMean",
+        #                  "Sub",
+        #                  "Mul",
+        #                  "ReduceMean",
+        #                  "Add",
+        #                  "Sqrt",
+        #                  "Reciprocal",
+        #                  "Mul", ["Mul", "Mul"], "Sub", "Add"],
         #              ["Gemm", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean",
-        #                                                    "Add", "Sqrt", "Reciprocal", "Mul", "Mul",
-        #                                                    "Sub", "Mul", "Add"],
-        #              ["Matmul", "Mul", "Add", "Softmax"],
-        #              ["Gemm", "Transpose"], ["Matmul", "Transpose"],
-        #              ["Gemm","Pow","Mul","Add", "Mul", "Tanh", "Add", "Mul", "Mul",]]
-        seq = [["Gemm", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean",
-                                                           "Add", "Sqrt", "Reciprocal", "Mul", "Mul",
-                                                           "Sub", "Mul", "Add"]]
-        fusion_generator(name, seq)
+        #                                                    "Add", "Sqrt", "Reciprocal", "Mul", ["Mul", "Mul"],
+        #                                                    "Sub", "Add"],
+        #              ["MatMul", "Mul", "Add", "Softmax"],
+        #              ["Gemm", "Reshape", "Transpose"], ["MatMul", "Transpose"],
+        #              ["Gemm","Pow","Mul","Add", "Mul", "Tanh", "Add", "Mul", "Mul",]
+        # ]
+        # seq = [
+        #         ["Gemm",
+        #          "Add",
+        #          "ReduceMean",
+        #          "Sub",
+        #          "Mul",
+        #          "ReduceMean",
+        #          "Add",
+        #          "Sqrt",
+        #          "Reciprocal",
+        #          "Mul",
+        #          ["Mul", "Mul",],
+        #           "Sub",
+        #          "Add"]
+        # ]
+        name = "mobilenetv2-opt"
+        sequences = [['Conv', 'Add'],
+                     # ['Conv', 'Clip', 'AveragePool'],
+                     ['Conv', 'Clip', 'DepthwiseConv',],
+                     ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        fusion_generator(name, sequences, test_run=True)
 
 #

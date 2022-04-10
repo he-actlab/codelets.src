@@ -62,9 +62,12 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         pad_attrs = [k for k in template.dummy_ops.keys() if 'pad' in k]
         if 'max_pool' in template.op_name:
             raise RuntimeError
-        else:
-            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
-            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+        elif len(pad_attrs) > 0 and 'IH' in template.dummy_ops.keys() and 'IW' in template.dummy_ops.keys():
+
+            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.pad_int)
+            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.pad_int)
+            updated_dims.append('IW')
+
             updated_dims.append('IH')
             updated_dims.append('IW')
             # template.update_dummy_op('OW', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
@@ -76,8 +79,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'][0])
                 template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'][0])
             else:
-                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
-                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+                # template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
+                # template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
+                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.pad_int)
+                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.pad_int)
             updated_dims.append('IH')
             updated_dims.append('IW')
 
@@ -118,7 +123,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         updated_dims.append(out_dim.name)
 
     # Need to figure out if this works for DW Conv
-    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]):
+    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name != 'bert-base-cased-transpose-opt-trimmed-ort':
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         # updated_dims = []
         for c in compute_ops:
@@ -167,6 +172,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
 
 
 def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
+
+    if program.name == 'bert-base-cased-transpose-opt-trimmed-ort':
+        return template
+
     reordered_operands = {}
     for idx, i in enumerate(template.inputs):
         if i.shape_list_names in TRANSPOSED_SHAPES:
@@ -213,6 +222,8 @@ def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTempla
 
 def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', dtype_map=None,
                       codelet_output_map=None) -> 'Codelet':
+
+
     cdlt_idx = program.codelets.index(cdlt)
 
     if cdlt.is_noop():
@@ -251,8 +262,12 @@ def add_simd_typecast(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet',
     return cdlt
 
 
-def pad_operands(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
+def remove_unused_variables(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', shaped_nodes=None) -> 'Codelet':
     assert isinstance(shaped_nodes, dict)
+    # inputs = cdlt.inputs
+    # for i in inputs:
+    #     if i not in cdlt.used_inputs:
+    #         cdlt.remove_input(i)
     return cdlt
 
 def update_dependencies(cdlt, loop_replacement_map):
@@ -353,7 +368,10 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
     # Iterate over each operands data movements, and
 
     for o in cdlt.all_operands:
-        if len(o.data_path) == 0 or (len(o.data_path) == 1 and o.data_path[0] != "IMM") :
+        if len(o.data_path) == 0:
+            continue
+        # if len(o.data_path) == 0 or (len(o.data_path) == 1 and o.data_path[0] != "IMM"):
+        if (len(o.data_path) == 1 and o.data_path[0] != "IMM"):
             raise RuntimeError(f"Operand {o.name} has invalid data path: {o.data_path}")
         dm_idx = 0
 
@@ -373,17 +391,25 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                     assert list(dm.offset_map.keys()) == list(o.shape_symbols.keys())
                     dm.reinit_offset_map(o.shape_symbols.copy())
                     break
-                # print(f"{op.op_str}, {op.op_name}, {o.name}, {dm.src_node} --> {dm.dst_node}")
+                if dm.src_node is None:
+                    raise RuntimeError(f"Unset source node for data movement in operand {o.name}.\n"
+                                       f"Dest node: {dm.dst_node}\n"
+                                       f"Operation: {dm.op_name}")
+                if dm.dst_node is None:
+                    raise RuntimeError(f"Unset dest node for data movement in operand {o.name}.\n"
+                                       f"Source node: {dm.src_node}\n"
+                                       f"Operation: {dm.op_name}")
                 if o in op.sources and cdlt.get_tile_level(dm.src_node) < cdlt.get_tile_level(dm.dst_node):
                     # Case 1: It is an operand which is read from in the compute.
                     # For this case, we need to backtrack, starting with the compute, and updating the offsets
                     # for transfers which were used to send data to the compute unit.
 
                     # Need to validate the movement to see that it is indeed reading the data, not writing
-                    if dm_idx == 0 and op.op_name != "MACC":
+                    if dm_idx == 0 and op.op_name not in ["MACC", "MAX", "MIN"]:
                         raise RuntimeError(f"Operand {o.name} included\n"
                                            f"as source operand, but data movement tile level does not match:\n"
-                                           f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n")
+                                           f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n"
+                                           f"Operation: {dm.op_name}.")
                     # Create a copy of the offset map which will be propagated backward
                     offset_map = dm.offset_map
                     offset_deps = sum([v for v in dm.symbol_atoms_map.values()], [])
@@ -398,10 +424,12 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                     # For this case, we need to move forward, starting with the compute, and updating the offsets
                     # for transfers which were used to send data from the compute unit back off chip.
                     assert o in op.dests
-                    if dm_idx == (len(o.data_moves) - 1):
+                    if dm_idx == (len(o.data_moves) - 1) and op.op_name != "ADD":
                         raise RuntimeError(f"Operand {o.name} included\n"
-                                           f"as source operand, but data movement tile level does not match:\n"
-                                           f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n")
+                                           f"as ddest operand, but data movement tile level does not match:\n"
+                                           f"({cdlt.get_tile_level(dm.src_node)}){dm.src_node} --> ({cdlt.get_tile_level(dm.dst_node)}){dm.dst_node}\n"
+                                           f"Operation: {dm.op_name}\n"
+                                           f"{op.op_name}")
                     offset_deps = sum([v for v in dm.symbol_atoms_map.values()], [])
                     offset_deps = [str(v) for v in offset_deps]
                     offset_map = dm.offset_map

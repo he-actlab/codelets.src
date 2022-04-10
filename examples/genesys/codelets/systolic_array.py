@@ -36,6 +36,22 @@ def add_gemm_quant(cdlt, gemm_out, out, M, P):
     cdlt.configure('end', 'SIMD')
     return cdlt
 
+def add_matmul4d_quant(cdlt, gemm_out, out, B, C, M, P):
+    simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+    cdlt.configure('start', 'SIMD')
+    m0 = create_immediate_with_operand(cdlt,  QUANT_SCALE, simd_size=simd_size)
+    nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+    with cdlt.loop(B) as b:
+        with cdlt.loop(C) as c:
+            with cdlt.loop(M) as m:
+                with cdlt.loop(P) as p:
+                    out.set_write_destination('VMEM1')
+                    indices = (b, c, m, p)
+                    add_scale_op(cdlt, gemm_out, out, m0, nshift, indices)
+                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+    cdlt.configure('end', 'SIMD')
+    return cdlt
+
 ## Quantized versions
 
 def gemm(hag: ArchitectureNode):
@@ -90,7 +106,7 @@ def gemm(hag: ArchitectureNode):
 
 def gemm_no_bias(hag: ArchitectureNode):
 
-    with CodeletTemplate("gemm_no_bias") as cdlt:
+    with CodeletTemplate("matmul") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
@@ -130,12 +146,97 @@ def gemm_no_bias(hag: ArchitectureNode):
     return cdlt
 
 
+def matmul4d(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul4d") as cdlt:
+        B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[3])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(gemm_out)
+
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with cdlt.loop(B) as b:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(M) as m:
+                    with cdlt.loop(N) as n:
+                        with cdlt.loop(P) as p:
+                            cdlt.transfer(data, ["DRAM", "IBUF"])
+                            cdlt.transfer(weight, ["DRAM", "WBUF"])
+                            cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
+                            gemm_out.set_write_destination("OBUF")
+                            cdlt.compute("MVMUL", [data[b, c, m, n], weight[b, c, n, p], gemm_out[b, c, m, p]], [gemm_out[b, c, m, p]], target="pe_array")
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+        cdlt = add_matmul4d_quant(cdlt, gemm_out, out, B, C, M, P)
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
+
+
+def matmul4d_no_quant(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul4d") as cdlt:
+        B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[3])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with cdlt.loop(B) as b:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(M) as m:
+                    with cdlt.loop(N) as n:
+                        with cdlt.loop(P) as p:
+                            cdlt.transfer(data, ["DRAM", "IBUF"])
+                            cdlt.transfer(weight, ["DRAM", "WBUF"])
+                            cdlt.transfer(out, ["DRAM", "OBUF"])
+                            out.set_write_destination("OBUF")
+                            cdlt.compute("MVMUL", [data[b, c, m, n], weight[b, c, n, p], out[b, c, m, p]], [out[b, c, m, p]], target="pe_array")
+                            cdlt.transfer(out, ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
 
 def conv2d(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -195,7 +296,7 @@ def conv2d_bias(hag: ArchitectureNode):
 
     with CodeletTemplate("conv_bias") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -302,7 +403,7 @@ def gemm_unquantized(hag: ArchitectureNode):
 
 def gemm_no_bias_unquantized(hag: ArchitectureNode):
 
-    with CodeletTemplate("gemm_no_bias") as cdlt:
+    with CodeletTemplate("matmul") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
@@ -345,7 +446,7 @@ def conv2d_unquantized(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -402,7 +503,7 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
 
     with CodeletTemplate("conv_bias") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
-        pad = cdlt.dummy_op("pad", cdlt.node.pad)
+        pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -461,12 +562,15 @@ if USE_QUANTIZATION:
         "conv_bias": conv2d_bias,
         "conv": conv2d,
         "gemm": gemm,
-        'gemm_no_bias': gemm_no_bias,
+        'matmul': gemm_no_bias,
+        'matmul4d': matmul4d
     }
 else:
     SA_CDLTS = {
         "conv_bias": conv2d_bias_unquantized,
         "conv": conv2d_unquantized,
         "gemm": gemm_unquantized,
-        'gemm_no_bias': gemm_no_bias_unquantized,
+        'matmul': gemm_no_bias_unquantized,
+        'matmul4d': matmul4d_no_quant
+
     }
