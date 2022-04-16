@@ -899,7 +899,8 @@ def simd_benchmarks2(tests=None, layers=None, num=12):
 
     configs = {
         "t0": {"constraint": "True", "scale_factor": 1},
-        "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        # "t1" : {"constraint": "splits['H'] > 1", "scale_factor": 3},
+        "t1" : {"constraint": "splits['C'] == 2 and splits['H'] == 2 and splits['W'] > 1", "scale_factor": 2},
         # "t1" : {"constraint": "splits['H'] == 2 and splits['W'] == 2 and splits['C'] == 1", "scale_factor": 3},
         "t2" : {"constraint": "splits['N'] > 1 and splits['H'] > 1", "scale_factor": 2},
         "t3" : {"constraint": "splits['C'] > 1 and splits['H'] > 1 and splits['W'] > 1", "scale_factor": 2},
@@ -1370,8 +1371,8 @@ if __name__ == "__main__":
 
     # systolic_array_conv_bench(32, num=40)
     # simd_benchmarks1(tests=["t0"], layers=["max_pool"], num=0)
-    # simd_benchmarks3(tests=["t0"], layers=["elem_tanh"], num=0)
-    simd_benchmarks1(tests=["t0"], layers=["elem_add", "elem_sub"], num=0)
+    simd_benchmarks3(tests=["t0"], layers=["reduce_mean2d"], num=1)
+    # simd_benchmarks1(tests=["t1"], layers=["elem_sigmoid"], num=1)
     # simd_benchmarks2(tests=["t1"], layers=["elem_clip"], num=0)
     # simd_benchmarks2(tests=["t3"], layers=["global_avg_pool"], num=0)
     # systolic_array_conv_bench(sys_array_size=64,
@@ -1381,7 +1382,7 @@ if __name__ == "__main__":
     # multi_layer_cases1(num=1)
     # simd_benchmarks5(num=68, layers=["elem_less", "elem_equal", "elem_exp"])
     # simd_benchmarks3(layers=["elem_pow2d"], num=59)
-    # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=52)
+    # simd_benchmarks2(layers=["leaky_relu"], tests=["t1"], num=1)
     # simd_benchmarks3(layers=["elem_tanh2d", "elem_ceil2d"], num=50)
     # simd_benchmarks1(layers=["relu"], tests=["t1"], num=40)
     # model = "resnet18"

@@ -601,7 +601,9 @@ class CodeletProgram(object):
 
     def instantiate_instructions_templates(self, node, cdlt, verbose=False):
         self.set_instruction_templates(cdlt)
+
         self.relocatables.add_data_relocation(node, cdlt)
+
         self.instantiate_instructions(cdlt, verbose=verbose)
 
         if self.hag.has_op_template("codelet", "start"):
@@ -893,11 +895,13 @@ class CodeletProgram(object):
                     o.mem_locations[ml] = {"index": locs[ml], "offset": loc_sizes[ml]}
                     locs[ml] += 1
                     loc_sizes[ml] += o.dtype.bits()*np.prod(list(o.tiling[ml].values()))
+
                     if loc_sizes[ml] > mem_node.size:
                         raise RuntimeError(f"Invalid storage capacity for codelet\n"
                                            f"Codelet: {cdlt.op_name} - {cdlt.cdlt_uid} --> {ml}\n"
                                            f"Operand: {o.name}\n"
                                            f"Tiling: {o.tiling[ml]}\n")
+
 
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:
@@ -989,6 +993,7 @@ class CodeletProgram(object):
         self.finalize_instructions(node_sequence, codelets, verbose=verbose)
         self.finalize_instruction_memory(node_sequence, codelets, verbose=verbose)
         self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
+
 
 
     def filtered_compile(self, cdlt_uids=None, verbose=False, sequence_algorithm="default", tiling_path=None,

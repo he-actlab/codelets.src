@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from .instruction import Instruction
 from codelets.adl.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
+from time import time
+
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
 NUM_OP_FN_ARGS = 6
 
@@ -281,7 +283,6 @@ class FlexTemplate:
                 else:
                     cond_args = fn_args
                 condition = self.evaluate_conditional(cond_args, iter_args)
-
                 if condition:
                     field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
                     instruction.evaluate_fields(fn_args, field_args)
@@ -289,7 +290,6 @@ class FlexTemplate:
                     instruction.set_tabs(num_tabs)
                     instructions.append(instruction)
                     self.evaluate_side_effects(fn_args, iter_args)
-
         else:
             iter_arg_name = self.iter_args[iter_idx]
             iterable_fnc = self.iterables[iter_idx]

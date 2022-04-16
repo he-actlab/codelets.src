@@ -309,6 +309,7 @@ class Operand:
     static_padding: Dict[str, int] = field(default_factory=dict)
     dynamic_padding: Dict[str, int] = field(default_factory=dict)
     dim_order: List[int] = field(default=None)
+    offset_memo: Dict = field(default_factory=dict)
 
     @property
     def data_size(self):
@@ -430,9 +431,13 @@ class Operand:
 
 
     def get_offset(self,  cdlt, loop_id, hag, op_name, node_name, write=False, outer_loop=False):
+        mem_key = (loop_id, op_name, node_name, write, outer_loop)
+        if mem_key in self.offset_memo:
+            return self.offset_memo[mem_key]
 
         if len(self.data_moves) > 0 and (
                 self.data_moves[-1].src_node == "IMM" or self.data_moves[-1].dst_node == "IMM"):
+            self.offset_memo[mem_key] = 0
             return 0
 
         if not outer_loop:
@@ -484,6 +489,7 @@ class Operand:
                 other_offsets.append(o)
 
         if offset_val is None:
+            self.offset_memo[mem_key] = 0
             return 0
 
         other_sizes = [1]
@@ -541,8 +547,9 @@ class Operand:
             loop_name = cdlt.loop_param_map[loop_str]
             loop = cdlt.op_map[loop_str]
             stride_val *= loop.stride
-
-        return np.ceil(stride_val / width).astype(np.int64)
+        offset = np.ceil(stride_val / width).astype(np.int64)
+        self.offset_memo[mem_key] = offset
+        return offset
 
     # 'up' -> dram -> compute unit
     # 'down' -> compute unit -> dram

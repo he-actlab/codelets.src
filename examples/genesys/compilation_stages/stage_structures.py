@@ -37,6 +37,7 @@ class TilingInfo:
     print_debug: bool = field(default=True)
     dims: List[str] = field(default_factory=list)
     loop_idx_mapping: Dict[str, int] = field(default_factory=dict)
+    cdlt_params: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
         for i in range(self.levels):
@@ -84,12 +85,12 @@ class TilingInfo:
         return constraint_sat
 
     def add_tile_hint(self, level: int, loop_name: str, hint_str):
-        hint = FlexParam(f"{loop_name}_lvl{level}_hint", ["size", "split"], hint_str)
+        hint = FlexParam(f"{loop_name}_lvl{level}_hint", ["size", "split", "params"], hint_str)
         self.tile_hints[level][loop_name] = hint
 
     def add_level_hint(self, level: int, hint_str):
         name = f"LEVEL{level}_hint"
-        hint = FlexParam(name, ["sizes", "splits"], hint_str)
+        hint = FlexParam(name, ["sizes", "splits", "params"], hint_str)
         assert name not in self.tile_hints
         self.tile_hints[name] = hint
 
@@ -100,7 +101,7 @@ class TilingInfo:
             idx = self.loop_idx_mapping[l]
             size = sizes[idx]
             split = splits[idx]
-            valid = th.evaluate_fn(size, split)
+            valid = th.evaluate_fn(size, split, self.cdlt_params)
             if not valid:
                 return False
 
@@ -109,7 +110,8 @@ class TilingInfo:
         if level_name in self.tile_hints:
             sizes = {self.loop_dim_map[l]: sizes[self.loop_idx_mapping[l]] for l in loop_deps}
             splits = {self.loop_dim_map[l]: splits[self.loop_idx_mapping[l]] for l in loop_deps}
-            valid = self.tile_hints[level_name].evaluate_fn(sizes, splits)
+            # valid = self.tile_hints[level_name].evaluate_fn(sizes, splits, self.cdlt_params)
+            valid = self.tile_hints[level_name].evaluate_fn(sizes, splits, self.cdlt_params)
             if not valid:
                 return False
         return True

@@ -140,11 +140,20 @@ def get_tile_info(cdlt, hag, factor_fn_name) -> TilingInfo:
 
         loop_dependencies += [dp for dp in list(set(o.dependencies)) if dp not in loop_dependencies and "loop" in dp]
 
+    op_params = {}
+    loop_order = [v for v in cdlt.loop_param_map.values()]
+    for k, v in cdlt.required_params.items():
+        if k not in loop_order:
+            op_params[k] = v.value
+
     tile_info = TilingInfo(f"{cdlt.op_name}{cdlt.instance_id}_tile_info",
-                           cdlt.domain_loop_map,
-                           len(list(cdlt.tile_levels.keys())),
-                           loop_dependencies,
-                           level_accesses, factor_fn_name=factor_fn_name)
+                   cdlt.domain_loop_map,
+                   len(list(cdlt.tile_levels.keys())),
+                   loop_dependencies,
+                   level_accesses,
+                   factor_fn_name=factor_fn_name,
+                   cdlt_params=op_params
+                   )
     tile_info.update_loop_order(cdlt)
     tile_info = get_tile_constraints(cdlt, hag, tile_info)
     return tile_info

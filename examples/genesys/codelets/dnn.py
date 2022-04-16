@@ -1,8 +1,8 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, FXP_CONFIGS
+from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
 import numpy as np
-from . import range_from_cfg, add_simd_constraint, create_immediate_with_operand, add_simd_tile_constraint
+from . import range_from_cfg, add_simd_constraint, create_immediate_with_operand, add_simd_tile_constraint, add_scale_and_cast_op
 
 
 
@@ -522,6 +522,73 @@ def softmax4d(hag):
     cdlt = add_simd_tile_constraint(hag, cdlt, ["H"])
     return cdlt
 
+def gelu(hag):
+    with CodeletTemplate('gelu') as cdlt:
+        B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
+        P = cdlt.dummy_op("P", cdlt.node.inputs[0].shape[2])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[0])
+        cdlt.set_outputs([out])
+        sign_val = cdlt.create_operand_template("sign_val", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(sign_val)
+
+        gelu_out = cdlt.create_operand_template("gelu_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        gelu_out.start_location = "VMEM2"
+        cdlt.add_temp_operand(gelu_out)
+
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.configure('start', 'SIMD')
+        b_s = create_immediate_with_operand(cdlt, -1.769 / QUANT_SCALE, simd_size=simd_size, cast_float_to_fxp=True)
+        aop = create_immediate_with_operand(cdlt, -0.2888, simd_size=simd_size, cast_float_to_fxp=True)
+        bop = create_immediate_with_operand(cdlt, -1.769, simd_size=simd_size, cast_float_to_fxp=True)
+        cop = create_immediate_with_operand(cdlt, 1, simd_size=simd_size)
+        s_f = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        with cdlt.loop(P) as p:
+            with cdlt.loop(B) as b:
+                with cdlt.loop(M) as m:
+                    cdlt.transfer(data, ["DRAM", "VMEM1"])
+                    out.set_write_destination('VMEM1')
+                    sign_val.set_write_destination("VMEM1")
+                    gelu_out.set_write_destination("VMEM2")
+                    indices = (b, m, p)
+
+                    cdlt.compute("ABS", [data[indices]], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("MIN", [gelu_out[indices], b_s], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("ADD", [gelu_out[indices], bop], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("MOVE", [gelu_out[indices]], [sign_val[indices]],
+                                 target="SIMD")
+
+                    cdlt.compute("MUL", [gelu_out[indices], sign_val[indices]], [gelu_out[indices]],
+                                 target="SIMD")
+                    # add_scale_and_cast_op(cdlt, add_lhs, out, m0, nshift, indices)
+                    cdlt.compute("MUL", [gelu_out[indices], aop], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("ADD", [gelu_out[indices], cop], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("SIGN", [data[indices]], [sign_val[indices]],
+                                 target="SIMD")
+
+                    cdlt.compute("MUL", [gelu_out[indices], sign_val[indices]], [gelu_out[indices]],
+                                 target="SIMD")
+                    cdlt.compute("ADD", [gelu_out[indices], m0], [gelu_out[indices]], target="SIMD")
+                    cdlt.compute("MUL", [data[indices], gelu_out[indices]], [out[indices]], target="SIMD")
+                    cdlt.compute("MUL", [out[indices], s_f], [out[indices]], target="SIMD")
+
+                    add_scale_and_cast_op(cdlt, out, out, m0, nshift, indices)
+
+                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure('end', 'SIMD')
+    cdlt = add_simd_constraint(hag, cdlt, "P")
+    return cdlt
+
 DNN_CDLTS = {
     "avg_pool": averagepool2d,
     "softmax4d": softmax4d,
@@ -532,4 +599,5 @@ DNN_CDLTS = {
     "global_avg_pool": global_avg_pool,
     "max_pool": maxpool2d,
     "mean_var": mean_var,
+    "gelu": gelu,
 }

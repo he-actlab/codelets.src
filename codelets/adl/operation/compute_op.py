@@ -14,6 +14,7 @@ class Compute(Operation):
         self._sources = []
         self._dests = []
         self._operand_indices = []
+        self.oploc_memo = {}
         req_params = {}
         assert target is not None
 
@@ -113,6 +114,10 @@ class Compute(Operation):
                 operands.append(o)
         return operands
 
+    @property
+    def source_locations(self):
+        return list(sorted(list(set([self.get_operand_location(o.name) for o in self.sources]))))
+
     def update_operand_indices(self, dep_map):
         for i, idx in enumerate(self.operand_indices):
             if idx in dep_map:
@@ -129,6 +134,7 @@ class Compute(Operation):
 
 
     def get_operand_location(self, operand_name: str) -> str:
+
         op = self.get_operand(operand_name)
         location = None
         for a in op.data_moves:

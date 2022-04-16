@@ -1,6 +1,7 @@
 import json
 import polymath as pm
-from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION
+from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION, \
+    SW_PIPELINE_TEST, ADDR_GEN_TEST, PAPER_CFG2, PAPER_CFG1, CUSTOM_CFG
 from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
 from tools.compile_layer import store_program_codelets
@@ -21,7 +22,8 @@ FUSION_NAME_MAPPING = {
     'maxpool': 'max_pool',
     'globalaveragepool': 'global_avg_pool',
     'clip': 'elem_clip',
-    'averagepool': 'avg_pool'
+    'averagepool': 'avg_pool',
+    'sub': 'elem_sub'
 }
 BENCHMARK_INFO = {
     "resnet18" : {
@@ -71,20 +73,23 @@ def check_fused_layer_count(model_path, program):
             onnx_layers[n.op_type] += 1
         else:
             onnx_layer_count -= 1
-
+    unmapped = []
     for c in program.codelets:
         if c.op_name in FUSION_OP_INFO:
             layer_count += len(FUSION_OP_INFO[c.op_name]['seq'])
             for o in FUSION_OP_INFO[c.op_name]['seq']:
-                cdlt_layers[FUSION_NAME_MAPPING[o.lower()]] += 1
-            cdlt_layers[o.lower()] += 1
+                if o.lower() not in FUSION_NAME_MAPPING:
+                    unmapped.append(o.lower())
+                else:
+                    cdlt_layers[FUSION_NAME_MAPPING[o.lower()]] += 1
+                cdlt_layers[o.lower()] += 1
         else:
             cdlt_layers[c.op_name] += 1
             layer_count += 1
 
-
+    print(f"Unmapped: {set(unmapped)}")
     if layer_count != onnx_layer_count:
-        raise RuntimeError(f"INconsistent layers after fusion compared to onnx:\n"
+        print(f"INconsistent layers after fusion compared to onnx:\n"
                            f"Onnx: {onnx_layer_count}\n"
                            f"Codelets: {layer_count}\n"
                            f"Onnx layers: {onnx_layers}\n"
@@ -95,19 +100,48 @@ def check_fused_layer_count(model_path, program):
 def compile_benchmark(model_name,
                       fuse_layers=False,
                       identifier=0,
+                      custom_config=False,
                       verbose=False,
                       filtered_layers=None,
                       stop_stage=None,
                       skip_layers=None,
                       skip_broken_layers=False,
                       only_systolic=False,
-                      filter_op_types=None):
+                      filter_op_types=None,
+                      sw_pipeline_test=False,
+                      addr_gen_test=False
+                      ):
+    dir_ext = ""
     if fuse_layers:
         assert not only_systolic
         num_layers = BENCHMARK_INFO[model_name]['num_layers_fused']
     else:
         num_layers = BENCHMARK_INFO[model_name]['num_layers_unfused']
 
+    if custom_config:
+        assert CUSTOM_CFG
+
+        assert USE_QUANTIZATION
+        assert not SW_PIPELINE_TEST
+        assert not ADDR_GEN_TEST
+        assert not PAPER_CFG1
+        assert not PAPER_CFG2
+        dir_ext = "dse_"
+    elif sw_pipeline_test:
+        assert not USE_QUANTIZATION
+        assert SW_PIPELINE_TEST
+        assert not ADDR_GEN_TEST
+        assert PAPER_CFG2
+        dir_ext = "sw_pipeline_"
+    elif addr_gen_test:
+        assert ADDR_GEN_TEST
+        assert USE_QUANTIZATION
+        assert PAPER_CFG2
+        assert not SW_PIPELINE_TEST
+        dir_ext = "addr_gen_"
+    else:
+        assert not SW_PIPELINE_TEST
+        assert not ADDR_GEN_TEST
     assert model_name in BENCHMARK_NAMES
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
@@ -156,7 +190,7 @@ def compile_benchmark(model_name,
 
     if stop_stage is None:
         sys_array_size = GENESYS_CFG['ARRAY_M']
-        store_program_codelets(program, identifier, dir_ext=f"benchmark{sys_array_size}x{sys_array_size}")
+        store_program_codelets(program, identifier, dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}")
 
 if __name__ == "__main__":
     benchmarks = ['resnet18', 'resnet50',
@@ -164,36 +198,27 @@ if __name__ == "__main__":
                   'mobilenetv2-opt',
                   'yolov3-opt-static',
                   'bert-base-cased-transpose-opt-trimmed-ort']
-
-    # load_path = f"{MODEL_DIR}/{benchmarks[-1]}.onnx"
-    # model = onnx.load(load_path)
-    # t = SymbolicShapeInference.infer_shapes(model, 2**31 - 1, True,
-    #                                     False, False)
-    # print(model.domain)
-    # print(model.producer_name)
-    # print(model.producer_name)
-    # print(dir(model))
-
-    compile_benchmark(benchmarks[-1],
-                      fuse_layers=True,
-                      only_systolic=False,
-                      verbose=True,
-                      # filter_op_types=['tensor_transpose3d'],
-                      skip_broken_layers=False,
-                      identifier=1)
-
-    # compile_benchmark(benchmarks[2],
+    #
+    # compile_benchmark(benchmarks[3],
     #                   fuse_layers=True,
     #                   only_systolic=False,
+    #                   sw_pipeline_test=True,
+    #                   addr_gen_test=False,
+    #                   custom_config=False,
     #                   verbose=True,
-    #                   # filtered_layers=[4],
     #                   filtered_layers=[1],
+    #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
     #                   skip_broken_layers=False,
-    #                   identifier=17)
-    # for b in benchmarks[1:-1]:
-    #     compile_benchmark(b,
-    #                       fuse_layers=True,
-    #                       only_systolic=False,
-    #                       verbose=True,
-    #                       skip_broken_layers=False,
-    #                       identifier=16)
+    #                   identifier=22)
+
+
+    for b in benchmarks[1:]:
+        compile_benchmark(b,
+                          fuse_layers=True,
+                          only_systolic=False,
+                          verbose=True,
+                          addr_gen_test=False,
+                          custom_config=False,
+                          sw_pipeline_test=True,
+                          skip_broken_layers=False,
+                          identifier=23)

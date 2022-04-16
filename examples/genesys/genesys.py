@@ -598,7 +598,6 @@ def compile_extracted_genesys_layer(model_name,
 
     return program
 
-
 def add_genesys_codelets(hag: ComputeNode):
     for op_name, cdlt in GENESYS_CODELETS.items():
         hag.add_codelet(cdlt(hag))
