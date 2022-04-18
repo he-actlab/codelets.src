@@ -46,9 +46,9 @@ ASIC_CONFIG = False
 PAPER_CFG2 = True
 
 ## Quantization
-SW_PIPELINE_TEST = True
-USE_QUANTIZATION = False
-ADDR_GEN_TEST = False
+SW_PIPELINE_TEST = False
+USE_QUANTIZATION = True
+ADDR_GEN_TEST = True
 CUSTOM_CFG = False
 QUANT_SCALE = 0.6
 SIGN_SHIFT = 30
@@ -57,17 +57,24 @@ SIGN_SHIFT = Fxp(SIGN_SHIFT, **FXP_CONFIGS['FXP32']).val.item()
 ### End quantization
 ## SHIYU CONFIG
 if CUSTOM_CFG:
-    GENESYS_CFG['ARRAY_N'] = 128
-    GENESYS_CFG['ARRAY_M'] = 128
-    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512 // BIT
-    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512 // BIT
-    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512 // BIT
-    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512 // BIT
-    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512 // BIT
-    GENESYS_CFG['IBUF_DEPTH'] = 4096
-    GENESYS_CFG['WBUF_DEPTH'] = 512
-    GENESYS_CFG['OBUF_DEPTH'] = 1024
-    GENESYS_CFG['BBUF_DEPTH'] = 128
+    cfg_size = 128
+    mult = 1
+    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512*mult // BIT
+    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512*mult // BIT
+    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512*mult // BIT
+    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512*mult // BIT
+    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512*mult // BIT
+
+    multiplier = 128 // cfg_size
+    GENESYS_CFG['ARRAY_N'] = cfg_size
+    GENESYS_CFG['ARRAY_M'] = cfg_size
+    GENESYS_CFG['IBUF_DEPTH'] = 1024*multiplier
+    # GENESYS_CFG['WBUF_DEPTH'] = 64*multiplier*multiplier
+    # GENESYS_CFG['OBUF_DEPTH'] = 256*multiplier
+    GENESYS_CFG['WBUF_DEPTH'] = 128*multiplier*multiplier
+    GENESYS_CFG['OBUF_DEPTH'] = 2048*multiplier
+    GENESYS_CFG['BBUF_DEPTH'] = 128*multiplier
+
 elif ASIC_CONFIG:
     GENESYS_CFG['ARRAY_N'] = 32
     GENESYS_CFG['ARRAY_M'] = 32

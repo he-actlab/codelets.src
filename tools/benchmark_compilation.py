@@ -199,26 +199,36 @@ if __name__ == "__main__":
                   'yolov3-opt-static',
                   'bert-base-cased-transpose-opt-trimmed-ort']
     #
-    # compile_benchmark(benchmarks[3],
+    # compile_benchmark(benchmarks[-1],
     #                   fuse_layers=True,
     #                   only_systolic=False,
-    #                   sw_pipeline_test=True,
+    #                   sw_pipeline_test=False,
     #                   addr_gen_test=False,
-    #                   custom_config=False,
+    #                   custom_config=True,
     #                   verbose=True,
-    #                   filtered_layers=[1],
+    #                   # filtered_layers=[3],
     #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
     #                   skip_broken_layers=False,
-    #                   identifier=22)
+    #                   identifier=24)
 
+    compile_benchmark(benchmarks[-1],
+                      fuse_layers=True,
+                      only_systolic=False,
+                      verbose=True,
+                      addr_gen_test=True,
+                      custom_config=False,
+                      sw_pipeline_test=False,
+                      skip_broken_layers=False,
+                      identifier=25)
 
-    for b in benchmarks[1:]:
-        compile_benchmark(b,
-                          fuse_layers=True,
-                          only_systolic=False,
-                          verbose=True,
-                          addr_gen_test=False,
-                          custom_config=False,
-                          sw_pipeline_test=True,
-                          skip_broken_layers=False,
-                          identifier=23)
+    #
+    # for b in benchmarks[1:]:
+    #     compile_benchmark(b,
+    #                       fuse_layers=True,
+    #                       only_systolic=False,
+    #                       verbose=True,
+    #                       addr_gen_test=True,
+    #                       custom_config=False,
+    #                       sw_pipeline_test=False,
+    #                       skip_broken_layers=False,
+    #                       identifier=25)

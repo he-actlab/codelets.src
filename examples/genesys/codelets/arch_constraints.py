@@ -1,4 +1,4 @@
-from examples.genesys import OP_DTYPES, ASIC_CONFIG, PAPER_CFG1, PAPER_CFG2
+from examples.genesys import OP_DTYPES, ASIC_CONFIG, PAPER_CFG1, PAPER_CFG2, CUSTOM_CFG
 
 
 def add_simd_constraint(hag, cdlt, fixed_dim):

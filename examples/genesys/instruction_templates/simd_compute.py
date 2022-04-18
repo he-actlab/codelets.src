@@ -464,9 +464,13 @@ def sw_addr_nops_nested(op_name, hag):
     ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID})"
 
     tgt_loop_list = f"[loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]] for loop_op in {all_loop_list} if {other_constr}]"
+    filtered_loops = f"[loop_op for loop_op in {all_loop_list} if {other_constr}]"
     loop_count = f"np.prod({tgt_loop_list})"
     filterd_operand_locs = "([op.get_operand_location(o.name) for o in op.operands if op.get_operand_location(o.name) != 'IMM'])"
-    multiplier_val = f"(3 if len({filterd_operand_locs}) > 2 else 2)"
+
+    multiplier = f"(3 if len({filterd_operand_locs}) > 2 else 2)"
+    multiplier_val = f"({multiplier} if loop_op.loop_id == {filtered_loops}[0].loop_id else 1)"
+
     lconds = " and ".join(LOOP_CONDS)
 
     macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")

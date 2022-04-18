@@ -12,7 +12,7 @@ from examples.genesys.compilation_stages.stage_utils import default_tile_heurist
     store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
 from examples.genesys.codelets import FUSION_CODELETS
-from examples.genesys import PAPER_CFG1, PAPER_CFG2
+from examples.genesys import PAPER_CFG1, PAPER_CFG2, GENESYS_CFG
 import polymath as pm
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
@@ -64,8 +64,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
             raise RuntimeError
         elif len(pad_attrs) > 0 and 'IH' in template.dummy_ops.keys() and 'IW' in template.dummy_ops.keys():
 
-            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.pad_int)
-            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.pad_int)
+            template.update_dummy_op('IH', template.node.inputs[0].shape[2] + template.node.pad_int)
+            template.update_dummy_op('IW', template.node.inputs[0].shape[3] + template.node.pad_int)
             updated_dims.append('IW')
 
             updated_dims.append('IH')
@@ -96,29 +96,21 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 break
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
-        inp_bw = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
+            pad_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
+        else:
+            pad_constr = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
 
-        # if PAPER_CFG:
-        #     inp_bw = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
-        # else:
-        #     inp_bw = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
-        new_inp_dim = dummy_inp_dim + (inp_bw - dummy_inp_dim) % inp_bw
+        new_inp_dim = dummy_inp_dim + (pad_constr - dummy_inp_dim) % pad_constr
         template.update_dummy_op(inp_dim.name, new_inp_dim)
         updated_dims.append(inp_dim.name)
 
-        # Need to pad OC
-        wgt_bw = template.hag.edge_map[('DRAM', 'WBUF')].bandwidth_bytes
-        #
-        # if PAPER_CFG:
-        #     wgt_bw = template.hag.all_subgraph_nodes['pe_array'].dimensions[1]
-        # else:
-        #     wgt_bw = template.hag.edge_map[('DRAM', 'WBUF')].bandwidth_bytes
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
         # TODO: Need to validate
         dummy_out_dim = template.node.inputs[1].shape[0]
-        new_out_dim = dummy_out_dim + (wgt_bw - dummy_out_dim) % wgt_bw
+        new_out_dim = dummy_out_dim + (pad_constr - dummy_out_dim) % pad_constr
         template.update_dummy_op(out_dim.name, new_out_dim)
         updated_dims.append(out_dim.name)
 
