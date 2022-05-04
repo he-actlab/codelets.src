@@ -61,6 +61,9 @@ class FlexParam:
     def value(self):
         return self._value
 
+    def reset(self):
+        self._value = None
+
     @value.setter
     def value(self, value):
         self._value = value

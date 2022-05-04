@@ -1,7 +1,7 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, ASIC_CONFIG, \
-    FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, SW_PIPELINE_TEST
+    FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, SW_PIPELINE_TEST, ALL_QUANT_OFF, FUSION_CONSTRAINTS
 from . import add_conv_constraints, range_from_cfg, \
     add_simd_constraint, create_immediate_with_operand, add_scale_op, \
     add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op
@@ -224,8 +224,7 @@ def conv_relu(hag: ArchitectureNode):
                         out.set_write_destination("VMEM2")
                         relu_out.set_write_destination("VMEM1")
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, conv_out, relu_out, m0, nshift, indices)
-                        cdlt.compute("RELU", [relu_out[n, oc, y, x], param], [relu_out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("RELU", [conv_out[n, oc, y, x], param], [relu_out[n, oc, y, x]], target="SIMD")
                         cdlt.compute("32FXP_8FXP", [relu_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
@@ -245,11 +244,7 @@ def conv_leaky_relu(hag: ArchitectureNode):
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
 
-        leaky_relu_out = cdlt.create_operand_template("leaky_relu_out", OP_DTYPES, [N, OC, OH, OW],
-                                                      default_dtype=OP_DTYPES[2])
-        leaky_relu_out.start_location = "VMEM1"
-        cdlt.add_temp_operand(leaky_relu_out)
-        leaky_relu_out.set_write_destination("VMEM1")
+
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
         cdlt.set_outputs([out])
 
@@ -265,11 +260,7 @@ def conv_leaky_relu(hag: ArchitectureNode):
                         out.set_write_destination("VMEM2")
                         ## Scaling
                         indices = (n, oc, y, x)
-
-                        add_scale_op(cdlt, conv_out, leaky_relu_out, m0, nshift, indices)
-                        cdlt.compute("LEAKY_RELU", [leaky_relu_out[n, oc, y, x], alpha], [leaky_relu_out[n, oc, y, x]], target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [leaky_relu_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
-
+                        cdlt.compute("LEAKY_RELU", [conv_out[n, oc, y, x], alpha], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -367,13 +358,9 @@ def conv_add_relu(hag: ArchitectureNode):
                         add_out.set_write_destination("VMEM2")
 
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, add_lhs, add_out, m0, nshift, indices)
-                        cdlt.compute("ADD", [add_out[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
+                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
                                      target="SIMD")
-                        add_scale_op(cdlt, add_out, add_out, m0, nshift, indices)
-                        cdlt.compute("RELU", [add_out[n, oc, y, x], param], [add_out[n, oc, y, x]], target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [add_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
-
+                        cdlt.compute("RELU", [add_out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -394,9 +381,6 @@ def conv_add(hag: ArchitectureNode):
         cdlt.add_input(add_lhs)
         cdlt.set_outputs([out])
 
-        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
-        add_out.start_location = "VMEM2"
-        cdlt.add_temp_operand(add_out)
 
         # Add the convolution
         cdlt, conv_out = create_conv_func(cdlt, params)
@@ -411,13 +395,9 @@ def conv_add(hag: ArchitectureNode):
                     with cdlt.loop(OW) as x:
                         cdlt.transfer(add_lhs, ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
-                        add_out.set_write_destination("VMEM2")
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, add_lhs, add_out, m0, nshift, indices)
-                        cdlt.compute("ADD", [add_out[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
+                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [out[n, oc, y, x]],
                                      target="SIMD")
-                        add_scale_op(cdlt, add_out, add_out, m0, nshift, indices)
-                        cdlt.compute("32FXP_8FXP", [add_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -460,12 +440,9 @@ def conv_add_leaky_relu(hag: ArchitectureNode):
                         out.set_write_destination("VMEM1")
                         add_out.set_write_destination("VMEM2")
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, conv_out, add_out, m0, nshift, indices)
-                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], add_out[n, oc, y, x]], [add_out[n, oc, y, x]],
+                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], conv_out[n, oc, y, x]], [add_out[n, oc, y, x]],
                                      target="SIMD")
-                        add_scale_op(cdlt, add_out, add_out, m0, nshift, indices)
-                        cdlt.compute("LEAKY_RELU", [add_out[n, oc, y, x], alpha], [add_out[n, oc, y, x]], target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [add_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("LEAKY_RELU", [add_out[n, oc, y, x], alpha], [out[n, oc, y, x]], target="SIMD")
 
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
@@ -515,10 +492,7 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
 
                         indices = (n, oc, y, x)
                         cdlt.compute("LEAKY_RELU", [conv_out[n, oc, y, x], alpha], [leaky_relu_out[n, oc, y, x]], target="SIMD")
-                        add_scale_op(cdlt, add_lhs, add_lhs, m0, nshift, indices)
-                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], leaky_relu_out[n, oc, y, x]], [leaky_relu_out[n, oc, y, x]], target="SIMD")
-                        add_scale_op(cdlt, leaky_relu_out, leaky_relu_out, m0, nshift, indices)
-                        cdlt.compute("32FXP_8FXP", [leaky_relu_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("ADD", [add_lhs[n, oc, y, x], leaky_relu_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -590,9 +564,8 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
                                     clip_out1.set_write_destination("VMEM2")
                                     dw_conv_out.set_write_destination("VMEM1")
                                     indices = (n, c, y * s + kh, x * s + kw)
-                                    add_scale_op(cdlt, conv_out, clip_out1, m0, nshift, indices)
 
-                                    cdlt.compute("MAX", [clip_out1[n, c, y * s + kh, x * s + kw], max_op],
+                                    cdlt.compute("MAX", [conv_out[n, c, y * s + kh, x * s + kw], max_op],
                                                  [clip_out1[n, c, y * s + kh, x * s + kw]
                                                   ],
                                                  target="SIMD")
@@ -606,21 +579,18 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
                                                   dw_conv_out[n, c, y, x]], [dw_conv_out[n, c, y, x]],
                                                  target="SIMD")
 
-                                    cdlt.compute("ADD", [dw_conv_out[n, c, y, x], bias[c]], [dw_conv_out[n,c,y,x]], target="SIMD")
+                                    cdlt.compute("ADD", [dw_conv_out[n, c, y, x], bias[c]], [out[n,c,y,x]], target="SIMD")
                                     indices = (n, c, y, x)
-                                    add_scale_op(cdlt, dw_conv_out, dw_conv_out, m0, nshift, indices)
                                     out.set_write_destination("VMEM1")
 
-                                    cdlt.compute("32FXP_8FXP", [dw_conv_out[n, c, y, x]], [out[n, c, y, x]],
-                                                 target="SIMD")
                                     cdlt.transfer(out, ["VMEM1", "DRAM"])
 
         cdlt.configure("end", "SIMD")
     cdlt = add_conv_constraints(hag, cdlt, is_fusion=True)
     cdlt = add_simd_constraint(hag, cdlt, "OC")
-    cdlt.update_compilation_param("LEVEL1_hint", "sizes['OH'] == (sizes['OH1'] - 1)*params['s2'] + sizes['KH1']")
-    cdlt.update_compilation_param("LEVEL1_hint", "sizes['OW'] == (sizes['OW1'] - 1)*params['s2'] + sizes['KW1']")
     cdlt = add_simd_tile_constraint(hag, cdlt, ["KH1", "KW1"])
+    cdlt.update_compilation_param("LEVEL1_hint", "sizes['OH'] == (sizes['OH1'] - 1)*params['s2'] + sizes['KH1'] and splits['OH1'] == splits['OH']")
+    cdlt.update_compilation_param("LEVEL1_hint", "sizes['OW'] == (sizes['OW1'] - 1)*params['s2'] + sizes['KW1'] and splits['OW1'] == splits['OW']")
 
     return cdlt
 
@@ -692,10 +662,9 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
 
                                     # Scale inputs
                                     indices = (n, c, y * s + kh, x * s + kw)
-                                    add_scale_op(cdlt, conv_out, clip_out1, m0, nshift, indices)
 
                                     # First clip
-                                    cdlt.compute("MAX", [clip_out1[n, c, y * s + kh, x * s + kw], max_op],
+                                    cdlt.compute("MAX", [conv_out[n, c, y * s + kh, x * s + kw], max_op],
                                                  [clip_out1[n, c, y * s + kh, x * s + kw]
                                                   ],
                                                  target="SIMD")
@@ -717,18 +686,15 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
                                                  target="SIMD")
                                     # Scale
                                     indices = (n, c, y, x)
-                                    add_scale_op(cdlt, dw_conv_out, dw_conv_out, m0, nshift, indices)
 
                                     # Second clip
                                     cdlt.compute("MAX", [dw_conv_out[n, c, y, x], max_op], [dw_conv_out[n, c, y, x]],
                                                  target="SIMD")
 
-                                    cdlt.compute("MIN", [dw_conv_out[n, c, y, x], min_op], [dw_conv_out[n, c, y, x]],
+                                    cdlt.compute("MIN", [dw_conv_out[n, c, y, x], min_op], [out[n, c, y, x]],
                                                  target="SIMD")
 
-                                    # Cast to 8bit outputs
-                                    cdlt.compute("32FXP_8FXP", [dw_conv_out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
-                                    #
+
                                     cdlt.transfer(out, ["VMEM1", "DRAM"])
 
 
@@ -806,7 +772,6 @@ def depthwise_conv_clip(hag: ArchitectureNode):
                                     cdlt.compute("MACC", [data[n, c, y * stride + kh, x * stride + kw], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
                                     cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n,c,y,x]], target="SIMD")
                                     indices = (n, c, y, x)
-                                    add_scale_op(cdlt, out, out, m0, nshift, indices)
                                     cdlt.compute("MAX", [out[n, c, y, x], max_op],
                                                  [out[n, c, y, x]
                                                   ],
@@ -816,8 +781,6 @@ def depthwise_conv_clip(hag: ArchitectureNode):
                                                   ],
                                                  target="SIMD")
 
-                                    cdlt.compute("32FXP_8FXP", [out[n, c, y, x]], [out[n, c, y, x]],
-                                                 target="SIMD")
                                     cdlt.transfer(out, ["VMEM1", "DRAM"])
 
         cdlt.configure("end", "SIMD")
@@ -860,8 +823,7 @@ def conv_clip(hag: ArchitectureNode):
                     with cdlt.loop(OW) as x:
                         out.set_write_destination("VMEM2")
                         indices = (n, oc, y, x)
-                        add_scale_op(cdlt, conv_out, out, m0, nshift, indices)
-                        cdlt.compute("MAX", [out[n,oc, y, x], max_op],
+                        cdlt.compute("MAX", [conv_out[n,oc, y, x], max_op],
                                      [out[n,oc, y, x]
                                       ],
                                      target="SIMD")
@@ -924,7 +886,6 @@ def add_add(hag):
                     cdlt.transfer(op3, ["DRAM", "VMEM2"])
                     out.set_write_destination("VMEM1")
                     indices = (n,c,h)
-                    add_scale_op(cdlt, op1, out, m0, nshift, indices)
                     cdlt.compute("ADD", [op1[n, c, h], op2[n, c, h]], [out[n, c, h]], target="SIMD")
                     cdlt.compute("ADD", [out[n, c, h], op3[n, c, h]], [out[n, c, h]], target="SIMD")
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
@@ -957,7 +918,6 @@ def add_add4d(hag):
                         cdlt.transfer(op3, ["DRAM", "VMEM2"])
                         out.set_write_destination("VMEM1")
                         indices = (n,c,h, w)
-                        add_scale_op(cdlt, op1, out, m0, nshift, indices)
                         cdlt.compute("ADD", [op1[indices], op2[indices]], [out[indices]], target="SIMD")
                         cdlt.compute("ADD", [out[indices], op3[indices]], [out[indices]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
@@ -990,8 +950,7 @@ def mul_add(hag):
                     out.set_write_destination("VMEM1")
                     indices = (n,c,h)
                     cdlt.compute("MUL", [op1[n, c, h], op2[h]], [op1[n, c, h]], target="SIMD")
-                    cdlt.compute("ADD", [op1[n, c, h], op3[h]], [op1[n, c, h]], target="SIMD")
-                    add_scale_and_cast_op(cdlt, op1, out, m0, nshift, indices)
+                    cdlt.compute("ADD", [op1[n, c, h], op3[h]], [out[n, c, h]], target="SIMD")
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -1126,7 +1085,6 @@ def add_sqrt_div(hag):
 
                     ## Div
                     indices = (n, c, h)
-                    add_scale_op(cdlt, out, out, m0, nshift, indices)
 
                     cdlt.compute("MUL", [out[n, c, h], op3[n, c, h]], [out[n, c, h]], target="SIMD")
 
@@ -1172,6 +1130,7 @@ def matmul_add(hag):
                         cdlt.compute("MVMUL", [data[b, m, n], weight[n, p], bias[p], gemm_out[b, m, p]],
                                      [gemm_out[b, m, p]], target="pe_array")
                         cdlt.transfer(gemm_out, ["OBUF", "DRAM"])
+
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")
@@ -1205,9 +1164,8 @@ def matmul_add_add(hag):
                     add_lhs.set_write_destination("VMEM2")
                     indices = (b, m, p)
                     add_scale_op(cdlt, add_lhs, add_lhs, m0, nshift, indices)
-                    cdlt.compute("ADD", [gemm_out[indices], add_lhs[indices]], [add_lhs[indices]],
+                    cdlt.compute("ADD", [gemm_out[indices], add_lhs[indices]], [out[indices]],
                                  target="SIMD")
-                    add_scale_and_cast_op(cdlt, add_lhs, out, m0, nshift, indices)
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
     cdlt = add_gemm_constraints(hag, cdlt)
@@ -1271,8 +1229,6 @@ def matmul_add_gelu(hag):
                     cdlt.compute("MUL", [gemm_out[indices], gelu_out[indices]], [out[indices]], target="SIMD")
                     cdlt.compute("MUL", [out[indices], s_f], [out[indices]], target="SIMD")
 
-                    add_scale_and_cast_op(cdlt, out, out, m0, nshift, indices)
-
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
     cdlt = add_gemm_constraints(hag, cdlt)
@@ -1313,9 +1269,8 @@ def matmul_div_add(hag):
                         indices = (b ,c, m, p)
                         cdlt.compute("MUL", [gemm_out[indices], mul_op], [add_out[indices]],
                                      target="SIMD")
-                        cdlt.compute("ADD", [add_out[indices], add_lhs[indices]], [add_out[indices]],
+                        cdlt.compute("ADD", [add_out[indices], add_lhs[indices]], [out[indices]],
                                      target="SIMD")
-                        add_scale_and_cast_op(cdlt, add_out, out, m0, nshift, indices)
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
     cdlt = add_gemm_constraints(hag, cdlt)
@@ -1357,7 +1312,6 @@ def div_add(hag):
                                      target="SIMD")
                         cdlt.compute("ADD", [out[indices], op3[indices]], [out[indices]],
                                      target="SIMD")
-                        add_scale_and_cast_op(cdlt, out, out, m0, nshift, indices)
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
     cdlt = add_simd_constraint(hag, cdlt, "P")
@@ -1395,15 +1349,11 @@ def add_relu(hag):
                         op1.set_write_destination("VMEM2")
                         op2.set_write_destination("VMEM1")
 
-                        add_scale_op(cdlt, op2, op2, m0, nshift, indices)
-
                         cdlt.compute("ADD", [op1[indices], op2[indices]], [op1[indices]],
                                      target="SIMD")
-                        add_scale_op(cdlt, op1, op1, m0, nshift, indices)
 
-                        cdlt.compute("RELU", [op1[indices], param], [op1[indices]],
+                        cdlt.compute("RELU", [op1[indices], param], [out[indices]],
                                      target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [op1[indices]], [out[indices]], target="SIMD")
 
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
@@ -1443,14 +1393,10 @@ def add_leaky_relu(hag):
                         op1.set_write_destination("VMEM2")
                         op2.set_write_destination("VMEM1")
 
-                        add_scale_op(cdlt, op2, op2, m0, nshift, indices)
-
                         cdlt.compute("ADD", [op1[indices], op2[indices]], [op1[indices]],
                                      target="SIMD")
-                        add_scale_op(cdlt, op1, op1, m0, nshift, indices)
                         cdlt.compute("LEAKY_RELU", [op1[indices], alpha], [out[indices]],
                                      target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [op1[indices]], [out[indices]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
             cdlt.configure('end', 'SIMD')
     cdlt = add_simd_constraint(hag, cdlt, "C")
@@ -1491,12 +1437,8 @@ def leaky_relu_add(hag):
 
                         cdlt.compute("LEAKY_RELU", [op1[indices], alpha], [op1[indices]],
                                      target="SIMD")
-                        add_scale_op(cdlt, op1, op1, m0, nshift, indices)
-                        add_scale_op(cdlt, op2, op2, m0, nshift, indices)
-                        cdlt.compute("ADD", [op1[indices], op2[indices]], [op1[indices]],
+                        cdlt.compute("ADD", [op1[indices], op2[indices]], [out[indices]],
                                      target="SIMD")
-                        add_scale_op(cdlt, op1, op1, m0, nshift, indices)
-                        cdlt.compute("32FXP_8FXP", [op1[indices]], [out[indices]], target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')
     cdlt = add_simd_constraint(hag, cdlt, "C")
@@ -1556,7 +1498,6 @@ def clip_depthwise_conv_bias(hag: ArchitectureNode):
                                     out.set_write_destination("VMEM2")
                                     data.set_write_destination("VMEM2")
                                     indices = (n, c, y * stride + kh, x * stride + kw)
-                                    add_scale_op(cdlt, data, data, m0, nshift, indices)
                                     cdlt.compute("MAX", [data[indices], max_op],
                                                  [data[indices]
                                                   ],
@@ -1569,9 +1510,6 @@ def clip_depthwise_conv_bias(hag: ArchitectureNode):
                                     cdlt.compute("MACC", [data[indices], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
                                     cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n, c, y, x]], target="SIMD")
                                     indices = (n, c, y, x)
-                                    add_scale_op(cdlt, out, out, m0, nshift, indices)
-                                    cdlt.compute("32FXP_8FXP", [out[n, c, y, x]], [out[n, c, y, x]],
-                                                 target="SIMD")
                                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -1635,7 +1573,6 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
                                     out.set_write_destination("VMEM2")
                                     data.set_write_destination("VMEM2")
                                     indices = (n, c, y * stride + kh, x * stride + kw)
-                                    add_scale_op(cdlt, data, data, m0, nshift, indices)
                                     cdlt.compute("MAX", [data[indices], max_op],
                                                  [data[indices]
                                                   ],
@@ -1648,7 +1585,6 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
                                     cdlt.compute("MACC", [data[indices], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
                                     cdlt.compute("ADD", [out[n, c, y, x], bias[c]], [out[n, c, y, x]], target="SIMD")
                                     indices = (n, c, y, x)
-                                    add_scale_op(cdlt, out, out, m0, nshift, indices)
                                     cdlt.compute("MAX", [out[indices], max_op],
                                                  [out[indices]
                                                   ],
@@ -1656,8 +1592,6 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
 
                                     cdlt.compute("MIN", [out[indices], min_op],
                                                  [out[indices]],
-                                                 target="SIMD")
-                                    cdlt.compute("32FXP_8FXP", [out[n, c, y, x]], [out[n, c, y, x]],
                                                  target="SIMD")
                                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
@@ -1669,7 +1603,7 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
     return cdlt
 
 if SW_PIPELINE_TEST:
-    FUSION_OP_INFO = {
+    UNQUANT_FUSION_OP_INFO = {
         'div_add': {
             'cdlt': div_add,
             'seq': ["Div", "Add"]
@@ -1735,7 +1669,7 @@ if SW_PIPELINE_TEST:
             }
     }
 else:
-    FUSION_OP_INFO = {
+    UNQUANT_FUSION_OP_INFO = {
     'add_add': {
       'cdlt': add_add,
       'seq': ["Add", "Add"]
@@ -1825,4 +1759,4 @@ else:
         }
 }
 
-FUSION_CODELETS = {k : v['cdlt'] for k,v in FUSION_OP_INFO.items() if k != 'single_layer_info'}
+UNQUANT_FUSION_CODELETS = {k : v['cdlt'] for k,v in UNQUANT_FUSION_OP_INFO.items() if k != 'single_layer_info'}

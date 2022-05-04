@@ -31,6 +31,7 @@ class Loop(Operation):
             self._end = start
         self._stride = stride
         self._offset = offset
+        self._num_iters = None
 
         req_params = {}
         if loop_op_params:
@@ -84,6 +85,10 @@ class Loop(Operation):
 
     def __exit__(self, exc_type, exc_value, exc_tb):
         self.exit_loop_body()
+
+    @property
+    def num_iters(self):
+        return self._num_iters
 
     def enter_loop_body(self):
         Operation.loop_ctxt_level += 1
@@ -141,11 +146,14 @@ class Loop(Operation):
 
     @property
     def iter_count(self) -> int:
-        args = [self.end, self.start, self.stride, self.offset]
-        if not all(isinstance(o, int) for o in args):
-            raise TypeError(f"Cannot compute iter count because some parameters are not numbers:\n"
-                            f"{args}")
-        return (self.end - self.start)//self.stride + self.offset
+        if self.num_iters is not None:
+            return self.num_iters
+        else:
+            args = [self.end, self.start, self.stride, self.offset]
+            if not all(isinstance(o, int) for o in args):
+                raise TypeError(f"Cannot compute iter count because some parameters are not numbers:\n"
+                                f"{args}")
+            return (self.end - self.start)//self.stride + self.offset
 
     @property
     def loop_domains(self):
@@ -341,6 +349,7 @@ class Loop(Operation):
         obj._end = end or copy(self.end)
         obj._stride = stride or copy(self.stride)
         obj._offset = offset or copy(self.offset)
+        obj._num_iters = self._num_iters
         if obj.op_str not in obj.param_symbols:
             obj_idx = Idx(obj.op_str, (obj._start, obj._end))
             old_idx = obj.param_symbols.pop(self.op_str)

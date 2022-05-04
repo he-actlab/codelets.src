@@ -1,13 +1,18 @@
 import json
+from collections import defaultdict
+from pathlib import Path
+import os
+import multiprocessing as mp
+from functools import partial
+from pprint import pprint
+
 import polymath as pm
 from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION, \
     SW_PIPELINE_TEST, ADDR_GEN_TEST, PAPER_CFG2, PAPER_CFG1, CUSTOM_CFG
 from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
 from tools.compile_layer import store_program_codelets
-from collections import defaultdict
-from pathlib import Path
-import os
+
 import onnxruntime as ort
 from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 import onnx
@@ -95,7 +100,36 @@ def check_fused_layer_count(model_path, program):
                            f"Onnx layers: {onnx_layers}\n"
                            f"Codlet layers: {cdlt_layers}")
 
+def count_compute_ops(program):
+    per_layer = defaultdict(int)
+    per_compute_op = defaultdict(int)
+    num_layers = defaultdict(int)
+    compute_per_layer = {}
+    total = 0
+    for c in program.codelets:
+        count_per_layer = False
+        if c.op_name not in compute_per_layer:
+            compute_per_layer[c.op_name] = defaultdict(int)
+            count_per_layer = True
+        num_layers[c.op_name] += 1
+        for o in c.get_ops_by_type("compute"):
+            per_layer[c.op_name] += 1
+            per_compute_op[o.op_name] += 1
+            if count_per_layer:
+                compute_per_layer[c.op_name][o.op_name] += 1
+            total += 1
 
+    print(f"Total: {total}")
+    print(f"Counts by layer:")
+    pprint(per_layer)
+    print(f"Counts by op type:")
+    pprint(per_compute_op)
+
+    print(f"Op Counts per layer:")
+    pprint(compute_per_layer)
+
+    print(f"Num Layers:")
+    pprint(num_layers)
 
 def compile_benchmark(model_name,
                       fuse_layers=False,
@@ -109,7 +143,9 @@ def compile_benchmark(model_name,
                       only_systolic=False,
                       filter_op_types=None,
                       sw_pipeline_test=False,
-                      addr_gen_test=False
+                      addr_gen_test=False,
+                      store_results=True,
+                      count_compute=False
                       ):
     dir_ext = ""
     if fuse_layers:
@@ -187,10 +223,25 @@ def compile_benchmark(model_name,
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         check_fused_layer_count(model_path, program)
 
-
-    if stop_stage is None:
+    if stop_stage is None and store_results:
         sys_array_size = GENESYS_CFG['ARRAY_M']
         store_program_codelets(program, identifier, dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}")
+
+    if count_compute:
+        count_compute_ops(program)
+
+def run_benchmarks(benchmarks,
+                   parallel=True,
+                   **kwargs
+                   ):
+    if parallel:
+        kwargs['verbose'] = False
+        bench_pool = mp.Pool()
+        bench_pool.map(partial(compile_benchmark, **kwargs), benchmarks)
+    else:
+        for b in benchmarks:
+            print(f"Compiling {b}")
+            compile_benchmark(b,**kwargs)
 
 if __name__ == "__main__":
     benchmarks = ['resnet18', 'resnet50',
@@ -211,24 +262,41 @@ if __name__ == "__main__":
     #                   skip_broken_layers=False,
     #                   identifier=24)
 
-    compile_benchmark(benchmarks[-1],
+    # compile_benchmark(benchmarks[3],
+    #                   fuse_layers=True,
+    #                   only_systolic=False,
+    #                   verbose=True,
+    #                   addr_gen_test=False,
+    #                   custom_config=False,
+    #                   # stop_stage="codelet_instantiation",
+    #                   # filtered_layers=[51],
+    #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
+    #                   sw_pipeline_test=True,
+    #                   skip_broken_layers=False,
+    #                   store_results=False,
+    #                   count_compute=True,
+    #                   identifier=7)
+
+    run_benchmarks(benchmarks[1:],
                       fuse_layers=True,
                       only_systolic=False,
                       verbose=True,
-                      addr_gen_test=True,
-                      custom_config=False,
-                      sw_pipeline_test=False,
+                      addr_gen_test=ADDR_GEN_TEST,
+                      custom_config=CUSTOM_CFG,
+                      sw_pipeline_test=SW_PIPELINE_TEST,
                       skip_broken_layers=False,
-                      identifier=25)
-
+                    count_compute=False,
+                    store_results=True,
+                    parallel=False,
+                      identifier=5)
     #
     # for b in benchmarks[1:]:
     #     compile_benchmark(b,
     #                       fuse_layers=True,
     #                       only_systolic=False,
     #                       verbose=True,
-    #                       addr_gen_test=True,
+    #                       addr_gen_test=False,
     #                       custom_config=False,
-    #                       sw_pipeline_test=False,
+    #                       sw_pipeline_test=True,
     #                       skip_broken_layers=False,
-    #                       identifier=25)
+    #                       identifier=2)

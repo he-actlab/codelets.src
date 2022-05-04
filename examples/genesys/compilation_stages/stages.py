@@ -446,6 +446,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
     hag = program.hag
     cdlt.set_tile_levels()
     heuristic_fn = heuristic_fn or default_tile_heuristic
+
     cdlt = propagate_offsets(cdlt, program.hag)
 
     # Find amount of splits for each loop by looking at dependencies
@@ -568,6 +569,7 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                 elif op.op_type == 'loop':
 
                     extra_kwargs['start'] = 0
+
                     extra_kwargs['end'] = cdlt.domain_loop_map[split + 1][op.op_str]
                     extra_kwargs['stride'] = 1
 
@@ -578,9 +580,9 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                                        dependencies=inner_deps, **extra_kwargs)
 
 
-
                     cdlt._domain_loop_map[split + 1][inner_op.op_str] = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.start = 0
+
                     op.stride = cdlt.domain_loop_map[split + 1][op.op_str]
                     op.end = cdlt.domain_loop_map[split][op.op_str]
                     cdlt._domain_loop_map[split + 1].pop(op.op_str)
@@ -588,7 +590,10 @@ def tile(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet', factor_fn_na
                     dep_mapping[op.op_str] = inner_op.op_str
 
                     inner_idx = target_idx + 1
-
+                    if op.op_str in cdlt.derived_params[1]:
+                        inner_op._end = cdlt.derived_params[1][op.op_str]['size']
+                        op._num_iters = cdlt.derived_params[1][op.op_str]['split']
+                        op._end = op._num_iters
                     # We need to create the end loop for the new inner loop, then move the original end loop to
                     # the correct ending indx
                     if USE_LOOP_END:

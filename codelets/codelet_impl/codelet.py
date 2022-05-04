@@ -43,6 +43,7 @@ class Codelet(object):
         self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
+        self._derived_fps = defaultdict(dict)
         self._loop_param_map = {}
 
         if required_params is not None:
@@ -62,6 +63,7 @@ class Codelet(object):
         else:
             self._cdlt_id = Codelet.codelet_id
             Codelet.codelet_id += 1
+
 
     def __enter__(self):
         Operation.current_codelet = self
@@ -427,6 +429,7 @@ class Codelet(object):
         obj._domain_tiling = deepcopy(self._domain_tiling)
         obj._tile_levels = deepcopy(self._tile_levels)
         obj._domain_loop_map = deepcopy(self._domain_loop_map)
+        obj._derived_fps = deepcopy(self._derived_fps)
         obj._op_id_counters = deepcopy(self._op_id_counters)
         obj._id_counter = self._id_counter
         obj._loop_ctxt_level = self._loop_ctxt_level
@@ -1052,6 +1055,10 @@ class Codelet(object):
     @property
     def num_loops(self):
         return len(self.loop_param_map)
+
+    @property
+    def derived_params(self):
+        return self._derived_fps
 
     def instantiate_operations(self, node: pm.Node, hag):
         # First initialize shapes and symbols for operands, as well as datatypes

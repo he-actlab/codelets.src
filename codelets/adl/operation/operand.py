@@ -48,6 +48,7 @@ class DataMovement:
     lambdified_expr: Dict[str, Any] = field(default_factory=dict)
     symbol_str_map: Dict[Basic, str] = field(default_factory=dict)
     symbol_atoms_map: Dict[Basic, str] = field(default_factory=dict)
+    derived_sizes: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
         self.set_symbol_maps()
@@ -159,10 +160,13 @@ class DataMovement:
                 rel_splits = []
                 for idx, i in enumerate(indices):
                     i_as_str = self.get_symbol_str(i)
-                    assert cdlt.op_map[i_as_str].end % splits[i_as_str] == 0
                     rel_splits.append(splits[i_as_str])
 
-                    max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
+                    if i_as_str in self.derived_sizes:
+                        max_vals[i] = self.derived_sizes[i_as_str]
+                    else:
+                        assert cdlt.op_map[i_as_str].end % splits[i_as_str] == 0, f"Invalid: {i_as_str}, {self.derived_sizes.keys()}, {self.operand_name}"
+                        max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
 
                 max_vals.update({i: cdlt.required_params[self.get_symbol_str(i)].value for i in others})
 
@@ -180,6 +184,46 @@ class DataMovement:
 
         return sizes
 
+    def get_size_from_splits_derived(self, cdlt, splits, derived_sizes):
+        sizes = {}
+
+        src_level = cdlt.get_tile_level(self.src_node)
+        dst_level = cdlt.get_tile_level(self.dst_node)
+        if src_level > dst_level:
+            level = dst_level
+        else:
+            level = src_level
+
+        for name, o in self.offset_map.items():
+            if isinstance(o, Basic):
+                indices = self.get_symbol_atoms(o)
+                others = [i for i in list(o.free_symbols) if i not in indices]
+                max_vals = {}
+                rel_splits = []
+                for idx, i in enumerate(indices):
+                    i_as_str = self.get_symbol_str(i)
+                    # assert cdlt.op_map[i_as_str].end % splits[i_as_str] == 0
+                    rel_splits.append(splits[i_as_str])
+                    if i_as_str in derived_sizes:
+                        max_vals[i] = derived_sizes[i_as_str] - 1
+                    else:
+                        max_vals[i] = cdlt.op_map[i_as_str].end // splits[i_as_str] - 1
+
+                max_vals.update({i: cdlt.required_params[self.get_symbol_str(i)].value for i in others})
+
+                size = self.resolve_offset(o, max_vals) + 1
+
+                if np.prod(rel_splits) == 1 and \
+                        size < cdlt.get_operand(self.operand_name).shape_symbols[name]\
+                        and level == 0:
+                    size = cdlt.get_operand(self.operand_name).shape_symbols[name]
+
+                # TODO: Add logic here to check for zero values
+            else:
+                size = o
+            sizes[name] = size
+
+        return sizes
 
     def get_size_from_loops(self, cdlt, loops):
         sizes = {}

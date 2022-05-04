@@ -74,7 +74,7 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
 
         cdlt.configure("end", "SIMD")
         cdlt = add_simd_constraint(hag, cdlt, DIM_NAMES[ninput_dims - 1])
-        cdlt.add_compilation_param("LEVEL1_hint", f"splits['{DIM_NAMES[axis]}'] == 1")
+        # cdlt.add_compilation_param("LEVEL1_hint", f"splits['{DIM_NAMES[axis]}'] == 1")
 
     return cdlt
 
@@ -262,5 +262,6 @@ REDUCTION_CODELETS = {
     "reduce_mean2d": reduce_mean2d,
     # "reduce_mean2d": partial(reduce_mean, 'reduce_mean2d', 2, 0),
     "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 1),
+    # "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 2),
     "reduce_min2d": reduce_min2d,
 }

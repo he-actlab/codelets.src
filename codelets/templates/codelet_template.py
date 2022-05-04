@@ -312,11 +312,17 @@ class CodeletTemplate(object):
         self.add_op(transfer_op_template)
         return transfer_op_template
 
+    def reset_params(self):
+        for do in self.dummy_ops.values():
+            if do.flex_param.is_set():
+                do.flex_param.reset()
+
     def instantiate(self, instance_args):
+        assert all([not do.flex_param.is_set() for do in self.dummy_ops.values()])
+
         inputs = [i.instantiate(instance_args) for i in self.inputs]
         outputs = [o.instantiate(instance_args) for o in self.outputs]
         temps = [t.instantiate(instance_args) for t in self.temps]
-        # cdlt = list(codelets.values())[0]
 
         contexts = deque()
         with Codelet(self.op_name, inputs, outputs, instance_args['HAGPlaceholder']) as cdlt:
@@ -346,9 +352,11 @@ class CodeletTemplate(object):
                 cm.exit_loop_body()
 
         for k, v in self.compilation_params.items():
+
             cdlt.add_compilation_param(k, v)
 
         for key, do in self.dummy_ops.items():
+
             if not do.flex_param.is_set():
                 do.evaluate(instance_args)
 
@@ -364,7 +372,7 @@ class CodeletTemplate(object):
                 cdlt.required_params[key].value = do.value
         Codelet.codelet_instance_id += 1
         cdlt._instance_id = Codelet.codelet_instance_id
-
+        self.reset_params()
         return cdlt
 
     def emit(self, output_type):

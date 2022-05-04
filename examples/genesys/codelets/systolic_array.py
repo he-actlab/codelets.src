@@ -1,6 +1,6 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, USE_QUANTIZATION
+from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, USE_QUANTIZATION, FUSION_CONSTRAINTS
 from . import add_conv_constraints, add_gemm_constraints,\
     create_immediate_with_operand, add_scale_op, add_simd_constraint
 
@@ -284,7 +284,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
     return cdlt
 
 
@@ -348,7 +348,7 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
 
     return cdlt
 
@@ -493,7 +493,7 @@ def conv2d_unquantized(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
 
-    cdlt = add_conv_constraints(hag, cdlt)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
     return cdlt
 
 def conv2d_bias_unquantized(hag: ArchitectureNode):
@@ -554,7 +554,7 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
 
-    cdlt = add_conv_constraints(hag, cdlt)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
     return cdlt
 
 if USE_QUANTIZATION:
