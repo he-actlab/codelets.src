@@ -600,6 +600,7 @@ def scale_and_compile_layers(model_name,
                              do_scaling=True,
                              layers=None,
                              verbose=False,
+                             generate_data=False,
                              im2col_layers=None, added_constraint=None, debug_output=False):
     im2col_layers = [] if not im2col_layers else im2col_layers
     # layer_idx = idx_start if idx_start is not None else len(updated_layer_params)
@@ -763,6 +764,7 @@ def scale_and_compile_layers(model_name,
                               dir_ext=f"{dir_ext}{idx*nunique + nlayer_perm}",
                               actual_data=False,
                               store_partials=debug_output,
+                              generate_data=generate_data,
                               program=program)
                 nlayer_perm += 1
             else:
@@ -826,6 +828,7 @@ def model_benches(model_name,
                   debug_output=False,
                   ext=None,
                    verbose=False,
+                  generate_data=False,
                   do_scaling=True):
     assert sa_size == GENESYS_CFG['ARRAY_M'] and sa_size == GENESYS_CFG['ARRAY_N']
     inp_params = []
@@ -858,6 +861,7 @@ def model_benches(model_name,
                              added_constraint=tile_constraint,
                              layers=layers,
                              debug_output=debug_output,
+                             generate_data=generate_data,
                              verbose=verbose,
                              do_scaling=do_scaling)
 
@@ -1371,7 +1375,7 @@ if __name__ == "__main__":
 
     # systolic_array_conv_bench(32, num=40)
     # simd_benchmarks1(tests=["t0"], layers=["max_pool"], num=0)
-    simd_benchmarks3(tests=["t0"], layers=["reduce_mean2d"], num=1)
+    # simd_benchmarks3(tests=["t0"], layers=["reduce_mean2d"], num=1)
     # simd_benchmarks1(tests=["t1"], layers=["elem_sigmoid"], num=1)
     # simd_benchmarks2(tests=["t1"], layers=["elem_clip"], num=0)
     # simd_benchmarks2(tests=["t3"], layers=["global_avg_pool"], num=0)
@@ -1388,15 +1392,16 @@ if __name__ == "__main__":
     # model = "resnet18"
 
     # model = "efficientnet-lite4-11-opt"
-    # model = "resnet18"
-    # model_benches(model,
-    #               sa_size=64,
-    #               debug_output=False,
-    #               layer_start=0,
-    #               layer_end=1,
-    #               ext="t14_",
-    #               verbose=False,
-    #               do_scaling=False)
+    model = "resnet18"
+    model_benches(model,
+                  sa_size=64,
+                  debug_output=False,
+                  layer_start=0,
+                  layer_end=2,
+                  ext="t16_",
+                  verbose=True,
+                  do_scaling=False,
+                  generate_data=True)
 
     # model_benches("resnet18", sa_size=32, debug_output=False, ext="t12_", verbose=False)
     # resnet_benches(sa_size=32, debug_output=False, ext="t11_", verbose=False)

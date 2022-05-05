@@ -188,7 +188,9 @@ def store_outputs(model_name,
 
     if added_constr:
         program = update_tile_constraints(program, added_constr, layer_name)
-    program.compile(verbose=False, finalize=True)
+    if not program.is_finalized:
+        print(program.compilation_state)
+        program.compile(verbose=False, finalize=True, force_recompile=True)
 
     arch_cfg = get_arch(None, None, update_cfg_dtypes)
     print(f"Configuration for program:")

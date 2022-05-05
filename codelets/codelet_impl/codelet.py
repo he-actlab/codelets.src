@@ -843,7 +843,8 @@ class Codelet(object):
         for i in self.tile_levels.keys():
             if node_name in self.tile_levels[i]:
                 return i
-        raise KeyError(f"Unable to find tile level for node {node_name}")
+        raise KeyError(f"Unable to find tile level for node {node_name}\n"
+                       f"Tile keys: {self.tile_levels}")
 
     def get_loop_scope(self, loop_name: str):
         op_names = []

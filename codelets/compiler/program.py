@@ -118,7 +118,7 @@ class CodeletProgram(object):
 
     @property
     def is_finalized(self) -> bool:
-        return self._is_finalized
+        return self.compilation_state['instruction_stages']
 
     @property
     def hag(self) -> ArchitectureNode:
@@ -1046,9 +1046,8 @@ class CodeletProgram(object):
             print(f"Finalizing instructions")
             self.finalize_program(node_sequence, codelets, verbose=verbose)
             self.update_compilation_state('finalized')
-
-        self.run_instruction_stages(codelets, verbose=verbose)
-        self.update_compilation_state('instruction_stages')
+            self.run_instruction_stages(codelets, verbose=verbose)
+            self.update_compilation_state('instruction_stages')
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")
@@ -1107,11 +1106,11 @@ class CodeletProgram(object):
             self.finalize_program(node_sequence, codelets, verbose=verbose)
             self.update_compilation_state('finalized')
 
-        if stop_stage == 'finalize':
-            return
+            if stop_stage == 'finalize':
+                return
 
-        self.run_instruction_stages(codelets, verbose=verbose)
-        self.update_compilation_state('instruction_stages')
+            self.run_instruction_stages(codelets, verbose=verbose)
+            self.update_compilation_state('instruction_stages')
 
 
         if verbose:
