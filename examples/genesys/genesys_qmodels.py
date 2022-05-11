@@ -1,17 +1,14 @@
 
 from pathlib import Path
-from collections import Iterable
 from typing import Dict, List
 from .genesys_model_utils import get_resnet18, get_resnet50
 from .codelets import FUSION_OP_INFO, BINARY_CODELETS, UNARY_CODELETS
-from .datagen_functions import binary, unary, numpy_datagen, manual_conv_from_existing, \
-    maxpool2d, avgpool2d,  manual_conv, manual_gemm, conv_forward_naive, pad_conv, \
-    pad_gemm, save_array, global_avg_pool, depthwise_conv2d, OperandData
-from .data_transformations import transform_data
-from decimal import Decimal
-from . import FXP_CONFIGS
+from .datagen_functions import binary, unary, manual_conv_from_existing, \
+    maxpool2d, manual_conv, manual_gemm, conv_forward_naive, pad_conv, \
+    pad_gemm, global_avg_pool, depthwise_conv2d, OperandData
+from examples.genesys.codelets.reference_impls.data_transformations import transform_data
+from examples.genesys.codelets.reference_impls.ref_op import create_operand_data, numpy_datagen
 
-from codelets import Datatype
 import numpy as np
 import json
 
@@ -21,21 +18,7 @@ ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 
-def create_operand_data(data, operand, fmt=None):
-    return OperandData(data=data, opname=operand.name, node_name=operand.node_name, idx=operand, fmt=fmt)
 
-
-def retrieve_input_data(inouts: Dict[str, List[OperandData]], inpt_operand, cdlt,
-                        scale=2, constant_val=None, print_range=False):
-    for i in inouts['inputs']:
-        if i.opname == inpt_operand.name:
-            return i
-
-    data = numpy_datagen(inpt_operand.shape, inpt_operand.dtype.bits(),
-                         fxp_dtype=f"{inpt_operand.dtype}",
-                         scale=scale, constant_val=constant_val, print_range=print_range)
-    op = create_operand_data(data, inpt_operand)
-    return op
 
 def compute_existing_values(json_path):
     with open(f"{json_path}", "r") as f:
@@ -53,7 +36,17 @@ def compute_existing_values(json_path):
     res = manual_conv_from_existing(inpt_data, wgt_data, out_data, stride)
     np.testing.assert_allclose(res, out_data)
 
+def retrieve_input_data(inouts: Dict[str, List[OperandData]], idx, cdlt,
+                        scale=2, constant_val=None, print_range=False):
+    for i in inouts['inputs']:
+        if i.opname == cdlt.inputs[idx].name:
+            return i
 
+    data = numpy_datagen(cdlt.inputs[idx].shape, cdlt.inputs[idx].dtype.bits(),
+                         fxp_dtype=f"{cdlt.inputs[idx].dtype}",
+                         scale=scale, constant_val=constant_val, print_range=print_range)
+    op = create_operand_data(data, cdlt.inputs[idx], idx)
+    return op
 
 def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
     if cdlt.op_name in FUSION_OP_INFO.keys():
@@ -163,8 +156,6 @@ def generate_random_values_binary(cdlt, operands,
     input2 = input2_op.data.copy()
 
 
-
-
     if format.lower() == "nhwc" and len(input1.shape) == 4:
         input1 = input1.transpose((0, 3, 1, 2))
         input2 = input2.transpose((0, 3, 1, 2))
@@ -195,7 +186,6 @@ def generate_random_values_unary(cdlt,
                                  inouts=None):
     inouts = inouts or {"inputs": [], "outputs": []}
     op_name = op_name or cdlt.op_name
-
 
     if "sigmoid" in op_name:
         scale = 1.5

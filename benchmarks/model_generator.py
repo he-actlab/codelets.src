@@ -16,10 +16,10 @@ import sys
 import onnx
 from onnx.tools import update_model_dims
 from onnx.utils import Extractor
-from onnx import helper
+from onnx import version_converter, helper
 import numpy as np
 import csv
-from onnxruntime.transformers import optimizer
+
 import onnxruntime as ort
 
 CWD = Path(f"{__file__}").parent
@@ -1013,6 +1013,14 @@ def extract_bert_layer():
 
     onnx.utils.extract_model(load_path, store_path, input_names, output_names)
 
+def extract_lenet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/lenet-opt.onnx"
+    store_path = f"{MODEL_DIR}/lenet-opt-trimmed.onnx"
+    input_names = ["import/Placeholder:0"]
+    output_names = ["import/conv3/Relu:0"]
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names, check_model=False)
+
 def rename_yolo_ops():
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
@@ -1127,6 +1135,7 @@ def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath, s
     model = onnx.shape_inference.infer_shapes(model)
 
     model, check = simplify(model)
+
     # assert check
     # model = update_node_names(model)
     # model = update_edge_names(model)
@@ -1564,6 +1573,10 @@ def optimize_graph(model_name, single_params=None):
     load_path = f"{MODEL_DIR}/{model_name}.onnx"
     store_path = f"{MODEL_DIR}/{model_name}-opt.onnx"
     optimize_onnx(load_path, store_path, None, None, False, single_params=single_params)
+    model = onnx.load(store_path)
+    model = version_converter.convert_version(model,_onnx_opset_version)
+    with open(store_path, "wb") as f:
+        f.write(model.SerializeToString())
     return f"{model_name}-opt"
 
 def is_dw_conv(node, layer_info):
@@ -1849,11 +1862,14 @@ if __name__ == "__main__":
         #           "Sub",
         #          "Add"]
         # ]
-        name = "mobilenetv2-opt"
-        sequences = [['Conv', 'Add'],
-                     # ['Conv', 'Clip', 'AveragePool'],
-                     ['Conv', 'Clip', 'DepthwiseConv',],
-                     ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
-        fusion_generator(name, sequences, test_run=True)
+        model = "lenet"
+        optimize_graph(model)
+        extract_lenet()
+        # name = "mobilenetv2-opt"
+        # sequences = [['Conv', 'Add'],
+        #              # ['Conv', 'Clip', 'AveragePool'],
+        #              ['Conv', 'Clip', 'DepthwiseConv',],
+        #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        # fusion_generator(name, sequences, test_run=True)
 
 #

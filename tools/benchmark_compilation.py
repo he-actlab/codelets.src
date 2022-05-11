@@ -9,8 +9,10 @@ from pprint import pprint
 import polymath as pm
 from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION, \
     SW_PIPELINE_TEST, ADDR_GEN_TEST, PAPER_CFG2, PAPER_CFG1, CUSTOM_CFG
+
 from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
+from examples.genesys.data_generator import DataGen
 from tools.compile_layer import store_program_codelets
 
 import onnxruntime as ort
@@ -60,6 +62,11 @@ BENCHMARK_INFO = {
         "num_layers_fused": 77,
         "fused_skipped": [35, 37, 39, 41, 43, 45, 47, 76]
     },
+    "lenet-opt-trimmed" : {
+        "num_layers_unfused": 8,
+        "num_layers_fused": 5,
+        "fused_skipped": []
+    }
 }
 
 NOOP_LAYERS = []
@@ -145,14 +152,18 @@ def compile_benchmark(model_name,
                       sw_pipeline_test=False,
                       addr_gen_test=False,
                       store_results=True,
-                      count_compute=False
+                      count_compute=False,
+                      generate_data=False
                       ):
     dir_ext = ""
-    if fuse_layers:
-        assert not only_systolic
-        num_layers = BENCHMARK_INFO[model_name]['num_layers_fused']
+    if model_name in BENCHMARK_NAMES:
+        if fuse_layers:
+            assert not only_systolic
+            num_layers = BENCHMARK_INFO[model_name]['num_layers_fused']
+        else:
+            num_layers = BENCHMARK_INFO[model_name]['num_layers_unfused']
     else:
-        num_layers = BENCHMARK_INFO[model_name]['num_layers_unfused']
+        num_layers = 0
 
     if custom_config:
         assert CUSTOM_CFG
@@ -178,7 +189,6 @@ def compile_benchmark(model_name,
     else:
         assert not SW_PIPELINE_TEST
         assert not ADDR_GEN_TEST
-    assert model_name in BENCHMARK_NAMES
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
     program = compile_full_model(model_name,
@@ -225,7 +235,18 @@ def compile_benchmark(model_name,
 
     if stop_stage is None and store_results:
         sys_array_size = GENESYS_CFG['ARRAY_M']
-        store_program_codelets(program, identifier, dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}")
+        dgen = DataGen(program,
+                       single_codelets=True,
+                       dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
+                       identifier=identifier,
+                       generate_data=generate_data,
+                       verbose=verbose
+                       )
+        dgen.generate()
+        # store_program_codelets(program, identifier,
+        #                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
+        #                        generate_data=generate_data,
+        #                        verbose=verbose)
 
     if count_compute:
         count_compute_ops(program)
@@ -241,26 +262,30 @@ def run_benchmarks(benchmarks,
     else:
         for b in benchmarks:
             print(f"Compiling {b}")
-            compile_benchmark(b,**kwargs)
+            compile_benchmark(b, **kwargs)
 
 if __name__ == "__main__":
     benchmarks = ['resnet18', 'resnet50',
                   'efficientnet-lite4-opt-no-softmax',
                   'mobilenetv2-opt',
                   'yolov3-opt-static',
-                  'bert-base-cased-transpose-opt-trimmed-ort']
+                  'bert-base-cased-transpose-opt-trimmed-ort',
+                  'lenet-opt-trimmed',
+                  'conv_add_relu_pool-opt',
+                  'conv_clip_depthwiseconv-opt']
     #
-    # compile_benchmark(benchmarks[-1],
-    #                   fuse_layers=True,
-    #                   only_systolic=False,
-    #                   sw_pipeline_test=False,
-    #                   addr_gen_test=False,
-    #                   custom_config=True,
-    #                   verbose=True,
-    #                   # filtered_layers=[3],
-    #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
-    #                   skip_broken_layers=False,
-    #                   identifier=24)
+    compile_benchmark(benchmarks[-1],
+                      fuse_layers=True,
+                      only_systolic=False,
+                      sw_pipeline_test=False,
+                      addr_gen_test=False,
+                      custom_config=False,
+                      verbose=True,
+                      # filtered_layers=[46],
+                      # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
+                      skip_broken_layers=False,
+                      generate_data=True,
+                      identifier=0)
 
     # compile_benchmark(benchmarks[3],
     #                   fuse_layers=True,
@@ -277,18 +302,18 @@ if __name__ == "__main__":
     #                   count_compute=True,
     #                   identifier=7)
 
-    run_benchmarks(benchmarks[1:],
-                      fuse_layers=True,
-                      only_systolic=False,
-                      verbose=True,
-                      addr_gen_test=ADDR_GEN_TEST,
-                      custom_config=CUSTOM_CFG,
-                      sw_pipeline_test=SW_PIPELINE_TEST,
-                      skip_broken_layers=False,
-                    count_compute=False,
-                    store_results=True,
-                    parallel=False,
-                      identifier=5)
+    # run_benchmarks(benchmarks[1:],
+    #                   fuse_layers=True,
+    #                   only_systolic=False,
+    #                   verbose=True,
+    #                   addr_gen_test=ADDR_GEN_TEST,
+    #                   custom_config=CUSTOM_CFG,
+    #                   sw_pipeline_test=SW_PIPELINE_TEST,
+    #                   skip_broken_layers=False,
+    #                 count_compute=False,
+    #                 store_results=True,
+    #                 parallel=False,
+    #                   identifier=5)
     #
     # for b in benchmarks[1:]:
     #     compile_benchmark(b,

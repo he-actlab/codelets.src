@@ -1,4 +1,4 @@
-from examples.genesys import OP_DTYPES, ASIC_CONFIG, PAPER_CFG1, PAPER_CFG2, CUSTOM_CFG
+from examples.genesys import OP_DTYPES, ASIC_CONFIG, PAPER_CFG1, PAPER_CFG2, CUSTOM_CFG, SYS_TILE_CONSTR
 
 
 def add_simd_constraint(hag, cdlt, fixed_dim):
@@ -31,19 +31,19 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
         ic_tiling = f"(splits['IC'] == 1)"
     else:
         ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
-        # ic_tiling = f"(splits['IC'] == 1)"
 
 
     constraint = f"{gt_one_tiles} and {ic_tiling}"
     ic_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
     oc_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
-    if PAPER_CFG1 or PAPER_CFG2:
+
+    if (PAPER_CFG1 or PAPER_CFG2) and not SYS_TILE_CONSTR:
         ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} >= {ic_bandwidth}"
         oc_hint = f"sizes['OC']*{OP_DTYPES[2].bits()} >= {oc_bandwidth}"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     elif not ASIC_CONFIG:
         ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {ic_bandwidth} == 0"
-        oc_hint = f"sizes['OC']*{OP_DTYPES[2].bits()} % {oc_bandwidth} == 0"
+        oc_hint = f"sizes['OC']*{OP_DTYPES[0].bits()} % {oc_bandwidth} == 0"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 

@@ -150,10 +150,10 @@ TRANSFORM_CDLTS = {
     'tensor_reshape4d2d': tensor_reshape4d2d,
     'tensor_reshape4d3d': tensor_reshape4d3d,
     'tensor_reshape3d4d': tensor_reshape3d4d,
-    'tensor_flip': tensor_flip,
-    'tensor_pad': tensor_pad,
-    'concat': concat,
-    'tensor_squeeze' : tensor_squeeze,
-    'resize': tensor_resize
+    # 'tensor_flip': tensor_flip,
+    # 'tensor_pad': tensor_pad,
+    # 'concat': concat,
+    'tensor_squeeze': tensor_squeeze,
+    # 'resize': tensor_resize
 }
 # 0, 2, 3, 1

@@ -114,7 +114,7 @@ def tensor_transpose(hag: ArchitectureNode):
     return cdlt
 
 
-def elem_sqrt(hag, num_dims):
+def elem_sqrt(num_dims, hag):
     if num_dims < 4:
         name = f"elem_sqrt{num_dims}d"
     else:
@@ -362,6 +362,35 @@ def elem_pow2d(hag: ArchitectureNode):
 
     return cdlt
 
+def elem_pow3d(hag: ArchitectureNode):
+    with CodeletTemplate("elem_pow3d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[1])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype="FXP32")
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.set_inputs([op1])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    cdlt.transfer(op1, ["DRAM", "VMEM1"])
+                    out.set_write_destination("VMEM2")
+                    cdlt.compute("MOVE", [op1[n, c, h]], [out[n, c,h]], target="SIMD")
+                    cdlt.compute("POW", [op1[n, c, h], out[n, c,h ]], [out[n, c,h ]], target="SIMD")
+                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+
+
+    return cdlt
 
 def tensor_transpose2d(hag: ArchitectureNode):
     #
@@ -525,6 +554,7 @@ UNARY_CODELETS = {
     "elem_clip": clip,
     "elem_ceil2d": elem_ceil2d,
     "elem_pow2d": elem_pow2d,
+    "elem_pow3d": elem_pow3d,
     "elem_exp": elem_exp,
     "relu": partial(elem_unary_nd, "relu", "RELU", 4, 16),
     "relu2d": partial(elem_unary_nd, "relu2d", "RELU", 2, 16),
@@ -534,4 +564,5 @@ UNARY_CODELETS = {
     'elem_cast': elem_cast,
     'elem_cast2d': elem_cast2d,
     "inv_sqrt": inv_sqrt,
+    "elem_sqrt": partial(elem_sqrt, 4),
 }

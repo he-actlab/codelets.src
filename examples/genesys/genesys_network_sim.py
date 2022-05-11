@@ -256,7 +256,7 @@ def update_tile_constraints(program, layer_constraints, orig_constraint=None):
 
 def generate_inputs_from_program(program):
     model_data = {}
-    value_dict: Dict[str, Dict[str,OperandData]] = {"inputs": {},
+    value_dict: Dict[str, Dict[str, OperandData]] = {"inputs": {},
                   "intermediate": {},
                   "outputs": {}}
     init_input = None

@@ -592,12 +592,12 @@ def gelu(hag):
 DNN_CDLTS = {
     "avg_pool": averagepool2d,
     "softmax4d": softmax4d,
-    "batch_norm": batch_norm,
-    "cross_entropy_loss": cross_entropy_loss,
+    # "batch_norm": batch_norm,
+    # "cross_entropy_loss": cross_entropy_loss,
     "depthwise_conv": depthwise_conv,
     "depthwise_conv_bias": depthwise_conv_bias,
     "global_avg_pool": global_avg_pool,
     "max_pool": maxpool2d,
-    "mean_var": mean_var,
+    # "mean_var": mean_var,
     "gelu": gelu,
 }

@@ -37,7 +37,7 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     macro_instr.set_field_by_name('NS_ID', buffer_name)
     macro_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
     # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
-    macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits() + 1")
+    macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)
@@ -97,7 +97,8 @@ def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
 
     ####
     ## LOADS FOR INPUT OPERANDS
-    base_addr_str = f"op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()) + 1"
+    # base_addr_str = f"op.operand.get_mem_offset('{buffer_name}')//(op.operand.dtype.bits()) + 1"
+    base_addr_str = f"op.operand.get_mem_offset('{buffer_name}')//(hag.get_subgraph_node('{buffer_name}').data_size)"
 
     if ld_st == "LD":
         imm_operand_cond = f"op.operand in cdlt.outputs"

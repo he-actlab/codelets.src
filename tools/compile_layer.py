@@ -230,7 +230,37 @@ def store_compilation_output(program: CodeletProgram, output_type, extension="tx
         outfile.write(result)
     return out_path
 
-def store_program_codelets(program: CodeletProgram, identifier, dir_ext=None, output_types=None, filtered_layers=None):
+def store_cdlt_data(cdlt, base_path, store_partials=False):
+
+
+
+    inouts = generate_random_values(cdlt,
+                           base_path=base_path,
+                           generate_partial_values=store_partials)
+
+    for v in inouts["inputs"]:
+        assert isinstance(v, OperandData)
+        if not isinstance(v.data, np.ndarray):
+            raise RuntimeError(f"Invalid type for storage: name: {v.opname}, type: {type(v.data)}")
+        if v.fmt is not None:
+            save_array(f'{base_path}/{v.opname}_{v.fmt}.txt', v.data)
+
+        else:
+            save_array(f'{base_path}/{v.opname}.txt', v.data)
+
+    for v in inouts["outputs"]:
+        assert isinstance(v, OperandData)
+        if not isinstance(v.data, np.ndarray):
+            raise RuntimeError(f"Invalid type for storage: name: {v.opname}, type: {type(v.data)}")
+        if v.fmt is not None:
+            save_array(f'{base_path}/{v.opname}_{v.fmt}.txt', v.data)
+
+        else:
+            save_array(f'{base_path}/{v.opname}.txt', v.data)
+
+def store_program_codelets(program: CodeletProgram, identifier, dir_ext=None, output_types=None,
+                           filtered_layers=None,
+                           generate_data=False, store_partials=False, verbose=False):
     if output_types is not None:
         assert all([o in OUTPUT_TYPES for o in output_types])
     else:
@@ -259,6 +289,8 @@ def store_program_codelets(program: CodeletProgram, identifier, dir_ext=None, ou
             outfile.write(res)
 
     for layer_id, cdlt in enumerate(program.codelets):
+        if verbose:
+            print(f"Storing codelet {cdlt.cdlt_uid}")
         output_location = f"{output_dir}/layer{layer_id}_{cdlt.cdlt_uid}"
         if not Path(output_location).exists():
             try:
@@ -301,6 +333,16 @@ def store_program_codelets(program: CodeletProgram, identifier, dir_ext=None, ou
             res = json.dumps(res, indent=2)
             with open(f"{output_location}/{cdlt.cdlt_uid}_{otype}.{ext}", "w") as outfile:
                 outfile.write(res)
+
+        if generate_data:
+            base_path = f"{output_location}/data"
+            if not Path(base_path).exists():
+                try:
+                    os.makedirs(base_path)
+                except OSError as e:
+                    raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+
+            store_cdlt_data(cdlt, base_path, store_partials=store_partials)
 
 def run_cdlt_benchmarks():
     all_benchmarks =  ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',

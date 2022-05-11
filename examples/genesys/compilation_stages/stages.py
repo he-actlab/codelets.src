@@ -81,8 +81,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
             else:
                 # template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2 * template.node.kwargs['pad'])
                 # template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2 * template.node.kwargs['pad'])
-                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + 2*template.node.pad_int)
-                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + 2*template.node.pad_int)
+                template.update_dummy_op('IH', template.node.inputs[0].shape[2] + template.node.pad_int)
+                template.update_dummy_op('IW', template.node.inputs[0].shape[3] + template.node.pad_int)
             updated_dims.append('IH')
             updated_dims.append('IW')
 
@@ -96,10 +96,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 break
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
-        if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
-            pad_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
-        else:
-            pad_constr = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        # if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
+    #     pad_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
+        # else:
+        pad_constr = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
 
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]

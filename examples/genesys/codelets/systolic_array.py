@@ -52,6 +52,21 @@ def add_matmul4d_quant(cdlt, gemm_out, out, B, C, M, P):
     cdlt.configure('end', 'SIMD')
     return cdlt
 
+def add_matmul3d_quant(cdlt, gemm_out, out, B, M, P):
+    simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+    cdlt.configure('start', 'SIMD')
+    m0 = create_immediate_with_operand(cdlt,  QUANT_SCALE, simd_size=simd_size)
+    nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+    with cdlt.loop(B) as b:
+        with cdlt.loop(M) as m:
+            with cdlt.loop(P) as p:
+                out.set_write_destination('VMEM1')
+                indices = (b, m, p)
+                add_scale_op(cdlt, gemm_out, out, m0, nshift, indices)
+                cdlt.transfer(out, ["VMEM1", "DRAM"])
+    cdlt.configure('end', 'SIMD')
+    return cdlt
+
 ## Quantized versions
 
 def gemm(hag: ArchitectureNode):
@@ -189,6 +204,46 @@ def matmul4d(hag: ArchitectureNode):
 
     return cdlt
 
+def matmul3d(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul3d") as cdlt:
+        B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[2])
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(gemm_out)
+
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with cdlt.loop(B) as b:
+            with cdlt.loop(M) as m:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(P) as p:
+                        cdlt.transfer(data, ["DRAM", "IBUF"])
+                        cdlt.transfer(weight, ["DRAM", "WBUF"])
+                        cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
+                        gemm_out.set_write_destination("OBUF")
+                        cdlt.compute("MVMUL", [data[b, m, n], weight[n, p], gemm_out[b, m, p]], [gemm_out[b, m, p]], target="pe_array")
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+        cdlt = add_matmul3d_quant(cdlt, gemm_out, out, B, M, P)
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
 
 def matmul4d_no_quant(hag: ArchitectureNode):
 
@@ -221,6 +276,47 @@ def matmul4d_no_quant(hag: ArchitectureNode):
                             out.set_write_destination("OBUF")
                             cdlt.compute("MVMUL", [data[b, c, m, n], weight[b, c, n, p], out[b, c, m, p]], [out[b, c, m, p]], target="pe_array")
                             cdlt.transfer(out, ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
+
+
+def matmul3d_no_quant(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul3d") as cdlt:
+        B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[2])
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+        with cdlt.loop(B) as b:
+            with cdlt.loop(M) as m:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(P) as p:
+                        cdlt.transfer(data, ["DRAM", "IBUF"])
+                        cdlt.transfer(weight, ["DRAM", "WBUF"])
+                        cdlt.transfer(out, ["DRAM", "OBUF"])
+                        out.set_write_destination("OBUF")
+                        cdlt.compute("MVMUL", [data[b, m, n], weight[n, p], out[b, m, p]], [out[b, m, p]], target="pe_array")
+                        cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -563,7 +659,8 @@ if USE_QUANTIZATION:
         "conv": conv2d,
         "gemm": gemm,
         'matmul': gemm_no_bias,
-        'matmul4d': matmul4d
+        'matmul4d': matmul4d,
+        'matmul3d': matmul3d
     }
 else:
     SA_CDLTS = {
@@ -571,6 +668,6 @@ else:
         "conv": conv2d_unquantized,
         "gemm": gemm_unquantized,
         'matmul': gemm_no_bias_unquantized,
+        'matmul3d': matmul3d_no_quant,
         'matmul4d': matmul4d_no_quant
-
     }

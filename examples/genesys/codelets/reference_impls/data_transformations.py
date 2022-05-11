@@ -1,5 +1,5 @@
 import numpy as np
-from . import GENESYS_CFG
+from examples.genesys import GENESYS_CFG
 
 # Shuffles weights within a tile for correct mapping to systolic array
 def shuffle_weights(w_orig, layer_type="conv"):
@@ -118,8 +118,11 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         assert 'conv'  in layer_type
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
-
-        assert tile_n * interleave_factor <= big_tile_size_oc
+        assert tile_n * interleave_factor <= big_tile_size_oc, f"Invalid size with interleave factor:\n" \
+                                                               f"Tile: {tile_n}\n" \
+                                                               f"Interleave: {interleave_factor}\n" \
+                                                               f"Big tile oc: {big_tile_size_oc}\n" \
+                                                               f"Big tile ic: {big_tile_size_ic}"
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
                 for kh in range(w_dim[0]):
