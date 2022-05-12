@@ -852,7 +852,6 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           verbose=False,
                           input_names=['input'],  # the model's input names
                           output_names=['output'],
-                          # opset_version=opset
                           )
     else:
         model.eval()

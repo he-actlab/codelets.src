@@ -272,7 +272,8 @@ if __name__ == "__main__":
                   'bert-base-cased-transpose-opt-trimmed-ort',
                   'lenet-opt-trimmed',
                   'conv_add_relu_pool-opt',
-                  'conv_clip_depthwiseconv-opt']
+                  'conv_clip_depthwiseconv-opt',
+                  'conv_clip_depthwiseconv_clip_v1-opt']
     #
     compile_benchmark(benchmarks[-1],
                       fuse_layers=True,

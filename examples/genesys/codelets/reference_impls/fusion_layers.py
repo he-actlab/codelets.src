@@ -41,9 +41,9 @@ class FusionOp(ReferenceOp):
             else:
                 assert isinstance(i, int)
                 if dfg.op in FusionOp.SYS_ARRAY_OPS:
-                    a = (inouts['inputs'][i], self.operands[i])
+                    a = (inouts['inputs'][i].data.copy(), self.operands[i])
                 else:
-                    a = inouts['inputs'][i]
+                    a = inouts['inputs'][i].data.copy()
             args.append(a)
         args = tuple(args)
         if dfg.op == "div":
@@ -130,12 +130,9 @@ class FusionOp(ReferenceOp):
         assert isinstance(data, tuple)
         assert isinstance(wgt, tuple)
         data, data_op = data
-        data = data.data
         wgt, wgt_op = wgt
-        wgt = wgt.data
 
         bias, bias_op = bias
-        bias = bias.data
 
         inouts["inputs"].append(
             create_operand_data(transform_data(data, "input", "shuffled", self.cdlt), data_op, fmt='shuffled'))
@@ -211,11 +208,14 @@ class FusionOp(ReferenceOp):
 
     def dw_conv2d(self, data, w, b, stride, pad):
         dtype = "FXP32"
+        data = data.transpose(0, 3, 1, 2)
+        w = w.transpose(*tuple(WEIGHTS_CL_TO_CF))
         padded_input = np.pad(data,
                               pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)),
                               mode='constant',
                               constant_values=0)
         padded_input = padded_input.astype(np.int64)
+
 
         kh, kw = w.shape[2], w.shape[3]
         batch, in_depth, height, width = data.shape
@@ -436,7 +436,7 @@ else:
         'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias'),
         'dfg': DFG('depthwise_conv', [
             DFG('clip', [
-                DFG('conv', [0, 1, 2, 's1', 'p1']), 'min', 'max']),
+                DFG('conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
         3, 4, 's2', 'p2']),
         'seq': ['Conv', 'Clip', 'DepthwiseConv'],
 
@@ -445,7 +445,7 @@ else:
         'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias_clip'),
         'dfg': DFG('clip', [DFG('depthwise_conv', [
             DFG('clip', [
-                DFG('conv', [0, 1, 2, 's1', 'p1']), 'min', 'max']),
+                DFG('conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
             3, 4, 's2', 'p2']), 'min', 'max']),
         'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
 
