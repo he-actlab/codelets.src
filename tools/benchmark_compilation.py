@@ -152,6 +152,7 @@ def compile_benchmark(model_name,
                       sw_pipeline_test=False,
                       addr_gen_test=False,
                       store_results=True,
+                      store_whole_program=False,
                       count_compute=False,
                       generate_data=False,
                       check_layer_count=False
@@ -242,8 +243,8 @@ def compile_benchmark(model_name,
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
                        identifier=identifier,
                        generate_data=generate_data,
-                       verbose=verbose
-                       )
+                       verbose=verbose,
+                        store_whole_program=store_whole_program)
         dgen.generate()
         # store_program_codelets(program, identifier,
         #                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
@@ -297,6 +298,7 @@ if __name__ == "__main__":
                           verbose=verbose,
                           skip_broken_layers=False,
                           generate_data=gen_data,
+                          store_whole_program=True,
                           identifier=extension)
 
     else:
@@ -310,7 +312,7 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv-opt',
                       'conv_clip_depthwiseconv_clip_v1-opt']
         #
-        compile_benchmark(benchmarks[3],
+        compile_benchmark(benchmarks[-3],
                           fuse_layers=True,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -321,7 +323,8 @@ if __name__ == "__main__":
                           # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
                           skip_broken_layers=False,
                           generate_data=False,
-                          identifier=1)
+                          store_whole_program=False,
+                          identifier=3)
 
         # compile_benchmark(benchmarks[3],
         #                   fuse_layers=True,

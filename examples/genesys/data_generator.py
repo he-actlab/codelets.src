@@ -1,6 +1,7 @@
 from typing import Dict
 from .codelets.reference_impls.ref_op import OperandData
 from codelets.codelet_impl import Codelet
+from codelets.compiler.program import CodeletProgram
 import argparse
 import numpy as np
 import os
@@ -28,8 +29,9 @@ class DataGen(object):
                  generate_data=False,
                  verbose=False,
                  store_partials=False,
+                 store_whole_program=False,
                  propagate_outputs=False):
-
+        self.store_whole_program = store_whole_program
         self._storage_info = {}
         self._propagate_outputs = propagate_outputs
         self._program = program
@@ -74,7 +76,7 @@ class DataGen(object):
         return self._propagate_outputs
 
     @property
-    def program(self):
+    def program(self) -> CodeletProgram:
         return self._program
 
     @property
@@ -267,6 +269,64 @@ class DataGen(object):
     def program_generator(self):
         pass
 
+    def store_program(self):
+        if self.verbose:
+            print(f"Storing program {self.program.name}")
+        output_location = f"{self.output_dir}/program"
+        if not Path(output_location).exists():
+            try:
+                os.makedirs(output_location)
+            except OSError as e:
+                raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+
+        if 'operations_idx' in self.output_types:
+            otype = 'operations_idx'
+            ext = 'txt'
+            res = self.program.emit(otype)
+            with open(f"{output_location}/{self.program.name}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'string_final' in self.output_types:
+            otype = 'string_final'
+            ext = 'txt'
+            res = self.program.emit(otype)
+            with open(f"{output_location}/{self.program.name}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'decimal' in self.output_types:
+            otype = 'decimal'
+            ext = 'txt'
+            res = self.program.emit(otype)
+            with open(f"{output_location}/{self.program.name}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'binary' in self.output_types:
+            otype = 'binary'
+            ext = 'txt'
+            res = self.program.emit(otype)
+            with open(f"{output_location}/{self.program.name}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if 'json' in self.output_types:
+            otype = 'json'
+            ext = 'json'
+            res = self.program.emit(otype)
+            res = json.dumps(res, indent=2)
+            with open(f"{output_location}/{self.program.name}_{otype}.{ext}", "w") as outfile:
+                outfile.write(res)
+
+        if self.generate_data:
+            base_path = f"{output_location}/data"
+            if not Path(base_path).exists():
+                try:
+                    os.makedirs(base_path)
+                except OSError as e:
+                    raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+            self.generate_program_data(base_path)
+
+    def generate_program_data(self, base_path):
+        pass
+
     def generate(self):
         if 'arch_cfg' in self.output_types:
             assert self.arch_cfg is not None
@@ -274,7 +334,11 @@ class DataGen(object):
             res = json.dumps(self.arch_cfg, indent=2)
             with open(f"{self.output_dir}/{self.program.name}_arch_cfg.json", "w") as outfile:
                 outfile.write(res)
+
         if self.single_codelets:
             self.single_codelet_generator()
         else:
             self.program_generator()
+
+        if self.store_whole_program:
+            self.store_program()
