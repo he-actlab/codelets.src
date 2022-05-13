@@ -266,6 +266,29 @@ class Codelet(object):
                 ptiling[l][self.loop_param_map[loopname]] = tile_size
         return ptiling
 
+    def num_instr_by_group(self, group_name):
+        start_op = None
+        end_op = None
+        for o in self.ops:
+            if o.op_type == "config" and o.target_name == group_name:
+                if o.start_or_finish == "start":
+                    start_op = o
+                elif o.start_or_finish == "end":
+                    end_op = o
+                    assert start_op is not None
+                    break
+        if start_op is None:
+            raise RuntimeError(f"Unable to find start operation for {group_name} in {self.cdlt_id}")
+        if end_op is None:
+            raise RuntimeError(f"Unable to find end operation for {group_name} in {self.cdlt_id}")
+
+        start_idx = self.ops.index(start_op)
+        end_idx = self.ops.index(end_op)
+        ilen = 0
+        for o in self.ops[start_idx: end_idx]:
+            ilen += sum([len(ft.instructions) for ft in o.instructions])
+        return ilen
+
     def remove_input(self, operand):
         self._inputs.remove(operand)
 

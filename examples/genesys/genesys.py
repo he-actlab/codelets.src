@@ -6,7 +6,7 @@ from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
-from .codelets import GENESYS_CODELETS, FUSION_OP_INFO
+from .codelets import GENESYS_CODELETS, FUSION_OP_INFO, SPLIT_INFO
 
 from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
 import numpy as np
@@ -211,7 +211,9 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
         if verbose:
             print(f"Generating training graph for {graph.name}")
         graph = pm.create_training_graph(graph)
-
+    # Split dw_conv
+    split_pass = pm.SplitOps(SPLIT_INFO)
+    graph = split_pass(graph)
     if fuse_layers:
         fusions = []
         for opname, info in FUSION_OP_INFO.items():
@@ -220,6 +222,8 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
                 fusions.append(info['seq'])
         fusion_pass = pm.FuseOps(fusions, pad_conv_constraint=True)
         graph = fusion_pass(graph)
+
+
     multi_dim_pass = pm.RenameMultiDimOps()
     graph = multi_dim_pass(graph)
 

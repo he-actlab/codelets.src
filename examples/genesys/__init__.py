@@ -170,25 +170,20 @@ elif PAPER_CFG1:
 elif PAPER_CFG2:
     bw_factor = 1
     mem_factor = 1
-    cfg_size = 8
-    multiplier = 128 // cfg_size
+    cfg_size = 32
 
     GENESYS_CFG['ARRAY_N'] = cfg_size
     GENESYS_CFG['ARRAY_M'] = cfg_size
-    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512 // bw_factor // BIT
-    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512 // bw_factor // BIT
-    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512 // bw_factor // BIT
-    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512 // bw_factor // BIT
-    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512 // bw_factor // BIT
-    GENESYS_CFG['IBUF_DEPTH'] = 1024*multiplier
-    GENESYS_CFG['WBUF_DEPTH'] = 64*multiplier*multiplier
-    GENESYS_CFG['OBUF_DEPTH'] = 256*multiplier
-    GENESYS_CFG['BBUF_DEPTH'] = 128*multiplier
+    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512
+    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512
 
-    # GENESYS_CFG['IBUF_DEPTH'] = 4096
-    # GENESYS_CFG['WBUF_DEPTH'] = 512
-    # GENESYS_CFG['OBUF_DEPTH'] = 1024
-    # GENESYS_CFG['BBUF_DEPTH'] = 128
+    GENESYS_CFG['IBUF_DEPTH'] = 2048
+    GENESYS_CFG['WBUF_DEPTH'] = 2048
+    GENESYS_CFG['OBUF_DEPTH'] = 2048
+    GENESYS_CFG['BBUF_DEPTH'] = 1024
 else:
     ## DEFAULT CONFIG
     GENESYS_CFG['ARRAY_N'] = 64

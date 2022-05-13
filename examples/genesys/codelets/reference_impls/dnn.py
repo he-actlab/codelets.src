@@ -186,11 +186,26 @@ class Gelu(ReferenceOp):
         self.dtype = "FXP32"
         super().__init__(cdlt, operands, outputs, scale=1)
 
+class BiasAdd(ReferenceOp):
 
+    def __init__(self, cdlt):
+        operands = [cdlt.inputs[0], cdlt.inputs[1]]
+        outputs = [cdlt.outputs[0]]
+        super().__init__(cdlt, operands, outputs)
+
+    def fn_impl(self, inouts):
+        data = inouts['inputs'][0].data
+        bias = inouts['inputs'][1].data
+
+        output = data + bias
+
+        inouts['outputs'] = [output]
+        return inouts
 
 DNN_IMPLS = {
     "avg_pool": partial(Pool, "avg"),
     "softmax4d": Softmax,
+    "bias_add": BiasAdd,
     # "batch_norm": batch_norm,
     # "cross_entropy_loss": cross_entropy_loss,
     "depthwise_conv": partial(DWConv, use_bias=False),

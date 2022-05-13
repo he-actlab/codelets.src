@@ -72,6 +72,10 @@ class FusionOp(ReferenceOp):
             out = self.clipfn(*args)
         elif dfg.op == "depthwise_conv":
             out = self.dw_conv2d(*args)
+        elif dfg.op == "depthwise_conv_bias":
+            out = self.dw_conv2d_bias(*args)
+        elif dfg.op == "bias_add":
+            out = self.bias_add(*args)
         else:
             raise RuntimeError(f"Unsupported dfg op: {dfg.op}")
         return out
@@ -206,7 +210,7 @@ class FusionOp(ReferenceOp):
     def clipfn(self, data, minval, maxval):
         return np.clip(data, maxval, minval)
 
-    def dw_conv2d(self, data, w, b, stride, pad):
+    def dw_conv2d_bias(self, data, w, b, stride, pad):
         dtype = "FXP32"
         data = data.transpose(0, 3, 1, 2)
         w = w.transpose(*tuple(WEIGHTS_CL_TO_CF))
@@ -240,6 +244,42 @@ class FusionOp(ReferenceOp):
                 output[n, c] += b[c]
         return output
 
+    def dw_conv2d(self, data, w, stride, pad):
+        dtype = "FXP32"
+        data = data.transpose(0, 3, 1, 2)
+        w = w.transpose(*tuple(WEIGHTS_CL_TO_CF))
+        padded_input = np.pad(data,
+                              pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)),
+                              mode='constant',
+                              constant_values=0)
+        padded_input = padded_input.astype(np.int64)
+
+
+        kh, kw = w.shape[2], w.shape[3]
+        batch, in_depth, height, width = data.shape
+        assert in_depth == w.shape[0]
+        oh = int(1 + (height + 2 * pad - kh) / stride)
+        ow = int(1 + (width + 2 * pad - kw) / stride)
+        output = np.zeros((batch, in_depth, oh, ow)).astype(np.int64)
+
+        for n in range(batch):
+            for c in range(in_depth):
+                # For each input channel separately, apply its corresponsing filter
+                # to the input.
+                for i in range(oh):
+                    for j in range(ow):
+                        for fi in range(kh):
+                            for fj in range(kw):
+                                w_element = w[c, 0, fi, fj]
+                                mul_res = padded_input[n, c, i * stride + fi, j * stride + fj] * w_element
+                                mul_res_quant = quantize_np(mul_res, dtype)
+                                # mul_res_quant = mul_res
+                                output[n, c, i, j] += mul_res_quant
+        return output
+
+    def bias_add(self, data, bias):
+        return data + bias
+
 
 if SW_PIPELINE_TEST:
     FUSION_OP_INFO = {
@@ -266,20 +306,11 @@ if SW_PIPELINE_TEST:
 
             'seq': ['LeakyRelu', 'Add'],
         },
-        'clip_depthwise_conv_bias': {
-            'cdlt': partial(FusionOp, 'clip_depthwise_conv_bias'),
+        'clip_depthwise_conv': {
+            'cdlt': partial(FusionOp, 'clip_depthwise_conv'),
             'dfg': DFG('depthwise_conv',
-                       [DFG('clip', [0, 'min', 'max']), 1, 2, 'stride', 'pad']),
+                       [DFG('clip', [0, 'min', 'max']), 1, 'stride', 'pad']),
             'seq': ['Clip', 'DepthwiseConv'],
-
-        },
-        'clip_depthwise_conv_bias_clip': {
-            'cdlt': partial(FusionOp, 'clip_depthwise_conv_bias_clip'),
-            'dfg': DFG('clip',
-                       [DFG('depthwise_conv',
-                            [DFG('clip', [0, 'min', 'max']), 1, 2, 'stride', 'pad']), 'min', 'max']),
-            'seq': ['Clip', 'DepthwiseConv', 'Clip'],
-
         },
         'add_add': {
           'cdlt': partial(FusionOp, 'add_add'),
@@ -296,6 +327,11 @@ if SW_PIPELINE_TEST:
             'dfg': DFG('add', [DFG('mul', [0, 1]), 2]),
             'seq': ["Mul", "Add"]
         },
+    'bias_add_clip': {
+        'cdlt': partial(FusionOp, 'bias_add_clip'),
+        'dfg': DFG('clip', [DFG('bias_add', [0, 1]), 'min', 'max']),
+        'seq': ['BiasAdd', 'Clip']
+    },
         'sub_mul': {
             'cdlt': partial(FusionOp, 'sub_mul'),
             'dfg': DFG('mul', [DFG('sub', [0, "sub_rhs"]), "mul_rhs"]),
@@ -411,10 +447,15 @@ else:
         'dfg': DFG('clip', [DFG('conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
         'seq': ['Conv', 'Clip'],
     },
-    'depthwise_conv_bias_clip': {
-        'cdlt': partial(FusionOp, 'depthwise_conv_clip'),
-        'dfg': DFG('clip', [DFG('depthwise_conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
-        'seq': ['DepthwiseConv', 'Clip'],
+    # 'depthwise_conv_bias_clip': {
+    #     'cdlt': partial(FusionOp, 'depthwise_conv_clip'),
+    #     'dfg': DFG('clip', [DFG('depthwise_conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
+    #     'seq': ['DepthwiseConv', 'Clip'],
+    # },
+    'bias_add_clip': {
+        'cdlt': partial(FusionOp, 'bias_add_clip'),
+        'dfg': DFG('clip', [DFG('bias_add', [0, 1]), 'min', 'max']),
+        'seq': ['BiasAdd', 'Clip']
     },
     'conv_bias_leaky_relu': {
         'cdlt': partial(FusionOp, 'conv_leaky_relu'),
@@ -432,22 +473,29 @@ else:
 
         'seq': ['Conv', 'LeakyRelu', 'Add'],
     },
-    'conv_bias_clip_depthwise_conv_bias': {
-        'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias'),
-        'dfg': DFG('depthwise_conv', [
-            DFG('clip', [
-                DFG('conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
-        3, 4, 's2', 'p2']),
-        'seq': ['Conv', 'Clip', 'DepthwiseConv'],
+    'conv_bias_clip_depthwise_conv_bias_add': {
+        'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias_add'),
+        'dfg': DFG('bias_add',
+                       [DFG('depthwise_conv',
+                            [DFG('clip',
+                                 [DFG('conv', [0, 1, 2, 'stride', 'pad']),
+                                  'min', 'max']),
+                             3, 's2', 'p2']),
+                                4]),
+        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'BiasAdd'],
 
     },
-    'conv_bias_clip_depthwise_conv_bias_clip': {
-        'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias_clip'),
-        'dfg': DFG('clip', [DFG('depthwise_conv', [
-            DFG('clip', [
-                DFG('conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
-            3, 4, 's2', 'p2']), 'min', 'max']),
-        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
+    'conv_bias_clip_depthwise_conv_bias_add_clip': {
+        'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias_add_clip'),
+        'dfg': DFG('clip', [DFG('bias_add',
+                               [DFG('depthwise_conv',
+                                    [DFG('clip',
+                                         [DFG('conv', [0, 1, 2, 'stride', 'pad']),
+                                          'min', 'max']),
+                                     3, 's2', 'p2']),
+                                4]),
+                                'min', 'max']),
+        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'BiasAdd','Clip'],
 
     },
     'single_layer_info':

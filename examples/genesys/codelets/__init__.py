@@ -71,6 +71,10 @@ else:
         **REDUCTION_CODELETS
     }
 
+SPLIT_INFO = {}
+SPLIT_INFO['depthwise_conv_bias'] = ('bias_add', 3, [('depthwise_conv', 3, ([0, 1],
+                                                                        {'stride': 'stride', 'pad': 'pad',
+                                                                         'groups': 'groups', 'dilation': 'dilation'})),2],)
 for k in GENESYS_CODELETS.keys():
     if k not in GENESYS_IMPLS:
         raise RuntimeError(f"Not all codelets have a software implementation: {k}")

@@ -36,7 +36,8 @@ def simd_start_template(hag: ComputeNode):
     instr.set_field_by_name("START_END", "START")
     instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
-    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr")
+    # instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr_by_group('SIMD')", lazy_eval=True)
     instructions.append(instr)
 
     # TODO: THis is a hotfix. need to more intelligently set the config for this later
@@ -139,7 +140,8 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_by_name("EXEC_BUF", "EXEC")
     instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
     # Figure out what this is
-    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    # instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr_by_group('systolic_array')", lazy_eval=True)
     instructions.append(instr)
 
     if GENERATING_BENCH:

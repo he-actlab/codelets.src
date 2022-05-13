@@ -158,6 +158,31 @@ def batch_norm(hag: ArchitectureNode):
 
     return cdlt
 
+def bias_add(hag: ArchitectureNode):
+    with CodeletTemplate("bias_add") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([data, bias])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        with cdlt.loop(C) as c:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(H) as h:
+                    with cdlt.loop(W) as w:
+                        cdlt.transfer(data, ["DRAM", "VMEM1"])
+                        cdlt.transfer(bias, ["DRAM", "VMEM2"])
+                        out.set_write_destination("VMEM1")
+                        cdlt.compute("ADD", [data[n, c, h, w], bias[c]], [out[n, c, h, w]], target="SIMD")
+                        cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+    return cdlt
 
 def mean_var(hag: ArchitectureNode):
     with CodeletTemplate("mean_var") as cdlt:
@@ -594,6 +619,7 @@ DNN_CDLTS = {
     "softmax4d": softmax4d,
     # "batch_norm": batch_norm,
     # "cross_entropy_loss": cross_entropy_loss,
+    "bias_add": bias_add,
     "depthwise_conv": depthwise_conv,
     "depthwise_conv_bias": depthwise_conv_bias,
     "global_avg_pool": global_avg_pool,

@@ -1,7 +1,8 @@
-import json
+import argparse
+import os
+import sys
 from collections import defaultdict
 from pathlib import Path
-import os
 import multiprocessing as mp
 from functools import partial
 from pprint import pprint
@@ -99,7 +100,6 @@ def check_fused_layer_count(model_path, program):
             cdlt_layers[c.op_name] += 1
             layer_count += 1
 
-    print(f"Unmapped: {set(unmapped)}")
     if layer_count != onnx_layer_count:
         print(f"INconsistent layers after fusion compared to onnx:\n"
                            f"Onnx: {onnx_layer_count}\n"
@@ -153,7 +153,8 @@ def compile_benchmark(model_name,
                       addr_gen_test=False,
                       store_results=True,
                       count_compute=False,
-                      generate_data=False
+                      generate_data=False,
+                      check_layer_count=False
                       ):
     dir_ext = ""
     if model_name in BENCHMARK_NAMES:
@@ -231,7 +232,8 @@ def compile_benchmark(model_name,
         if verbose:
             print(f"Performing full compilation of {model_name}.")
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
-        check_fused_layer_count(model_path, program)
+        if check_layer_count:
+            check_fused_layer_count(model_path, program)
 
     if stop_stage is None and store_results:
         sys_array_size = GENESYS_CFG['ARRAY_M']
@@ -265,64 +267,97 @@ def run_benchmarks(benchmarks,
             compile_benchmark(b, **kwargs)
 
 if __name__ == "__main__":
-    benchmarks = ['resnet18', 'resnet50',
-                  'efficientnet-lite4-opt-no-softmax',
-                  'mobilenetv2-opt',
-                  'yolov3-opt-static',
-                  'bert-base-cased-transpose-opt-trimmed-ort',
-                  'lenet-opt-trimmed',
-                  'conv_add_relu_pool-opt',
-                  'conv_clip_depthwiseconv-opt',
-                  'conv_clip_depthwiseconv_clip_v1-opt']
-    #
-    compile_benchmark(benchmarks[-1],
-                      fuse_layers=True,
-                      only_systolic=False,
-                      sw_pipeline_test=False,
-                      addr_gen_test=False,
-                      custom_config=False,
-                      verbose=True,
-                      # filtered_layers=[46],
-                      # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
-                      skip_broken_layers=False,
-                      generate_data=True,
-                      identifier=0)
+    if sys.stdin and sys.stdin.isatty():
+        argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
+        argparser.add_argument('-m', '--model', required=True,
+                               help='Name of the onnx model to create.')
 
-    # compile_benchmark(benchmarks[3],
-    #                   fuse_layers=True,
-    #                   only_systolic=False,
-    #                   verbose=True,
-    #                   addr_gen_test=False,
-    #                   custom_config=False,
-    #                   # stop_stage="codelet_instantiation",
-    #                   # filtered_layers=[51],
-    #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
-    #                   sw_pipeline_test=True,
-    #                   skip_broken_layers=False,
-    #                   store_results=False,
-    #                   count_compute=True,
-    #                   identifier=7)
+        argparser.add_argument('-v', '--verbose', action='store_true', help='Use verbose compilation output')
 
-    # run_benchmarks(benchmarks[1:],
-    #                   fuse_layers=True,
-    #                   only_systolic=False,
-    #                   verbose=True,
-    #                   addr_gen_test=ADDR_GEN_TEST,
-    #                   custom_config=CUSTOM_CFG,
-    #                   sw_pipeline_test=SW_PIPELINE_TEST,
-    #                   skip_broken_layers=False,
-    #                 count_compute=False,
-    #                 store_results=True,
-    #                 parallel=False,
-    #                   identifier=5)
-    #
-    # for b in benchmarks[1:]:
-    #     compile_benchmark(b,
-    #                       fuse_layers=True,
-    #                       only_systolic=False,
-    #                       verbose=True,
-    #                       addr_gen_test=False,
-    #                       custom_config=False,
-    #                       sw_pipeline_test=True,
-    #                       skip_broken_layers=False,
-    #                       identifier=2)
+        argparser.add_argument('-f', '--fuse_layers', action='store_true', help='Apply layer fusion.')
+        argparser.add_argument('-e', '--extension', type=str, default="0", help="Apply an extension to the compilation output directory name.")
+        argparser.add_argument('-g', '--generate_data', action='store_true', help='Generate synthetic data for validation testing.')
+        args = argparser.parse_args()
+
+        fname = args.model
+        if ".onnx" in fname:
+            fname = fname.replace(".onnx", "")
+
+        apply_fusion = args.fuse_layers
+        extension = args.extension
+        verbose = args.verbose
+        gen_data = args.generate_data
+
+        compile_benchmark(fname,
+                          fuse_layers=apply_fusion,
+                          only_systolic=False,
+                          sw_pipeline_test=False,
+                          addr_gen_test=False,
+                          custom_config=False,
+                          verbose=verbose,
+                          skip_broken_layers=False,
+                          generate_data=gen_data,
+                          identifier=extension)
+
+    else:
+        benchmarks = ['resnet18', 'resnet50',
+                      'efficientnet-lite4-opt-no-softmax',
+                      'mobilenetv2-opt',
+                      'yolov3-opt-static',
+                      'bert-base-cased-transpose-opt-trimmed-ort',
+                      'lenet-opt-trimmed',
+                      'conv_add_relu_pool-opt',
+                      'conv_clip_depthwiseconv-opt',
+                      'conv_clip_depthwiseconv_clip_v1-opt']
+        #
+        compile_benchmark(benchmarks[3],
+                          fuse_layers=True,
+                          only_systolic=False,
+                          sw_pipeline_test=False,
+                          addr_gen_test=False,
+                          custom_config=False,
+                          verbose=True,
+                          # filtered_layers=[46],
+                          # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
+                          skip_broken_layers=False,
+                          generate_data=False,
+                          identifier=1)
+
+        # compile_benchmark(benchmarks[3],
+        #                   fuse_layers=True,
+        #                   only_systolic=False,
+        #                   verbose=True,
+        #                   addr_gen_test=False,
+        #                   custom_config=False,
+        #                   # stop_stage="codelet_instantiation",
+        #                   # filtered_layers=[51],
+        #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
+        #                   sw_pipeline_test=True,
+        #                   skip_broken_layers=False,
+        #                   store_results=False,
+        #                   count_compute=True,
+        #                   identifier=7)
+
+        # run_benchmarks(benchmarks[1:],
+        #                   fuse_layers=True,
+        #                   only_systolic=False,
+        #                   verbose=True,
+        #                   addr_gen_test=ADDR_GEN_TEST,
+        #                   custom_config=CUSTOM_CFG,
+        #                   sw_pipeline_test=SW_PIPELINE_TEST,
+        #                   skip_broken_layers=False,
+        #                 count_compute=False,
+        #                 store_results=True,
+        #                 parallel=False,
+        #                   identifier=5)
+        #
+        # for b in benchmarks[1:]:
+        #     compile_benchmark(b,
+        #                       fuse_layers=True,
+        #                       only_systolic=False,
+        #                       verbose=True,
+        #                       addr_gen_test=False,
+        #                       custom_config=False,
+        #                       sw_pipeline_test=True,
+        #                       skip_broken_layers=False,
+        #                       identifier=2)
