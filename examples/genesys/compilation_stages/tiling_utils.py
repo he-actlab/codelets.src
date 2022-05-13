@@ -13,12 +13,13 @@ from .stage_structures import TilingInfo
 from codelets.compiler.transformations import factors, factors_rand_sort, \
     factors_reversed, level_factors
 
-CUSTOM_TILE_OPS = ['conv_bias_clip_depthwise_conv_bias_clip', 'conv_bias_clip_depthwise_conv_bias']
+CUSTOM_TILE_OPS = ['conv_bias_clip_depthwise_conv_bias_clip', 'conv_bias_clip_depthwise_conv_bias',
+                    'conv_bias_clip_depthwise_conv_bias_add_clip', 'conv_bias_clip_depthwise_conv_bias_add',
+                   ]
 
 FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed,
                  'level': level_factors
                  }
-
 
 # @memoize
 def get_sizes_from_splits(loops, shapes, splits):
@@ -262,6 +263,8 @@ def set_codelet_tiling(cdlt: 'Codelet',
         other_hint_str = "\n".join(other_hint_str)
         hint_str = "\n".join([f"{k} : {v.fn_body_str}" for k, v in tile_info.tile_hints.items() if hasattr(v, 'fn_body_str')])
         raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
+                           f"Operand name: {cdlt.inputs[4].node_name}\n"
+                           f"Bias size: {cdlt.inputs[4].shape}\n"
                            f"Dimensions: {cdlt.operand_dim_mapping()}\n"
                            f"Times per level: {level_counter}\n"
                            f"Op: {cdlt.op_name}{cdlt.instance_id}\n"

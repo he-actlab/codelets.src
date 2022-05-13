@@ -45,13 +45,14 @@ def depthwise_conv(hag: ArchitectureNode):
                                 with cdlt.loop(KW) as kw:
                                     cdlt.transfer(weight, ["DRAM", "VMEM1"])
                                     cdlt.transfer(data, ["DRAM", "VMEM2"])
-                                    cdlt.transfer(out, ["DRAM", "VMEM2"])
-                                    out.set_write_destination("VMEM2")
+                                    cdlt.transfer(out, ["DRAM", "VMEM1"])
+                                    out.set_write_destination("VMEM1")
                                     cdlt.compute("MACC", [data[n, c, y * stride + kh, x * stride + kw], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
-                                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+                                    cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
     cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_simd_tile_constraint(hag, cdlt, ["KH", "KW"])
 
     return cdlt
 
@@ -93,9 +94,9 @@ def depthwise_conv_bias(hag: ArchitectureNode):
                         with cdlt.loop(OW) as x:
                             with cdlt.loop(KH) as kh:
                                 with cdlt.loop(KW) as kw:
+                                    cdlt.transfer(bias, ["DRAM", "VMEM1"])
                                     cdlt.transfer(weight, ["DRAM", "VMEM1"])
                                     cdlt.transfer(data, ["DRAM", "VMEM2"])
-                                    cdlt.transfer(bias, ["DRAM", "VMEM1"])
                                     cdlt.transfer(out, ["DRAM", "VMEM2"])
                                     out.set_write_destination("VMEM2")
                                     cdlt.compute("MACC", [data[n, c, y * stride + kh, x * stride + kw], weight[c, one, kh, kw], out[n, c, y, x]], [out[n, c, y, x]], target="SIMD")
