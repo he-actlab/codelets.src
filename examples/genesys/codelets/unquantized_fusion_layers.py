@@ -206,9 +206,9 @@ def conv_relu(hag: ArchitectureNode):
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
-        relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        relu_out.start_location = "VMEM1"
-        cdlt.add_temp_operand(relu_out)
+        # relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        # relu_out.start_location = "VMEM1"
+        # cdlt.add_temp_operand(relu_out)
 
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
         cdlt.set_outputs([out])
@@ -222,10 +222,8 @@ def conv_relu(hag: ArchitectureNode):
                 with cdlt.loop(OH) as y:
                     with cdlt.loop(OW) as x:
                         out.set_write_destination("VMEM2")
-                        relu_out.set_write_destination("VMEM1")
                         indices = (n, oc, y, x)
-                        cdlt.compute("RELU", [conv_out[n, oc, y, x], param], [relu_out[n, oc, y, x]], target="SIMD")
-                        cdlt.compute("32FXP_8FXP", [relu_out[n, oc, y, x]], [out[n, oc, y, x]], target="SIMD")
+                        cdlt.compute("RELU", [conv_out[n, oc, y, x], param], [out[n, oc, y, x]], target="SIMD")
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -764,8 +762,6 @@ def bias_add_clip(hag: ArchitectureNode):
                                       ],
                                      target="SIMD")
 
-                        cdlt.compute("32FXP_8FXP", [out[n, c, h, w]], [out[n, c, h, w]],
-                                     target="SIMD")
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
 
         cdlt.configure("end", "SIMD")
