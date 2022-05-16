@@ -95,7 +95,10 @@ class DWConv(ReferenceOp):
         self.dtype = "FXP32"
         self.use_bias = use_bias
         self.use_quantization = use_quantization
-        operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
+        if self.use_bias:
+            operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
+        else:
+            operands = [cdlt.inputs[0], cdlt.inputs[1]]
         outputs = [cdlt.outputs[0]]
         self.stride = cdlt.required_params['stride'].value
         super().__init__(cdlt, operands, outputs, scale=2)
@@ -115,17 +118,20 @@ class DWConv(ReferenceOp):
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
         wgt = inouts['inputs'][1].data
-        bias = inouts['inputs'][2].data
+        if self.use_bias:
+            bias = inouts['inputs'][2].data
+        else:
+            bias = None
 
 
         data = data.transpose(0, 3, 1, 2)
         wgt = wgt.transpose(*tuple(WEIGHTS_CL_TO_CF))
-        output = self.dw_conv2d(data, wgt, bias, self.stride, 0)
+        output = self.dw_conv2d(data, wgt, self.stride, 0, bias=bias)
         output = output.transpose(0, 2, 3, 1)
         inouts['outputs'] = [output]
         return inouts
 
-    def dw_conv2d(self, data, w, b, stride, pad):
+    def dw_conv2d(self, data, w, stride, pad, bias=None):
 
         padded_input = np.pad(data,
                               pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)),
@@ -153,7 +159,8 @@ class DWConv(ReferenceOp):
                                 mul_res_quant = quantize_np(mul_res, self.dtype)
                                 # mul_res_quant = mul_res
                                 output[n, c, i, j] += mul_res_quant
-                output[n,c] += b[c]
+                if bias:
+                    output[n,c] += bias[c]
         return output
 
 

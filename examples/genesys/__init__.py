@@ -45,7 +45,7 @@ MED_CFG = False
 ASIC_CONFIG = False
 PAPER_CFG2 = False
 CUSTOM_CFG = 32
-
+DEMO_CFG = False
 
 ## Quantization
 USE_QUANTIZATION = False
@@ -68,13 +68,12 @@ if SW_PIPELINE_TEST:
 if ALL_QUANT_OFF:
     USE_QUANTIZATION = False
 #
-DW_CONV_BIAS_OFF=True
 
 QUANT_SCALE = Fxp(QUANT_SCALE, **FXP_CONFIGS['FXP32']).val.item()
 SIGN_SHIFT = Fxp(SIGN_SHIFT, **FXP_CONFIGS['FXP32']).val.item()
 ### End quantization
 ## SHIYU CONFIG
-if CUSTOM_CFG is not None:
+if isinstance(CUSTOM_CFG, int):
     bw_factor = 1
     mem_factor = 1
     cfg_size = CUSTOM_CFG
@@ -173,6 +172,22 @@ elif PAPER_CFG2:
     mem_factor = 1
     cfg_size = 32
 
+    GENESYS_CFG['ARRAY_N'] = cfg_size
+    GENESYS_CFG['ARRAY_M'] = cfg_size
+    GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['IBUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['OBUF_CHANNEL_BW'] = 512
+    GENESYS_CFG['INSTR_CHANNEL_BW'] = 512
+    GENESYS_CFG['SIMD_CHANNEL_BW'] = 512
+
+    GENESYS_CFG['IBUF_DEPTH'] = 2048
+    GENESYS_CFG['WBUF_DEPTH'] = 2048
+    GENESYS_CFG['OBUF_DEPTH'] = 2048
+    GENESYS_CFG['BBUF_DEPTH'] = 1024
+elif DEMO_CFG:
+
+    cfg_size = 32
+    ALL_QUANT_OFF = True
     GENESYS_CFG['ARRAY_N'] = cfg_size
     GENESYS_CFG['ARRAY_M'] = cfg_size
     GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] = 512

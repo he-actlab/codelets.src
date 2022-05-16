@@ -273,6 +273,9 @@ if __name__ == "__main__":
         argparser.add_argument('-m', '--model', required=True,
                                help='Name of the onnx model to create.')
 
+        argparser.add_argument('-c', '--config', required=True,
+                               help='Name of the architecture config file to use.')
+
         argparser.add_argument('-v', '--verbose', action='store_true', help='Use verbose compilation output')
 
         argparser.add_argument('-f', '--fuse_layers', action='store_true', help='Apply layer fusion.')
@@ -288,6 +291,7 @@ if __name__ == "__main__":
         extension = args.extension
         verbose = args.verbose
         gen_data = args.generate_data
+        arch_config = args.config
 
         compile_benchmark(fname,
                           fuse_layers=apply_fusion,
@@ -312,17 +316,16 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv-opt',
                       'conv_clip_depthwiseconv_clip_v1-opt']
         #
-        compile_benchmark(benchmarks[-3],
+        compile_benchmark(benchmarks[3],
                           fuse_layers=True,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
                           custom_config=False,
                           verbose=True,
-                          # filtered_layers=[46],
-                          # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
+                          # filtered_layers=[4],
                           skip_broken_layers=False,
-                          generate_data=False,
+                          generate_data=True,
                           store_whole_program=False,
                           identifier=3)
 

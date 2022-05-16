@@ -242,6 +242,8 @@ class FusionOp(ReferenceOp):
                                 # mul_res_quant = mul_res
                                 output[n, c, i, j] += mul_res_quant
                 output[n, c] += b[c]
+        output = output.transpose(0, 2, 3, 1)
+
         return output
 
     def dw_conv2d(self, data, w, stride, pad):
@@ -275,6 +277,7 @@ class FusionOp(ReferenceOp):
                                 mul_res_quant = quantize_np(mul_res, dtype)
                                 # mul_res_quant = mul_res
                                 output[n, c, i, j] += mul_res_quant
+        output = output.transpose(0, 2, 3, 1)
         return output
 
     def bias_add(self, data, bias):

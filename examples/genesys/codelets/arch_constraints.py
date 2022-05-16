@@ -4,7 +4,10 @@ from examples.genesys import OP_DTYPES, ASIC_CONFIG, PAPER_CFG1, PAPER_CFG2, CUS
 def add_simd_constraint(hag, cdlt, fixed_dim):
     assert isinstance(fixed_dim, str)
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
+    simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
+    bandwidth = simd_edge.bandwidth
     cdlt.update_compilation_param(f"{fixed_dim}_hint2", f"size == {simd_dims[0]}")
+    cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{OP_DTYPES[2].bits()} >= {bandwidth}")
     return cdlt
 
 def add_simd_tile_constraint(hag, cdlt, fixed_dims):

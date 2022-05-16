@@ -749,7 +749,6 @@ def bias_add_clip(hag: ArchitectureNode):
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data, ["DRAM", "VMEM2"])
                         cdlt.transfer(bias, ["DRAM", "VMEM1"])
-                        cdlt.transfer(out, ["DRAM", "VMEM1"])
                         out.set_write_destination("VMEM1")
 
                         cdlt.compute("ADD", [data[n, c, h, w], bias[c]], [out[n, c, h, w]], target="SIMD")
