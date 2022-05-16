@@ -16,12 +16,20 @@ def create_operand_data(data, operand, fmt=None):
 
 class ReferenceOp(object):
 
-    def __init__(self, cdlt, operands, outputs, scale=2):
+    def __init__(self, cdlt, operands, outputs, program, scale=2):
+        self._program = program
         self._cdlt = cdlt
         self._operands = operands
         self._outputs = outputs
         self._scale = scale
 
+    @property
+    def hag(self):
+        return self.program.hag
+
+    @property
+    def program(self):
+        return self._program
 
     @property
     def cdlt(self) -> Codelet:

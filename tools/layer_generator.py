@@ -5,7 +5,8 @@ from benchmarks.model_generator import create_custom_conv, create_custom_gemm,\
     collect_value_info
 from benchmarks.load_onnx_model import store_unique_model_layers, convert_model_to_polymath
 from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
-from examples.genesys import compile_genesys_layer, GENESYS_CFG, compile_genesys
+from examples.genesys import compile_genesys_layer, compile_genesys
+from examples.genesys.config_loader import load_config
 from examples.genesys.codelets import FUSION_OP_INFO
 from examples.genesys.genesys_network_sim import compile_full_model
 from tools.neuroweaver.compile_model import get_onnx_weights
@@ -48,11 +49,12 @@ NAME_MAPPING = {
 }
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
-def compile_custom_multi_layer(model_name, layer_sequence, params, store_compile=False, dir_ext=None,
+def compile_custom_multi_layer(model_name, layer_sequence, params, cfg_path, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None, verbose=False, fuse_layers=False):
     create_custom_multi_layer(layer_sequence, params, True, True, False, True, fname=model_name)
 
-    program = compile_full_model(model_name,
+    program, arch_config = compile_full_model(model_name,
+                                              cfg_path,
                                 store_compile=store_compile,
                                 dir_ext=dir_ext,
                                  added_constr=added_constr,
@@ -64,9 +66,10 @@ def compile_custom_multi_layer(model_name, layer_sequence, params, store_compile
 
     return program
 
-def compile_fusion_model(model_name, layer_sequence, params, store_compile=False, dir_ext=None,
+def compile_fusion_model(model_name, layer_sequence, params, cfg_path, store_compile=False, dir_ext=None,
                               partials=False, added_constr=None, verbose=False, fuse_layers=False):
-    program = compile_full_model(model_name,
+    program, arch_cfg = compile_full_model(model_name,
+                                 cfg_path,
                                  store_compile=store_compile,
                                  dir_ext=dir_ext,
                                  added_constr=added_constr,
@@ -263,12 +266,13 @@ def get_onnx_shape(tensor_dict, val_name):
 
 
 
-def get_all_unique_layer_params(model_name, layer_name, input_shape_params, out_shape_params, param_names):
+def get_all_unique_layer_params(model_name, cfg_path, layer_name, input_shape_params, out_shape_params, param_names):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    arch_cfg = load_config(f"{Path(__file__).parent}/configs/{cfg_path}")
     model = onnx.load_model(model_path)
     tensor_dict = collect_value_info(model.graph)
-    ic_bw_constr = GENESYS_CFG['IBUF_CHANNEL_BW'] // 8
-    oc_bw_constr = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    ic_bw_constr = arch_cfg['IBUF_CHANNEL_BW'] // 8
+    oc_bw_constr = arch_cfg['PARAM_BUF_CHANNEL_BW'] // 8
 
     layer_params = []
     for n in model.graph.node:
@@ -597,6 +601,7 @@ def scale_and_compile_layers(model_name,
                              layer_params,
                              updated_layer_params,
                              nunique,
+                             arch_cfg,
                              do_scaling=True,
                              layers=None,
                              verbose=False,
@@ -633,18 +638,18 @@ def scale_and_compile_layers(model_name,
 
             n = ceildiv(layer['N'], scale_val)
             new_layer_params['N'] = n
-            if layer['IC'] > GENESYS_CFG['ARRAY_M'] and scale_val > 1:
+            if layer['IC'] > arch_cfg['ARRAY_M'] and scale_val > 1:
                 ic = ceildiv(layer['IC'], scale_val)
             else:
                 ic = layer['IC']
             new_layer_params['IC'] = ic
 
-            if layer['OC'] > GENESYS_CFG['ARRAY_N'] and scale_val > 1:
+            if layer['OC'] > arch_cfg['ARRAY_N'] and scale_val > 1:
                 oc = ceildiv(layer['OC'], scale_val)
             else:
                 oc = layer['OC']
-            ic += (GENESYS_CFG['ARRAY_M'] - ic) % GENESYS_CFG['ARRAY_M']
-            oc += (GENESYS_CFG['ARRAY_M'] - oc) % GENESYS_CFG['ARRAY_M']
+            ic += (arch_cfg['ARRAY_M'] - ic) % arch_cfg['ARRAY_M']
+            oc += (arch_cfg['ARRAY_M'] - oc) % arch_cfg['ARRAY_M']
             new_layer_params['OC'] = oc
             h = ceildiv(layer['IH'], scale_val)
             new_layer_params['IH'] = h
@@ -820,6 +825,7 @@ def sys_array_bench_old():
 
 
 def model_benches(model_name,
+                arch_cfg,
                   nunique=1,
                   sa_size=64,
                   layers=None,
@@ -830,7 +836,7 @@ def model_benches(model_name,
                    verbose=False,
                   generate_data=False,
                   do_scaling=True):
-    assert sa_size == GENESYS_CFG['ARRAY_M'] and sa_size == GENESYS_CFG['ARRAY_N']
+    assert sa_size == arch_cfg['ARRAY_M'] and sa_size == arch_cfg['ARRAY_N']
     inp_params = []
     inp_params.append(["N", "IC", "IH", "IW"])
     inp_params.append(["OC", "IC", "KH", "KW"])
@@ -858,6 +864,7 @@ def model_benches(model_name,
     layer_params = get_all_unique_layer_params(model_name, "Conv", inp_params, out_params, attr_params)
     layer_end = layer_end or len(layer_params)
     scale_and_compile_layers(model_name, f"{sa_size}x{sa_size}_{ext}", layer_params[layer_start:layer_end], [], nunique,
+                             arch_cfg,
                              added_constraint=tile_constraint,
                              layers=layers,
                              debug_output=debug_output,
@@ -1045,10 +1052,10 @@ def systolic_array_gemm_bench(num=2):
                                             store_compile=True,
                                             partials=True)
 
-def systolic_array_conv_bench(sys_array_size=8, num=2,
+def systolic_array_conv_bench(arch_cfg, sys_array_size=8, num=2,
                               constr_names=None,
                               layers=None):
-    assert GENESYS_CFG['ARRAY_N'] == sys_array_size and GENESYS_CFG['ARRAY_M'] == sys_array_size
+    assert arch_cfg['ARRAY_N'] == sys_array_size and arch_cfg['ARRAY_M'] == sys_array_size
     base_test_name = f"fpga_{sys_array_size}x{sys_array_size}_tile{num}"
     scale_factor = sys_array_size//8
     inp_params = []
@@ -1326,7 +1333,7 @@ def multi_layer_cases1(tests=None, layers=None, num=12):
             program = compile_custom_multi_layer(model_name, o, input_params, store_compile=True, added_constr=constraint)
 
 
-def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=True, verbose=False,
+def fusion_testing(fusion_model, layer_sequence, num, cfg_path, testnum=12, store_compile=True, verbose=False,
                    added_constr=None, generate_data=True):
     seq_name = "_".join(layer_sequence)
     filename = f"{fusion_model}_{seq_name}{num}"
@@ -1349,7 +1356,8 @@ def fusion_testing(fusion_model, layer_sequence, num, testnum=12, store_compile=
         assert isinstance(added_constr, str)
         added_constr = {opname: added_constr}
 
-    program = compile_full_model(filename,
+    program, arch_cfg = compile_full_model(filename,
+                                 cfg_path,
                                  store_compile=store_compile,
                                  dir_ext=dir_ext,
                                  added_constr=added_constr,

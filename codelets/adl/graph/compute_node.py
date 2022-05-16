@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 class ComputeNode(ArchitectureNode):
 
-    def __init__(self, name, dimensions=None, codelets=None, primitives=None, index=None):
-        super(ComputeNode, self).__init__(name, index=index)
+    def __init__(self, name, meta_cfg=None, dimensions=None, codelets=None, primitives=None, index=None):
+        super(ComputeNode, self).__init__(name, meta_cfg=meta_cfg, index=index)
         # Configuration Attributes
         self._primitives = {}
         self._codelets = {}

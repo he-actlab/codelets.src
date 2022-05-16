@@ -3,6 +3,7 @@ from pathlib import Path
 from examples.genesys import compile_genesys, get_arch, FXP_CONFIGS
 from examples.genesys.datagen_functions import OperandData, save_array
 from examples.genesys.genesys_qmodels import generate_random_values
+from examples.genesys.config_loader import load_config
 from tools.compile_layer import store_compilation_output
 from codelets.compiler.program import CodeletProgram
 from pprint import pprint
@@ -281,7 +282,7 @@ def generate_inputs_from_program(program):
                 operand = value_dict['intermediate'][op.node_name]
                 assert operand.data.shape == op.shape
                 inouts['inputs'].append(operand)
-        inouts = generate_random_values(c, inouts=inouts)
+        inouts = generate_random_values(c, program.metadata['FUSION_OP_INFO'], inouts=inouts)
 
         for i in inouts['inputs']:
 
@@ -294,6 +295,7 @@ def generate_inputs_from_program(program):
     return model_data
 
 def compile_full_model(model_name,
+                       cfg_file,
                        store_compile=False,
                        dir_ext=None,
                        partials=False,
@@ -317,9 +319,10 @@ def compile_full_model(model_name,
     store_tiling = False
     store_json_output = False
     json_output_filename = None
-
+    arch_cfg = load_config(f"{CWD}/configs/{cfg_file}")
     # This function returns
     program = compile_genesys(model_name,
+                              arch_cfg,
                               update_cfg_dtypes=update_cfg_dtypes,
                               tiling_path=tiling_path,
                               store_tiling=store_tiling,
@@ -356,7 +359,7 @@ def compile_full_model(model_name,
                             model_data=model_data,
                             generate_data=generate_data)
 
-    return program
+    return program, arch_cfg
 
 
 

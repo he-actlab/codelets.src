@@ -543,26 +543,29 @@ def clip(hag: ArchitectureNode):
     cdlt = add_simd_constraint(hag, cdlt, "C")
     return cdlt
 
-UNARY_CODELETS = {
-    "coarse_flatten": coarse_flatten,
-    "coarse_flatten2d": coarse_flatten2d,
-    "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
-    "elem_tanh2d": elem_tanh2d,
-    # TODO: Check if this needs to be 'sigmoid'
-    "elem_sigmoid": partial(elem_unary_nd, "elem_sigmoid", "SIGMOID", 4, 16),
-    "leaky_relu": partial(elem_unary_nd, "leaky_relu", "LEAKY_RELU", 4, 'alpha'),
-    "elem_clip": clip,
-    "elem_ceil2d": elem_ceil2d,
-    "elem_pow2d": elem_pow2d,
-    "elem_pow3d": elem_pow3d,
-    "elem_exp": elem_exp,
-    "relu": partial(elem_unary_nd, "relu", "RELU", 4, 16),
-    "relu2d": partial(elem_unary_nd, "relu2d", "RELU", 2, 16),
-    'tensor_transpose2d': tensor_transpose2d,
-    'tensor_transpose3d': tensor_transpose3d,
-    'tensor_transpose4d': tensor_transpose4d,
-    'elem_cast': elem_cast,
-    'elem_cast2d': elem_cast2d,
-    "inv_sqrt": inv_sqrt,
-    "elem_sqrt": partial(elem_sqrt, 4),
-}
+def load_unary_cdlts(cfg):
+
+    UNARY_CODELETS = {
+        "coarse_flatten": coarse_flatten,
+        "coarse_flatten2d": coarse_flatten2d,
+        "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
+        "elem_tanh2d": elem_tanh2d,
+        # TODO: Check if this needs to be 'sigmoid'
+        "elem_sigmoid": partial(elem_unary_nd, "elem_sigmoid", "SIGMOID", 4, 16),
+        "leaky_relu": partial(elem_unary_nd, "leaky_relu", "LEAKY_RELU", 4, 'alpha'),
+        "elem_clip": clip,
+        "elem_ceil2d": elem_ceil2d,
+        "elem_pow2d": elem_pow2d,
+        "elem_pow3d": elem_pow3d,
+        "elem_exp": elem_exp,
+        "relu": partial(elem_unary_nd, "relu", "RELU", 4, 16),
+        "relu2d": partial(elem_unary_nd, "relu2d", "RELU", 2, 16),
+        'tensor_transpose2d': tensor_transpose2d,
+        'tensor_transpose3d': tensor_transpose3d,
+        'tensor_transpose4d': tensor_transpose4d,
+        'elem_cast': elem_cast,
+        'elem_cast2d': elem_cast2d,
+        "inv_sqrt": inv_sqrt,
+        "elem_sqrt": partial(elem_sqrt, 4),
+    }
+    return UNARY_CODELETS

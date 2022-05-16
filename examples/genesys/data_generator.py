@@ -7,7 +7,6 @@ import numpy as np
 import os
 from pathlib import Path
 import json
-from .codelets import GENESYS_IMPLS
 from .genesys import get_arch
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
@@ -53,7 +52,7 @@ class DataGen(object):
         if dir_ext:
             output_dir = f"{output_dir}_{dir_ext}"
         self.output_dir = f"{output_dir}_{identifier}"
-        self.arch_cfg = get_arch(None, None, None)
+        self.arch_cfg = get_arch(None, self.program.hag.meta_cfg, None)
 
         if not Path(self.output_dir).exists():
             try:
@@ -188,7 +187,7 @@ class DataGen(object):
 
     def generate_cdlt_data(self, cdlt: Codelet, base_path):
         inouts = self.initialize_value_dict(cdlt)
-        opgen = GENESYS_IMPLS[cdlt.op_name](cdlt)
+        opgen = self.program.metadata['GENESYS_IMPLS'][cdlt.op_name](cdlt, self.program)
         inouts = opgen.compute_outputs(inouts)
         formatted = self.initialize_storage(cdlt, inouts)
         self.store_inputs(base_path)

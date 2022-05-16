@@ -1,6 +1,6 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, USE_QUANTIZATION, FUSION_CONSTRAINTS
+from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT
 from . import add_conv_constraints, add_gemm_constraints,\
     create_immediate_with_operand, add_scale_op, add_simd_constraint
 
@@ -380,7 +380,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
     return cdlt
 
 
@@ -444,7 +444,7 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
 
     return cdlt
 
@@ -653,21 +653,24 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
     cdlt = add_conv_constraints(hag, cdlt, is_fusion=FUSION_CONSTRAINTS)
     return cdlt
 
-if USE_QUANTIZATION:
-    SA_CDLTS = {
-        "conv_bias": conv2d_bias,
-        "conv": conv2d,
-        "gemm": gemm,
-        'matmul': gemm_no_bias,
-        'matmul4d': matmul4d,
-        'matmul3d': matmul3d
-    }
-else:
-    SA_CDLTS = {
-        "conv_bias": conv2d_bias_unquantized,
-        "conv": conv2d_unquantized,
-        "gemm": gemm_unquantized,
-        'matmul': gemm_no_bias_unquantized,
-        'matmul3d': matmul3d_no_quant,
-        'matmul4d': matmul4d_no_quant
-    }
+def load_sa_cdlts(cfg):
+
+    if cfg['USE_QUANTIZATION']:
+        SA_CDLTS = {
+            "conv_bias": conv2d_bias,
+            "conv": conv2d,
+            "gemm": gemm,
+            'matmul': gemm_no_bias,
+            'matmul4d': matmul4d,
+            'matmul3d': matmul3d
+        }
+    else:
+        SA_CDLTS = {
+            "conv_bias": conv2d_bias_unquantized,
+            "conv": conv2d_unquantized,
+            "gemm": gemm_unquantized,
+            'matmul': gemm_no_bias_unquantized,
+            'matmul3d': matmul3d_no_quant,
+            'matmul4d': matmul4d_no_quant
+        }
+    return SA_CDLTS

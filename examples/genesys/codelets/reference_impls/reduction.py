@@ -2,7 +2,6 @@ from typing import List
 
 from collections import Iterable, namedtuple
 from examples.genesys import FXP_CONFIGS
-from examples.genesys import GENESYS_CFG
 from fxpmath import Fxp
 import numpy as np
 from functools import partial
@@ -11,13 +10,13 @@ from . import ReferenceOp, quantize_np
 
 class Reduction(ReferenceOp):
 
-    def __init__(self, reduction_type, cdlt):
+    def __init__(self, reduction_type, cdlt, hag):
         self.reduction_type = reduction_type
         self.dtype = "FXP32"
         self.axis = self.cdlt.required_params['axis'].value
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs)
+        super().__init__(cdlt, operands, outputs, hag)
 
 
     def fn_impl(self, inouts):
@@ -44,11 +43,14 @@ class Reduction(ReferenceOp):
         inouts['outputs'] = [out]
         return inouts
 
-REDUCTION_IMPLS = {
-    "reduce_sum": partial(Reduction, "sum"),
-    "reduce_mean2d": partial(Reduction, "mean"),
-    # "reduce_mean2d": partial(reduce_mean, 'reduce_mean2d', 2, 0),
-    "reduce_mean3d": partial(Reduction, "mean"),
-    # "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 2),
-    "reduce_min2d": partial(Reduction, "min"),
-}
+def load_reduce_impls(cfg):
+
+    REDUCTION_IMPLS = {
+        "reduce_sum": partial(Reduction, "sum"),
+        "reduce_mean2d": partial(Reduction, "mean"),
+        # "reduce_mean2d": partial(reduce_mean, 'reduce_mean2d', 2, 0),
+        "reduce_mean3d": partial(Reduction, "mean"),
+        # "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 2),
+        "reduce_min2d": partial(Reduction, "min"),
+    }
+    return REDUCTION_IMPLS

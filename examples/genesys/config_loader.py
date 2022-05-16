@@ -95,6 +95,8 @@ def set_defaults(cfg):
     assert 'ALL_QUANT_OFF' in cfg
     assert 'ADDR_GEN_TEST' in cfg
     assert 'FUSION_CONSTRAINTS' in cfg
+    assert 'ASIC_CONFIG' in cfg
+    assert 'SA_TILE_CONSTR' in cfg
     return cfg
 
 def load_config(fpath):

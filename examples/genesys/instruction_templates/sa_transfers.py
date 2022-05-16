@@ -1,5 +1,4 @@
 from codelets.adl.graph import ArchitectureNode
-from examples.genesys import ASIC_CONFIG
 
 
 def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
@@ -14,7 +13,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     # IC*BITWIDTH_INPUT % bandwidth = 0
     # NUM_ITERS - 1
     ## FIXE RULES END
-    if ASIC_CONFIG:
+    if hag.meta_cfg['ASIC_CONFIG']:
         max_bits = f"16"
     else:
         max_bits = f"32"
@@ -31,7 +30,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         loop_iter_str = f"dim_info[1][1] - 1"
         req_size_str = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits})[0][-1]"
 
-        if ASIC_CONFIG:
+        if hag.meta_cfg['ASIC_CONFIG']:
             denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
             stride_size_str = f"(dim_info[1][0]//({denom_str}))"
         else:
@@ -75,7 +74,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         req_size_str = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
         ld_str_size = f"op.strides_iters(divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
 
-        if ASIC_CONFIG:
+        if hag.meta_cfg['ASIC_CONFIG']:
             denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
             stride_size_str = f"({ld_str_size})//{denom_str}"
         else:

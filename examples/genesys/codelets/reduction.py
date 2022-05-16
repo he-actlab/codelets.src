@@ -256,12 +256,13 @@ def reduce_mean3d(hag: ArchitectureNode):
 
     return cdlt
 
-
-REDUCTION_CODELETS = {
-    "reduce_sum": reduce_sum,
-    "reduce_mean2d": reduce_mean2d,
-    # "reduce_mean2d": partial(reduce_mean, 'reduce_mean2d', 2, 0),
-    "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 1),
-    # "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 2),
-    "reduce_min2d": reduce_min2d,
-}
+def load_reduce_cdlts(cfg):
+    REDUCTION_CODELETS = {
+        "reduce_sum": reduce_sum,
+        "reduce_mean2d": reduce_mean2d,
+        # "reduce_mean2d": partial(reduce_mean, 'reduce_mean2d', 2, 0),
+        "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 1),
+        # "reduce_mean3d": partial(reduce_mean, 'reduce_mean3d', 3, 2),
+        "reduce_min2d": reduce_min2d,
+    }
+    return REDUCTION_CODELETS

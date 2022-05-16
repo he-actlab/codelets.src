@@ -2,7 +2,7 @@ import numpy as np
 from fxpmath import Fxp
 from collections import Iterable, namedtuple
 from . import FXP_CONFIGS
-from . import GENESYS_CFG
+# from . import GENESYS_CFG
 import torch.nn.functional as F
 import torch
 from torch import nn
@@ -369,15 +369,15 @@ def maxpool(image, f=2, s=2):
                 out_y += 1
     return downsampled
 
-def pad_conv(layer_data):
+def pad_conv(layer_data, arch_config):
     x = layer_data['input']
     out = layer_data['output']
     wgt = layer_data['params']['weight']
     b = layer_data['params']['bias']
-    if x.shape[-1] % GENESYS_CFG['ARRAY_M'] != 0:
+    if x.shape[-1] % arch_config['ARRAY_M'] != 0:
         ic_init = x.shape[-1]
-        ic_pad = (GENESYS_CFG['ARRAY_M'] - ic_init) % GENESYS_CFG['ARRAY_M']
-        assert (ic_pad + ic_init) % GENESYS_CFG['ARRAY_M'] == 0
+        ic_pad = (arch_config['ARRAY_M'] - ic_init) % arch_config['ARRAY_M']
+        assert (ic_pad + ic_init) % arch_config['ARRAY_M'] == 0
         padding = (0, ic_pad)
         x_pad = ((0, 0), (0, 0), (0, 0), padding)
 
@@ -385,10 +385,10 @@ def pad_conv(layer_data):
         assert wgt.shape[-1] == ic_init
         wgt = np.pad(wgt, x_pad, "constant")
 
-    if out.shape[-1] % GENESYS_CFG['ARRAY_N'] != 0:
+    if out.shape[-1] % arch_config['ARRAY_N'] != 0:
         oc_init = out.shape[-1]
-        oc_pad = (GENESYS_CFG['ARRAY_N'] - oc_init) % GENESYS_CFG['ARRAY_N']
-        assert (oc_pad + oc_init) % GENESYS_CFG['ARRAY_N'] == 0
+        oc_pad = (arch_config['ARRAY_N'] - oc_init) % arch_config['ARRAY_N']
+        assert (oc_pad + oc_init) % arch_config['ARRAY_N'] == 0
         padding = (0, oc_pad)
         out_pad = ((0, 0), (0, 0), (0, 0), padding)
         out = np.pad(out, out_pad, "constant")
@@ -400,15 +400,15 @@ def pad_conv(layer_data):
     return x, wgt, b, out
 
 
-def pad_gemm(layer_data):
+def pad_gemm(layer_data, arch_config):
     x = layer_data['input']
     out = layer_data['output']
     wgt = layer_data['params']['weight']
     b = layer_data['params']['bias']
-    if x.shape[-1] % GENESYS_CFG['ARRAY_M'] != 0:
+    if x.shape[-1] % arch_config['ARRAY_M'] != 0:
         ic_init = x.shape[-1]
-        ic_pad = (GENESYS_CFG['ARRAY_M'] - ic_init) % GENESYS_CFG['ARRAY_M']
-        assert (ic_pad + ic_init) % GENESYS_CFG['ARRAY_M'] == 0
+        ic_pad = (arch_config['ARRAY_M'] - ic_init) % arch_config['ARRAY_M']
+        assert (ic_pad + ic_init) % arch_config['ARRAY_M'] == 0
         padding = (0, ic_pad)
         x_pad = ((0, 0), padding)
 
@@ -417,10 +417,10 @@ def pad_gemm(layer_data):
         wgt_pad = (padding, (0, 0))
         wgt = np.pad(wgt, wgt_pad, "constant")
 
-    if out.shape[-1] % GENESYS_CFG['ARRAY_N'] != 0:
+    if out.shape[-1] % arch_config['ARRAY_N'] != 0:
         oc_init = out.shape[-1]
-        oc_pad = (GENESYS_CFG['ARRAY_N'] - oc_init) % GENESYS_CFG['ARRAY_N']
-        assert (oc_pad + oc_init) % GENESYS_CFG['ARRAY_N'] == 0
+        oc_pad = (arch_config['ARRAY_N'] - oc_init) % arch_config['ARRAY_N']
+        assert (oc_pad + oc_init) % arch_config['ARRAY_N'] == 0
         padding = (0, oc_pad)
         out_pad = ((0, 0), padding)
         out = np.pad(out, out_pad, "constant")

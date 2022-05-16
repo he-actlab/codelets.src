@@ -6,9 +6,10 @@ from .genesys_instructions import GENESYS_INSTRUCTIONS
 from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEMPLATES
 
 # from .genesys_inference_codelets import GENESYS_CODELETS
-from .codelets import GENESYS_CODELETS, FUSION_OP_INFO, SPLIT_INFO
+from .codelets import SPLIT_INFO, load_impls_cdlts, load_fusion_op_info
 
-from . import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP
+from . import GENESYS_DTYPES, DTYPE_MAP
+
 import numpy as np
 from pathlib import Path
 import json
@@ -35,7 +36,7 @@ VALID_MODELS = ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn', "my_ddpg
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
 
-    with ComputeNode("Genesys") as hag:
+    with ComputeNode("Genesys", meta_cfg=cfg) as hag:
         VMEM_PARTITIONS = [cfg['VMEM_DEPTH'], cfg['SIMD_WIDTH'], cfg['ACC_WIDTH']]
         IMM_PARTITIONS = [cfg['IMM_DEPTH'], cfg['ACC_WIDTH']]
         INSTR_PARTITIONS = [cfg['INSTR_DEPTH'], cfg['INSTR_WIDTH']]
@@ -148,6 +149,7 @@ def define_genesys(cfg):
         hag.add_codelet_start_template("Genesys", GENESYS_TEMPLATES['codelet']['start'](hag))
         hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
+    GENESYS_CODELETS, _ = load_impls_cdlts(cfg)
 
     for op_name, cdlt in GENESYS_CODELETS.items():
         cdlt_instance = cdlt(hag)
@@ -185,24 +187,18 @@ def add_genesys_templates(hag: ComputeNode):
     hag.add_codelet_end_template("Genesys", GENESYS_TEMPLATES['codelet']['end'](hag))
 
 
-def update_genesys_cfg_from_dtypes(inp_cfg=None, dtypes=None):
-    if inp_cfg:
-        assert dtypes is not None
-        inp_cfg['DATA_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
-        inp_cfg['WGT_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
-        inp_cfg['BIAS_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
-        inp_cfg['ACC_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
-        out_cfg = inp_cfg
-    else:
-        GENESYS_CFG['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
-        GENESYS_CFG['WGT_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
-        GENESYS_CFG['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
-        GENESYS_CFG['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
-        out_cfg = GENESYS_CFG
-    return out_cfg
+def update_genesys_cfg_from_dtypes(inp_cfg, dtypes=None):
+    assert dtypes is not None
+    inp_cfg['DATA_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    inp_cfg['WGT_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['inp_weight']].bits()
+    inp_cfg['BIAS_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
+    inp_cfg['ACC_WIDTH'] = DTYPE_MAP[dtypes['SYSTOLIC_ARRAY']['bias_out']].bits()
+
+    return inp_cfg
 
 
-def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layers=False):
+def run_srdfg_passes(graph, cfg, train=False, batch_size=1, verbose=False, fuse_layers=False):
+    FUSION_OP_INFO = load_fusion_op_info(cfg)
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
         graph = batch_size_pass(graph)
@@ -212,6 +208,7 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
             print(f"Generating training graph for {graph.name}")
         graph = pm.create_training_graph(graph)
     # Split dw_conv
+
     split_pass = pm.SplitOps(SPLIT_INFO)
     graph = split_pass(graph)
     if fuse_layers:
@@ -231,6 +228,7 @@ def run_srdfg_passes(graph, train=False, batch_size=1, verbose=False, fuse_layer
 
 
 def get_transformed_srdfg(model_name,
+                          cfg,
                           train=False,
                           batch_size=1,
                           verbose=False,
@@ -241,7 +239,7 @@ def get_transformed_srdfg(model_name,
     if train:
         model_name = f"{model_name}_train"
     graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
-    graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose)
+    graph = run_srdfg_passes(graph, cfg, train=train, batch_size=batch_size, verbose=verbose)
     return graph
 
 
@@ -250,11 +248,12 @@ def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
     else:
-        def_cfg = GENESYS_CFG
+        def_cfg = genesys_cfg
     return def_cfg
 
 
 def compile_genesys(model_name,
+                    genesys_cfg,
                     update_cfg_dtypes=False,
                     tiling_path=None,
                     store_tiling=False,
@@ -262,7 +261,6 @@ def compile_genesys(model_name,
                     json_output_filename=None,
                     verbose=False,
                     benchmark_path=None,
-                    genesys_cfg=None,
                     dtypes=None,
                     print_config=True,
                     store_ops=False,
@@ -285,16 +283,16 @@ def compile_genesys(model_name,
     TILING_DIR = f"{benchmark_path}/tiling_info"
     dtypes = dtypes or GENESYS_DTYPES
     if update_cfg_dtypes:
-        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+        def_cfg = update_genesys_cfg_from_dtypes(genesys_cfg, dtypes=dtypes)
     else:
-        def_cfg = GENESYS_CFG
+        def_cfg = genesys_cfg
 
     if train:
         model_name = f"{model_name}_train"
     if graph is None:
         graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
     if do_srdfg_passes:
-        graph = run_srdfg_passes(graph, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+        graph = run_srdfg_passes(graph, def_cfg, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -308,7 +306,11 @@ def compile_genesys(model_name,
 
     mode = "training" if train else "inference"
     # Codelet compilation starts here
-    program = initialize_program(graph, genesys, mode=mode)
+    cdlts, impls = load_impls_cdlts(def_cfg)
+
+    metadata = {'GENESYS_IMPLS': impls, 'GENESYS_CODELETS': cdlts,
+                'FUSION_OP_INFO': load_fusion_op_info(def_cfg)}
+    program = initialize_program(graph, genesys, metadata=metadata, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
 
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
@@ -415,6 +417,7 @@ def n_tiles_heuristic(permutation):
 
 
 def compile_genesys_layer(layer_file,
+                          genesys_cfg,
                           update_cfg_dtypes=False,
                           tiling_path=None,
                           store_tiling=False,
@@ -422,7 +425,6 @@ def compile_genesys_layer(layer_file,
                           json_output_filename=None,
                           verbose=False,
                           benchmark_path=None,
-                          genesys_cfg=None,
                           dtypes=None,
                           print_config=True,
                           store_ops=False,
@@ -443,12 +445,12 @@ def compile_genesys_layer(layer_file,
     TILING_DIR = f"{benchmark_path}/tiling_info"
     dtypes = dtypes or GENESYS_DTYPES
     if update_cfg_dtypes:
-        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+        def_cfg = update_genesys_cfg_from_dtypes(genesys_cfg, dtypes=dtypes)
     else:
-        def_cfg = GENESYS_CFG
+        def_cfg = genesys_cfg
 
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
-    graph = run_srdfg_passes(graph, train=False, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+    graph = run_srdfg_passes(graph, def_cfg, train=False, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
     if load_genesys_filename is None:
         genesys = define_genesys(def_cfg)
     else:
@@ -537,12 +539,12 @@ def compile_genesys_layer(layer_file,
 
 def compile_extracted_genesys_layer(model_name,
                                     layer_name,
+                                    arch_config,
                                     train=False,
                                     update_cfg_dtypes=False,
                                     batch_size=1,
                                     verbose=False,
                                     benchmark_path=None,
-                                    genesys_cfg=None,
                                     dtypes=None,
                                     print_config=True,
                                     factor_fn='default',
@@ -552,9 +554,9 @@ def compile_extracted_genesys_layer(model_name,
 
     dtypes = dtypes or GENESYS_DTYPES
     if update_cfg_dtypes:
-        def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
+        def_cfg = update_genesys_cfg_from_dtypes(arch_config, dtypes=dtypes)
     else:
-        def_cfg = GENESYS_CFG
+        def_cfg = arch_config
 
     if model_name not in ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn']:
         raise RuntimeError(f"Invalid model name for extracting layer for compilation")
@@ -583,7 +585,10 @@ def compile_extracted_genesys_layer(model_name,
         pprint(sizes_cfg)
     mode = "training" if train else "inference"
     # Codelet compilation starts here
-    program = initialize_program(graph, genesys, mode=mode)
+    cdlts, impls = load_impls_cdlts(def_cfg)
+    metadata = {'GENESYS_IMPLS': impls, 'GENESYS_CODELETS': cdlts,
+                'FUSION_OP_INFO': load_fusion_op_info(def_cfg)}
+    program = initialize_program(graph, genesys, metadata=metadata, mode=mode)
     program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
                                  dependencies=["template_layout_pass"])
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)

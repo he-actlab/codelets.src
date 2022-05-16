@@ -26,7 +26,7 @@ def parse_cfg():
     return genesys
 
 
-def test_srdfg_creation():
+def test_srdfg_creation(cfg):
     model_name = 'lenet'
 
     # Determines whether to compile a training model or not
@@ -37,6 +37,7 @@ def test_srdfg_creation():
 
     BENCH_DIR = Path(f"{CWD}/../benchmarks").absolute()
     graph = get_transformed_srdfg(model_name,
+                                  cfg,
                               train=train,
                               batch_size=batch_size,
                               verbose=False,

@@ -3,10 +3,10 @@ from . import ReferenceOp, quantize_np
 
 class Binary(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, hag):
         operands = [cdlt.inputs[0], cdlt.inputs[1]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs)
+        super().__init__(cdlt, operands, outputs, hag)
 
     def fn_impl(self, inouts):
         inpt1 = inouts['inputs'][0].data
@@ -43,14 +43,16 @@ class Binary(ReferenceOp):
         return inouts
 
 
+def load_binary_impls(cfg):
 
-BINARY_IMPLS = {
-    "elem_add": Binary,
-    "elem_add1d": Binary,
-    "elem_add3d": Binary,
-    "elem_sub": Binary,
-    "elem_div": Binary,
-    "elem_mul": Binary,
-    "elem_less": Binary,
-    "elem_equal": Binary,
-}
+    BINARY_IMPLS = {
+        "elem_add": Binary,
+        "elem_add1d": Binary,
+        "elem_add3d": Binary,
+        "elem_sub": Binary,
+        "elem_div": Binary,
+        "elem_mul": Binary,
+        "elem_less": Binary,
+        "elem_equal": Binary,
+    }
+    return BINARY_IMPLS

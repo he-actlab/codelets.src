@@ -1,5 +1,4 @@
 from typing import List
-from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, USE_QUANTIZATION, FUSION_CONSTRAINTS
 from functools import partial
 import numpy as np
 from . import ReferenceOp, quantize_np, create_operand_data, transform_data
@@ -10,13 +9,13 @@ ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 class Conv(ReferenceOp):
 
-    def __init__(self, cdlt, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt, hag, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
         outputs = [cdlt.outputs[0]]
         self.stride = cdlt.required_params['stride'].value
-        super().__init__(cdlt, operands, outputs, scale=1)
+        super().__init__(cdlt, operands, outputs, hag, scale=1)
 
     @property
     def data(self):
@@ -37,16 +36,16 @@ class Conv(ReferenceOp):
         bias = inouts['inputs'][2].data
 
         inouts["inputs"].append(
-            create_operand_data(transform_data(data, "input", "shuffled", self.cdlt), self.data, fmt='shuffled'))
+            create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), self.data, fmt='shuffled'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(data, "input", "raw", self.cdlt), self.data, fmt='raw'))
+            create_operand_data(transform_data(data, "input", "raw", self.cdlt, self.hag), self.data, fmt='raw'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "shuffled", self.cdlt), self.weight, fmt='shuffled'))
+            create_operand_data(transform_data(wgt, "weights", "shuffled", self.cdlt, self.hag), self.weight, fmt='shuffled'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "shuffled_raw", self.cdlt), self.weight,
+            create_operand_data(transform_data(wgt, "weights", "shuffled_raw", self.cdlt, self.hag), self.weight,
                                 fmt='shuffled_raw'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt), self.weight, fmt='raw'))
+            create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt, self.hag), self.weight, fmt='raw'))
 
         data = data.transpose(0, 3, 1, 2)
         wgt = wgt.transpose(*tuple(WEIGHTS_CL_TO_CF))
@@ -120,38 +119,41 @@ class Gemm(ReferenceOp):
         bias = inouts['inputs'][1].data
 
         inouts["inputs"].append(
-            create_operand_data(transform_data(data, "input", "shuffled", self.cdlt), self.data, fmt='shuffled'))
+            create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), self.data, fmt='shuffled'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(data, "input", "raw", self.cdlt), self.data, fmt='raw'))
+            create_operand_data(transform_data(data, "input", "raw", self.cdlt, self.hag), self.data, fmt='raw'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "shuffled", self.cdlt), self.weight, fmt='shuffled'))
+            create_operand_data(transform_data(wgt, "weights", "shuffled", self.cdlt, self.hag), self.weight, fmt='shuffled'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "shuffled_raw", self.cdlt), self.weight,
+            create_operand_data(transform_data(wgt, "weights", "shuffled_raw", self.cdlt, self.hag), self.weight,
                                 fmt='shuffled_raw'))
         inouts["inputs"].append(
-            create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt), self.weight, fmt='raw'))
+            create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt, self.hag), self.weight, fmt='raw'))
 
         output = np.dot(np.int32(data), np.int32(wgt)) + bias
         inouts['outputs'] = [output]
         return inouts
 
 
-if USE_QUANTIZATION:
-    SA_IMPLS = {
-        "conv_bias": partial(Conv, use_bias=True, use_quantization=True),
-        "conv": partial(Conv, use_bias=False, use_quantization=True),
-        "gemm": partial(Gemm, use_bias=True, use_quantization=True),
-        'matmul': partial(Gemm, use_bias=False, use_quantization=True),
-        'matmul3d': partial(Gemm, use_bias=False, use_quantization=True),
-        'matmul4d': partial(Gemm, use_bias=False, use_quantization=True)
-    }
-else:
-    SA_IMPLS = {
-        "conv_bias": partial(Conv, use_bias=True, use_quantization=False),
-        "conv": partial(Conv, use_bias=False, use_quantization=False),
-        "gemm": partial(Gemm, use_bias=True, use_quantization=False),
-        'matmul': partial(Gemm, use_bias=False, use_quantization=False),
-        'matmul3d': partial(Gemm, use_bias=False, use_quantization=False),
-        'matmul4d': partial(Gemm, use_bias=False, use_quantization=False)
+def load_sa_impls(cfg):
 
-    }
+    if cfg['USE_QUANTIZATION']:
+        SA_IMPLS = {
+            "conv_bias": partial(Conv, use_bias=True, use_quantization=True),
+            "conv": partial(Conv, use_bias=False, use_quantization=True),
+            "gemm": partial(Gemm, use_bias=True, use_quantization=True),
+            'matmul': partial(Gemm, use_bias=False, use_quantization=True),
+            'matmul3d': partial(Gemm, use_bias=False, use_quantization=True),
+            'matmul4d': partial(Gemm, use_bias=False, use_quantization=True)
+        }
+    else:
+        SA_IMPLS = {
+            "conv_bias": partial(Conv, use_bias=True, use_quantization=False),
+            "conv": partial(Conv, use_bias=False, use_quantization=False),
+            "gemm": partial(Gemm, use_bias=True, use_quantization=False),
+            'matmul': partial(Gemm, use_bias=False, use_quantization=False),
+            'matmul3d': partial(Gemm, use_bias=False, use_quantization=False),
+            'matmul4d': partial(Gemm, use_bias=False, use_quantization=False)
+
+        }
+    return SA_IMPLS

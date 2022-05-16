@@ -92,8 +92,9 @@ class ArchitectureNode(Node):
     sub_graph_ctx_nodes = deque([[]])
     sub_graph_ctx_edges = deque([{}])
 
-    def __init__(self, name, index=None):
+    def __init__(self, name, meta_cfg=None, index=None):
         super(ArchitectureNode, self).__init__(index=index)
+        self._meta_cfg = meta_cfg
         self._has_parent = None
         self._subgraph = ArchitectureGraph()
         self._instr_length = None
@@ -174,6 +175,10 @@ class ArchitectureNode(Node):
     @property
     def parent_graph(self) -> Union[None, 'ArchitectureNode']:
         return ArchitectureNode.graph_stack[-1]
+
+    @property
+    def meta_cfg(self):
+        return self._meta_cfg
 
     @property
     def parent_ctx_nodes(self) -> List:

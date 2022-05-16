@@ -11,8 +11,6 @@ from examples.genesys.compilation_stages.tiling_utils import set_codelet_tiling
 from examples.genesys.compilation_stages.stage_utils import default_tile_heuristic, \
     store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
-from examples.genesys.codelets import FUSION_CODELETS
-from examples.genesys import PAPER_CFG1, PAPER_CFG2, GENESYS_CFG
 import polymath as pm
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
@@ -58,7 +56,7 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     updated_dims = []
-    if template.op_name in FUSION_CODELETS:
+    if template.op_name in program.metadata['FUSION_OP_INFO'].keys():
         pad_attrs = [k for k in template.dummy_ops.keys() if 'pad' in k]
         if 'max_pool' in template.op_name:
             raise RuntimeError

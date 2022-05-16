@@ -1,5 +1,4 @@
 from codelets.adl.graph import ArchitectureNode
-from examples.genesys import ASIC_CONFIG
 
 LOOPS_PER_LEVEL = 7
 
@@ -128,7 +127,7 @@ def outer_sa_loops(hag: ArchitectureNode):
 
 
     denom_str = f"hag.get_subgraph_edge('DRAM', operand.get_ld_storage_location(cdlt, 1)).bandwidth"
-    if ASIC_CONFIG:
+    if hag.meta_cfg['ASIC_CONFIG']:
         # Product of stride of inner loops * stride * operand.dtype_size / bandwidth DRAM-BUF 256 (word/line size)
         # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag)*op.stride"
         # stride_str = f"operand.get_offset(cdlt, 1, op.loop_id, hag, outer_loop=True)*operand.dtype.bits()//{denom_str}"
@@ -165,7 +164,7 @@ def outer_sa_loops(hag: ArchitectureNode):
     instructions.append(macro_instr)
 
 
-    if ASIC_CONFIG:
+    if hag.meta_cfg['ASIC_CONFIG']:
         denom_str = f"hag.get_subgraph_edge('DRAM', cdlt.outputs[0].get_ld_storage_location(cdlt, 1)).bandwidth"
 
         # out_stride_str = f"cdlt.outputs[0].get_offset(cdlt, 1, op.loop_id, hag, movement_type='down', outer_loop=True)*cdlt.outputs[0].dtype.bits() // {denom_str}"

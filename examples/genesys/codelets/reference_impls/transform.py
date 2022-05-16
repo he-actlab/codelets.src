@@ -2,7 +2,6 @@ from typing import List
 
 from collections import Iterable, namedtuple
 from examples.genesys import FXP_CONFIGS
-from examples.genesys import GENESYS_CFG
 from fxpmath import Fxp
 import numpy as np
 from functools import partial
@@ -10,13 +9,13 @@ from . import ReferenceOp, quantize_np
 
 class Transform(ReferenceOp):
 
-    def __init__(self, transform_type, cdlt):
+    def __init__(self, transform_type, cdlt, hag):
         self.transform_type = transform_type
         self.dtype = "FXP32"
         self.axis = self.cdlt.required_params['axis'].value
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs)
+        super().__init__(cdlt, operands, outputs, hag)
 
 
     def fn_impl(self, inouts):
@@ -37,13 +36,16 @@ class Transform(ReferenceOp):
         inouts['outputs'] = [out]
         return inouts
 
-TRANSFORM_IMPLS = {
-    'tensor_reshape4d2d': partial(Transform, 'reshape'),
-    'tensor_reshape4d3d': partial(Transform, 'reshape'),
-    'tensor_reshape3d4d': partial(Transform, 'reshape'),
-    # 'tensor_flip': tensor_flip,
-    # 'tensor_pad': tensor_pad,
-    # 'concat': concat,
-    'tensor_squeeze' : partial(Transform, 'squeeze'),
-    # 'resize': partial(Transform, 'resize')
-}
+def load_transform_impls(cfg):
+
+    TRANSFORM_IMPLS = {
+        'tensor_reshape4d2d': partial(Transform, 'reshape'),
+        'tensor_reshape4d3d': partial(Transform, 'reshape'),
+        'tensor_reshape3d4d': partial(Transform, 'reshape'),
+        # 'tensor_flip': tensor_flip,
+        # 'tensor_pad': tensor_pad,
+        # 'concat': concat,
+        'tensor_squeeze' : partial(Transform, 'squeeze'),
+        # 'resize': partial(Transform, 'resize')
+    }
+    return TRANSFORM_IMPLS

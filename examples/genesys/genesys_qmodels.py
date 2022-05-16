@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Dict, List
 from .genesys_model_utils import get_resnet18, get_resnet50
-from .codelets import FUSION_OP_INFO, BINARY_CODELETS, UNARY_CODELETS
+# from .codelets import FUSION_OP_INFO, BINARY_CODELETS, UNARY_CODELETS
 from .datagen_functions import binary, unary, manual_conv_from_existing, \
     maxpool2d, manual_conv, manual_gemm, conv_forward_naive, pad_conv, \
     pad_gemm, global_avg_pool, depthwise_conv2d, OperandData
@@ -48,9 +48,9 @@ def retrieve_input_data(inouts: Dict[str, List[OperandData]], idx, cdlt,
     op = create_operand_data(data, cdlt.inputs[idx], idx)
     return op
 
-def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
-    if cdlt.op_name in FUSION_OP_INFO.keys():
-        inouts = generate_random_values_fused_layer(cdlt, **kwargs)
+def generate_random_values(cdlt, program, **kwargs) -> Dict[str, List[OperandData]]:
+    if cdlt.op_name in program.metadata['FUSION_OP_INFO'].keys():
+        inouts = generate_random_values_fused_layer(cdlt, program, **kwargs)
     elif "depthwise_conv" in cdlt.op_name:
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.outputs[0]]
         inouts = generate_random_values_dw_conv(cdlt, operands, **kwargs)
@@ -63,10 +63,10 @@ def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
     elif "global_avgpool" in cdlt.op_name or "global_avg_pool" in cdlt.op_name:
         operands = [cdlt.inputs[0], cdlt.outputs[0]]
         inouts = generate_random_values_global_avgpool(cdlt, operands, **kwargs)
-    elif cdlt.op_name in BINARY_CODELETS:
+    elif cdlt.op_name in program.metadata['BINARY_CODELETS']:
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.outputs[0]]
         inouts = generate_random_values_binary(cdlt, operands, **kwargs)
-    elif cdlt.op_name in UNARY_CODELETS:
+    elif cdlt.op_name in program.metadata['UNARY_CODELETS']:
         operands = [cdlt.inputs[0], cdlt.outputs[0]]
         inouts = generate_random_values_unary(cdlt, operands, **kwargs)
     else:
@@ -82,12 +82,13 @@ def generate_random_values(cdlt, **kwargs) -> Dict[str, List[OperandData]]:
 
 
 def generate_random_values_fused_layer(cdlt,
+                                       program,
                                   inouts=None,
                                   base_path=".",
                                   generate_partial_values=False,
                                 format="nhwc",
                                 fixed_values=None):
-    layers = FUSION_OP_INFO[cdlt.op_name]['seq']
+    layers = program.metadata['FUSION_OP_INFO'][cdlt.op_name]['seq']
 
 
     assert "Conv" == layers[0]

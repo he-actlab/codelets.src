@@ -615,16 +615,19 @@ def gelu(hag):
     cdlt = add_simd_constraint(hag, cdlt, "P")
     return cdlt
 
-DNN_CDLTS = {
-    "avg_pool": averagepool2d,
-    "softmax4d": softmax4d,
-    # "batch_norm": batch_norm,
-    # "cross_entropy_loss": cross_entropy_loss,
-    "bias_add": bias_add,
-    "depthwise_conv": depthwise_conv,
-    "depthwise_conv_bias": depthwise_conv_bias,
-    "global_avg_pool": global_avg_pool,
-    "max_pool": maxpool2d,
-    # "mean_var": mean_var,
-    "gelu": gelu,
-}
+def load_dnn_cdlts(cfg):
+
+    DNN_CDLTS = {
+        "avg_pool": averagepool2d,
+        "softmax4d": softmax4d,
+        # "batch_norm": batch_norm,
+        # "cross_entropy_loss": cross_entropy_loss,
+        "bias_add": bias_add,
+        "depthwise_conv": depthwise_conv,
+        "depthwise_conv_bias": depthwise_conv_bias,
+        "global_avg_pool": global_avg_pool,
+        "max_pool": maxpool2d,
+        # "mean_var": mean_var,
+        "gelu": gelu,
+    }
+    return DNN_CDLTS

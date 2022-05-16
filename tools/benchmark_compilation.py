@@ -8,10 +8,9 @@ from functools import partial
 from pprint import pprint
 
 import polymath as pm
-from examples.genesys import GENESYS_DTYPES, GENESYS_CFG, USE_QUANTIZATION, \
-    SW_PIPELINE_TEST, ADDR_GEN_TEST, PAPER_CFG2, PAPER_CFG1, CUSTOM_CFG
 
-from examples.genesys.codelets import FUSION_OP_INFO
+from examples.genesys.codelets import load_fusion_op_info
+from examples.genesys.config_loader import load_config
 from examples.genesys.genesys_network_sim import compile_full_model
 from examples.genesys.data_generator import DataGen
 from tools.compile_layer import store_program_codelets
@@ -19,7 +18,7 @@ from tools.compile_layer import store_program_codelets
 import onnxruntime as ort
 from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 import onnx
-
+CWD = Path(f"{Path(__file__).parent}")
 MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
 FUSION_NAME_MAPPING = {
     'conv': 'conv_bias',
@@ -80,6 +79,7 @@ def check_fused_layer_count(model_path, program):
     layer_count = 0
     onnx_layers = defaultdict(int)
     cdlt_layers = defaultdict(int)
+    FUSION_OP_INFO = load_fusion_op_info(program.hag.meta_cfg)
 
     for n in model.graph.node:
         if n.op_type not in NOOP_LAYERS:
@@ -139,6 +139,7 @@ def count_compute_ops(program):
     pprint(num_layers)
 
 def compile_benchmark(model_name,
+                      cfg_name,
                       fuse_layers=False,
                       identifier=0,
                       custom_config=False,
@@ -157,6 +158,7 @@ def compile_benchmark(model_name,
                       generate_data=False,
                       check_layer_count=False
                       ):
+    arch_config = load_config(f"{CWD}/configs/{cfg_name}")
     dir_ext = ""
     if model_name in BENCHMARK_NAMES:
         if fuse_layers:
@@ -168,32 +170,33 @@ def compile_benchmark(model_name,
         num_layers = 0
 
     if custom_config:
-        assert CUSTOM_CFG
+        assert "custom" in cfg_name
 
-        assert USE_QUANTIZATION
-        assert not SW_PIPELINE_TEST
-        assert not ADDR_GEN_TEST
-        assert not PAPER_CFG1
-        assert not PAPER_CFG2
+        assert arch_config['USE_QUANTIZATION']
+        assert not arch_config['SW_PIPELINE_TEST']
+        assert not arch_config['ADDR_GEN_TEST']
+        assert arch_config['ADDR_GEN_TEST']
+
         dir_ext = "dse_"
     elif sw_pipeline_test:
-        assert not USE_QUANTIZATION
-        assert SW_PIPELINE_TEST
-        assert not ADDR_GEN_TEST
-        assert PAPER_CFG2
+        assert not arch_config['USE_QUANTIZATION']
+        assert arch_config['SW_PIPELINE_TEST']
+        assert not arch_config['ADDR_GEN_TEST']
         dir_ext = "sw_pipeline_"
     elif addr_gen_test:
-        assert ADDR_GEN_TEST
-        assert USE_QUANTIZATION
-        assert PAPER_CFG2
-        assert not SW_PIPELINE_TEST
+        assert arch_config['USE_QUANTIZATION']
+        assert not arch_config['SW_PIPELINE_TEST']
+        assert arch_config['ADDR_GEN_TEST']
+
         dir_ext = "addr_gen_"
     else:
-        assert not SW_PIPELINE_TEST
-        assert not ADDR_GEN_TEST
+        assert not arch_config['SW_PIPELINE_TEST']
+        assert not arch_config['ADDR_GEN_TEST']
+
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
-    program = compile_full_model(model_name,
+    program, _ = compile_full_model(model_name,
+                                 cfg_name,
                                  store_compile=False,
                                  dir_ext=None,
                                  added_constr=None,
@@ -208,7 +211,7 @@ def compile_benchmark(model_name,
     if only_systolic:
         if verbose:
             print(f"Compiling {model_name} without quantization, only systolic layers.")
-        assert not USE_QUANTIZATION
+        assert not arch_config['USE_QUANTIZATION']
         systolic_layers = ["conv_bias", "gemm", "gemm_no_bias", "conv"]
         program.filtered_compile(verbose=verbose, finalize=True, filter_op_types=systolic_layers)
     elif skip_broken_layers:
@@ -237,7 +240,7 @@ def compile_benchmark(model_name,
             check_fused_layer_count(model_path, program)
 
     if stop_stage is None and store_results:
-        sys_array_size = GENESYS_CFG['ARRAY_M']
+        sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
                        single_codelets=True,
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
@@ -255,17 +258,18 @@ def compile_benchmark(model_name,
         count_compute_ops(program)
 
 def run_benchmarks(benchmarks,
+                   cfg,
                    parallel=True,
                    **kwargs
                    ):
     if parallel:
         kwargs['verbose'] = False
         bench_pool = mp.Pool()
-        bench_pool.map(partial(compile_benchmark, **kwargs), benchmarks)
+        bench_pool.map(partial(compile_benchmark, cfg, **kwargs), benchmarks)
     else:
         for b in benchmarks:
             print(f"Compiling {b}")
-            compile_benchmark(b, **kwargs)
+            compile_benchmark(b, cfg, **kwargs)
 
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
@@ -294,6 +298,7 @@ if __name__ == "__main__":
         arch_config = args.config
 
         compile_benchmark(fname,
+                          arch_config,
                           fuse_layers=apply_fusion,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -306,6 +311,7 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
+        config = "unquantized_fused_custom32x32.json"
         benchmarks = ['resnet18', 'resnet50',
                       'efficientnet-lite4-opt-no-softmax',
                       'mobilenetv2-opt',
@@ -316,14 +322,15 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv-opt',
                       'conv_clip_depthwiseconv_clip_v1-opt']
         #
-        compile_benchmark(benchmarks[3],
+        compile_benchmark(benchmarks[0],
+                          config,
                           fuse_layers=True,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
                           custom_config=False,
                           verbose=True,
-                          # filtered_layers=[4],
+                          # filtered_layers=[7],
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,

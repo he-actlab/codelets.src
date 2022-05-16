@@ -1,16 +1,16 @@
 import numpy as np
-from examples.genesys import GENESYS_CFG
+# from examples.genesys import GENESYS_CFG
 
 # Shuffles weights within a tile for correct mapping to systolic array
-def shuffle_weights(w_orig, layer_type="conv"):
+def shuffle_weights(w_orig, arch_config, layer_type="conv"):
 
     # Layout of weights is in (KH, KW, IC, OC) format
     weights = w_orig.copy()
 
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
-    tile_m = GENESYS_CFG['ARRAY_M']
-    tile_n = GENESYS_CFG['ARRAY_N']
+    tile_m = arch_config['ARRAY_M']
+    tile_n = arch_config['ARRAY_N']
     coord_map = {}
 
     if "conv" in layer_type:
@@ -67,7 +67,7 @@ def shuffle_weights(w_orig, layer_type="conv"):
 # Sequentially write out tiles of weights which will be written in DRAM
 # A tile is written out in column-major order.
 # Column major order to enable a tile-size sequential read from DRAM to go to column of systolic array
-def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
+def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
 
     if isinstance(weights, tuple):
         weights, coord_map = weights
@@ -76,12 +76,12 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         rev_coords = {}
     final_coords = {}
     result = list()
-    tile_m = GENESYS_CFG['ARRAY_M']
-    tile_n = GENESYS_CFG['ARRAY_N']
+    tile_m = arch_config['ARRAY_M']
+    tile_n = arch_config['ARRAY_N']
     weight_symbols = list(cdlt.inputs[1].shape_symbols.keys())
     w_dim = weights.shape
     loop_order = [i for i in cdlt.get_loop_order() if i in weight_symbols]
-    bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    bw = arch_config['PARAM_BUF_CHANNEL_BW'] // 8
     systolic_array_row_size = weights.dtype.itemsize * tile_m
     systolic_array_column_size = weights.dtype.itemsize * tile_n
     # interleave_factor = bw // tile_n
@@ -172,7 +172,7 @@ def dram_layout(weights, print_debug=False):
     # dram_weights = [str(x) for x in dram_weights]
     return np.asarray(dram_weights)
 
-def transform_data(data, operand_type, transformation, cdlt):
+def transform_data(data, operand_type, transformation, cdlt, hag):
     if operand_type == "input":
         if transformation == "shuffled":
             return dram_layout(data)
@@ -186,13 +186,13 @@ def transform_data(data, operand_type, transformation, cdlt):
         # DRAM tiling is in level 1.
         dram_tiling = tiling_parameters[1]
         if transformation == "shuffled":
-            shuffled_data = shuffle_weights(data, layer_type=cdlt.op_name)
-            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, layer_type=cdlt.op_name)
+            shuffled_data = shuffle_weights(data, hag.meta_cfg, layer_type=cdlt.op_name)
+            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, hag.meta_cfg, layer_type=cdlt.op_name)
             dram_data = dram_layout(tiled_data)
             return dram_data
         elif transformation == "shuffled_raw":
-            shuffled_data = shuffle_weights(data, layer_type=cdlt.op_name)
-            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, layer_type=cdlt.op_name)
+            shuffled_data = shuffle_weights(data, hag.meta_cfg, layer_type=cdlt.op_name)
+            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, hag.meta_cfg, layer_type=cdlt.op_name)
             # raw_data = [str(i) for i in tiled_data]
             return tiled_data
         elif transformation == "raw":

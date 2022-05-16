@@ -2,18 +2,17 @@ from typing import List
 
 from collections import Iterable, namedtuple
 from examples.genesys import FXP_CONFIGS
-from examples.genesys import GENESYS_CFG
 from fxpmath import Fxp
 import numpy as np
 from . import ReferenceOp, quantize_np
 
 class Unary(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, hag):
         self.dtype = "FXP32"
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs)
+        super().__init__(cdlt, operands, outputs, hag)
 
     def fn_impl(self, inouts):
         inpt1 = inouts['inputs'][0].data
@@ -236,26 +235,29 @@ class Unary(ReferenceOp):
 
         return res
 
-UNARY_IMPLS = {
-    "coarse_flatten": Unary,
-    "coarse_flatten2d": Unary,
-    "elem_tanh": Unary,
-    "elem_tanh2d": Unary,
-    # TODO: Check if this needs to be 'sigmoid'
-    "elem_sigmoid": Unary,
-    "leaky_relu": Unary,
-    "elem_clip": Unary,
-    "elem_ceil2d": Unary,
-    "elem_pow2d": Unary,
-    "elem_pow3d": Unary,
-    "elem_exp": Unary,
-    "relu": Unary,
-    "relu2d": Unary,
-    'tensor_transpose2d': Unary,
-    'tensor_transpose3d': Unary,
-    'tensor_transpose4d': Unary,
-    'elem_cast': Unary,
-    'elem_cast2d': Unary,
-    'elem_sqrt': Unary,
-    "inv_sqrt": Unary,
-}
+def load_unary_impls(cfg):
+
+    UNARY_IMPLS = {
+        "coarse_flatten": Unary,
+        "coarse_flatten2d": Unary,
+        "elem_tanh": Unary,
+        "elem_tanh2d": Unary,
+        # TODO: Check if this needs to be 'sigmoid'
+        "elem_sigmoid": Unary,
+        "leaky_relu": Unary,
+        "elem_clip": Unary,
+        "elem_ceil2d": Unary,
+        "elem_pow2d": Unary,
+        "elem_pow3d": Unary,
+        "elem_exp": Unary,
+        "relu": Unary,
+        "relu2d": Unary,
+        'tensor_transpose2d': Unary,
+        'tensor_transpose3d': Unary,
+        'tensor_transpose4d': Unary,
+        'elem_cast': Unary,
+        'elem_cast2d': Unary,
+        'elem_sqrt': Unary,
+        "inv_sqrt": Unary,
+    }
+    return UNARY_IMPLS

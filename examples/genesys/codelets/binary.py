@@ -101,13 +101,16 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: A
 
     return cdlt
 
-BINARY_CODELETS = {
-    "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4),
-    "elem_add1d": partial(elem_binary_op, "elem_add1d", "ADD", 3, 1),
-    "elem_add3d": partial(elem_binary_op, "elem_add3d", "ADD", 3, 3),
-    "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
-    "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
-    "elem_mul": partial(elem_binary_op_, "elem_mul", "MUL"),
-    "elem_less": partial(elem_binary_op_, "elem_less", "LT"),
-    "elem_equal": partial(elem_binary_op_, "elem_equal", "EQUAL"),
-}
+def load_binary_cdlts(cfg):
+
+    BINARY_CODELETS = {
+        "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4),
+        "elem_add1d": partial(elem_binary_op, "elem_add1d", "ADD", 3, 1),
+        "elem_add3d": partial(elem_binary_op, "elem_add3d", "ADD", 3, 3),
+        "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
+        "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
+        "elem_mul": partial(elem_binary_op_, "elem_mul", "MUL"),
+        "elem_less": partial(elem_binary_op_, "elem_less", "LT"),
+        "elem_equal": partial(elem_binary_op_, "elem_equal", "EQUAL"),
+    }
+    return BINARY_CODELETS

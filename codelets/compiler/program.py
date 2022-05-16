@@ -53,7 +53,8 @@ class OperandDataflow:
 
 class CodeletProgram(object):
 
-    def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference"):
+    def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference", metadata=None):
+        self._metadata = metadata
         Operation.reset()
         Codelet.reset()
         self._compilation_state = {
@@ -107,6 +108,10 @@ class CodeletProgram(object):
         self._instruction_stages = defaultdict(list)
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
+
+    @property
+    def metadata(self):
+        return self._metadata
 
     @property
     def compilation_state(self):

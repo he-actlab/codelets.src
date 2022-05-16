@@ -1,4 +1,4 @@
-from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, USE_QUANTIZATION, FUSION_CONSTRAINTS, FXP_CONFIGS
+from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, FXP_CONFIGS
 from functools import partial
 from fxpmath import Fxp
 import numpy as np
@@ -11,12 +11,12 @@ ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 class Pool(ReferenceOp):
 
-    def __init__(self, pool_type, cdlt):
+    def __init__(self, pool_type, cdlt, hag):
         self.pool_type = pool_type
         operands = [cdlt.inputs[0],]
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
-        super().__init__(cdlt, operands, outputs, scale=1)
+        super().__init__(cdlt, operands, outputs, hag, scale=1)
 
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
@@ -209,16 +209,19 @@ class BiasAdd(ReferenceOp):
         inouts['outputs'] = [output]
         return inouts
 
-DNN_IMPLS = {
-    "avg_pool": partial(Pool, "avg"),
-    "softmax4d": Softmax,
-    "bias_add": BiasAdd,
-    # "batch_norm": batch_norm,
-    # "cross_entropy_loss": cross_entropy_loss,
-    "depthwise_conv": partial(DWConv, use_bias=False),
-    "depthwise_conv_bias": partial(DWConv, use_bias=True),
-    "global_avg_pool": GlobalAvgPool,
-    "max_pool": partial(Pool, "max"),
-    # "mean_var": mean_var,
-    "gelu": Gelu,
-}
+def load_dnn_impls(cfg):
+
+    DNN_IMPLS = {
+        "avg_pool": partial(Pool, "avg"),
+        "softmax4d": Softmax,
+        "bias_add": BiasAdd,
+        # "batch_norm": batch_norm,
+        # "cross_entropy_loss": cross_entropy_loss,
+        "depthwise_conv": partial(DWConv, use_bias=False),
+        "depthwise_conv_bias": partial(DWConv, use_bias=True),
+        "global_avg_pool": GlobalAvgPool,
+        "max_pool": partial(Pool, "max"),
+        # "mean_var": mean_var,
+        "gelu": Gelu,
+    }
+    return DNN_IMPLS

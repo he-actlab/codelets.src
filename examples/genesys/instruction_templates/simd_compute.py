@@ -1,5 +1,5 @@
 from codelets.adl.graph import ArchitectureNode
-from examples.genesys import ADDR_GEN_TEST
+
 OP_COMPUTE_CYCLES = {
     "SIGMOID": 4,
     "RELU": 0,
@@ -288,7 +288,7 @@ def add_pow_loop(hag):
     sub_instr.set_field_flex_param("SRC2_INDEX_ID", src2_idx)
     macro_instr.add_base_instruction(sub_instr)
     instructions.append(macro_instr)
-    if ADDR_GEN_TEST:
+    if hag.meta_cfg['ADDR_GEN_TEST']:
         instructions += sw_addr_nops_nested("POW", hag)
     return instructions
 
@@ -623,7 +623,7 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     instr.set_field_flex_param("NUM_INSTR", "0")
     instructions.append(instr)
 
-    if ADDR_GEN_TEST:
+    if hag.meta_cfg['ADDR_GEN_TEST']:
         instructions += sw_addr_nops_nested(op_name, hag)
 
     return instructions

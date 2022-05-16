@@ -1,7 +1,6 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, ASIC_CONFIG, \
-    FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, SW_PIPELINE_TEST, ALL_QUANT_OFF, FUSION_CONSTRAINTS
+from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
 from . import add_conv_constraints, range_from_cfg, \
     add_simd_constraint, create_immediate_with_operand, add_scale_op, \
     add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op
@@ -1940,144 +1939,150 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
 
     return cdlt
 
-UNQUANT_FUSION_OP_INFO = {
-    'div_add': {
-        'cdlt': div_add,
-        'seq': ["Div", "Add"]
-    },
-    'add_relu': {
-        'cdlt': add_relu,
-        'seq': ['Add', 'Relu'],
-    },
-    'add_leaky_relu': {
-        'cdlt': add_leaky_relu,
-        'seq': ['Add', 'LeakyRelu'],
-    },
-    'leaky_relu_add': {
-        'cdlt': leaky_relu_add,
-        'seq': ['LeakyRelu', 'Add'],
-    },
-    'clip_depthwise_conv': {
-        'cdlt': clip_depthwise_conv,
-        'seq': ['Clip', 'DepthwiseConv'],
+def load_unquant_fusion_op_info(cfg):
 
-    },
-    'clip_depthwise_conv_bias_clip': {
-        'cdlt': clip_depthwise_conv_bias_clip,
-        'seq': ['Clip', 'DepthwiseConvBias', 'Clip'],
+    UNQUANT_FUSION_OP_INFO = {
+        'div_add': {
+            'cdlt': div_add,
+            'seq': ["Div", "Add"]
+        },
+        'add_relu': {
+            'cdlt': add_relu,
+            'seq': ['Add', 'Relu'],
+        },
+        'add_leaky_relu': {
+            'cdlt': add_leaky_relu,
+            'seq': ['Add', 'LeakyRelu'],
+        },
+        'leaky_relu_add': {
+            'cdlt': leaky_relu_add,
+            'seq': ['LeakyRelu', 'Add'],
+        },
+        'clip_depthwise_conv': {
+            'cdlt': clip_depthwise_conv,
+            'seq': ['Clip', 'DepthwiseConv'],
 
-    },
-    'clip_depthwise_conv_bias': {
-        'cdlt': clip_depthwise_conv_bias,
-        'seq': ['Clip', 'DepthwiseConvBias'],
+        },
+        'clip_depthwise_conv_bias_clip': {
+            'cdlt': clip_depthwise_conv_bias_clip,
+            'seq': ['Clip', 'DepthwiseConvBias', 'Clip'],
 
-    },
-    'bias_add_clip': {
-        'cdlt': bias_add_clip,
-        'seq': ['BiasAdd', 'Clip'],
-    },
-    'add_add': {
-      'cdlt': add_add,
-      'seq': ["Add", "Add"]
-    },
-    'add_add4d': {
-        'cdlt': add_add4d,
-        'seq': ["Add", "Add"]
-    },
-    'mul_add': {
-        'cdlt': mul_add,
-        'seq': ["Mul", "Add"]
-    },
-    'sub_mul': {
-        'cdlt': sub_mul,
-        'seq': ["Sub", "Mul"]
-    },
-    'sub_pow': {
-        'cdlt': sub_pow,
-        'seq': ["Sub", "Pow"],
-    },
-    'add_sqrt_div': {
-        'cdlt': add_sqrt_div,
-        'seq': ["Add", "Sqrt", "Div"],
-    },
-    'depthwise_conv_bias_clip': {
-        'cdlt': depthwise_conv_bias_clip,
-        'seq': ['DepthwiseConvBias', 'Clip'],
-    },
-    'single_layer_info':
-        {
-            'Conv' : {'inputs': 3, 'outputs': 1},
-            'Relu' : {'inputs': 1, 'outputs': 1},
-            'LeakyRelu' : {'inputs': 1, 'outputs': 1},
-            'Add' : {'inputs': 2, 'outputs': 1},
-            'MaxPool': {'inputs': 1, 'outputs': 1}
+        },
+        'clip_depthwise_conv_bias': {
+            'cdlt': clip_depthwise_conv_bias,
+            'seq': ['Clip', 'DepthwiseConvBias'],
+
+        },
+        'bias_add_clip': {
+            'cdlt': bias_add_clip,
+            'seq': ['BiasAdd', 'Clip'],
+        },
+        'add_add': {
+          'cdlt': add_add,
+          'seq': ["Add", "Add"]
+        },
+        'add_add4d': {
+            'cdlt': add_add4d,
+            'seq': ["Add", "Add"]
+        },
+        'mul_add': {
+            'cdlt': mul_add,
+            'seq': ["Mul", "Add"]
+        },
+        'sub_mul': {
+            'cdlt': sub_mul,
+            'seq': ["Sub", "Mul"]
+        },
+        'sub_pow': {
+            'cdlt': sub_pow,
+            'seq': ["Sub", "Pow"],
+        },
+        'add_sqrt_div': {
+            'cdlt': add_sqrt_div,
+            'seq': ["Add", "Sqrt", "Div"],
+        },
+        'depthwise_conv_bias_clip': {
+            'cdlt': depthwise_conv_bias_clip,
+            'seq': ['DepthwiseConvBias', 'Clip'],
+        },
+        'single_layer_info':
+            {
+                'Conv' : {'inputs': 3, 'outputs': 1},
+                'Relu' : {'inputs': 1, 'outputs': 1},
+                'LeakyRelu' : {'inputs': 1, 'outputs': 1},
+                'Add' : {'inputs': 2, 'outputs': 1},
+                'MaxPool': {'inputs': 1, 'outputs': 1}
+            }
+    }
+
+    if not cfg['SW_PIPELINE_TEST']:
+        UNQUANT_FUSION_OP_INFO['matmul_add'] = {
+            'cdlt': matmul_add,
+            'seq': ["MatMul", "Add"]
         }
-}
+        UNQUANT_FUSION_OP_INFO['matmul_add_add'] = {
+            'cdlt': matmul_add_add,
+            'seq': ["MatMul", "Add", "Add"]
+        }
+        UNQUANT_FUSION_OP_INFO['matmul_add_gelu'] = {
+            'cdlt': matmul_add_gelu,
+            'seq': ["MatMul", "Add", "Gelu"]
+        }
+        UNQUANT_FUSION_OP_INFO['matmul_div_add'] = {
+            'cdlt': matmul_div_add,
+            'seq': ["MatMul", "Div", "Add"]
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_relu'] =  {
+            'cdlt': conv_relu,
+            'seq': ['Conv', 'Relu']
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_add_relu'] = {
+            'cdlt': conv_add_relu,
+            'seq': ['Conv', 'Add', 'Relu'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_add'] = {
+            'cdlt': conv_add,
+            'seq': ['Conv', 'Add'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_clip'] = {
+            'cdlt': conv_clip,
+            'seq': ['Conv', 'Clip'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_leaky_relu'] =  {
+            'cdlt': conv_leaky_relu,
+            'seq': ['Conv', 'LeakyRelu']
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_add_leaky_relu'] =  {
+            'cdlt': conv_add_leaky_relu,
+            'seq': ['Conv', 'Add', 'LeakyRelu'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_leaky_relu_add'] = {
+            'cdlt': conv_leaky_relu_add,
+            'seq': ['Conv', 'LeakyRelu', 'Add'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_add'] = {
+            'cdlt': conv_bias_clip_depthwise_conv_bias_add,
+            'seq': ['Conv', 'Clip', 'DepthwiseConv', 'BiasAdd'],
 
-if not SW_PIPELINE_TEST:
-    UNQUANT_FUSION_OP_INFO['matmul_add'] = {
-        'cdlt': matmul_add,
-        'seq': ["MatMul", "Add"]
-    }
-    UNQUANT_FUSION_OP_INFO['matmul_add_add'] = {
-        'cdlt': matmul_add_add,
-        'seq': ["MatMul", "Add", "Add"]
-    }
-    UNQUANT_FUSION_OP_INFO['matmul_add_gelu'] = {
-        'cdlt': matmul_add_gelu,
-        'seq': ["MatMul", "Add", "Gelu"]
-    }
-    UNQUANT_FUSION_OP_INFO['matmul_div_add'] = {
-        'cdlt': matmul_div_add,
-        'seq': ["MatMul", "Div", "Add"]
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_relu'] =  {
-        'cdlt': conv_relu,
-        'seq': ['Conv', 'Relu']
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_add_relu'] = {
-        'cdlt': conv_add_relu,
-        'seq': ['Conv', 'Add', 'Relu'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_add'] = {
-        'cdlt': conv_add,
-        'seq': ['Conv', 'Add'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_clip'] = {
-        'cdlt': conv_clip,
-        'seq': ['Conv', 'Clip'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_leaky_relu'] =  {
-        'cdlt': conv_leaky_relu,
-        'seq': ['Conv', 'LeakyRelu']
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_add_leaky_relu'] =  {
-        'cdlt': conv_add_leaky_relu,
-        'seq': ['Conv', 'Add', 'LeakyRelu'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_leaky_relu_add'] = {
-        'cdlt': conv_leaky_relu_add,
-        'seq': ['Conv', 'LeakyRelu', 'Add'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_add'] = {
-        'cdlt': conv_bias_clip_depthwise_conv_bias_add,
-        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'BiasAdd'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias'] = {
+            'cdlt': conv_bias_clip_depthwise_conv_bias,
+            'seq': ['Conv', 'Clip', 'DepthwiseConvBias'],
 
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias'] = {
-        'cdlt': conv_bias_clip_depthwise_conv_bias,
-        'seq': ['Conv', 'Clip', 'DepthwiseConvBias'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_add_clip'] =  {
+            'cdlt': conv_bias_clip_depthwise_conv_bias_add_clip,
+            'seq': ['Conv', 'Clip', 'DepthwiseConvBias', 'Clip'],
+        }
+        UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_clip'] = {
+            'cdlt': conv_bias_clip_depthwise_conv_bias_clip,
+            'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
 
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_add_clip'] =  {
-        'cdlt': conv_bias_clip_depthwise_conv_bias_add_clip,
-        'seq': ['Conv', 'Clip', 'DepthwiseConvBias', 'Clip'],
-    }
-    UNQUANT_FUSION_OP_INFO['conv_bias_clip_depthwise_conv_bias_clip'] = {
-        'cdlt': conv_bias_clip_depthwise_conv_bias_clip,
-        'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
-
-    }
+        }
+    return UNQUANT_FUSION_OP_INFO
 
 
-UNQUANT_FUSION_CODELETS = {k : v['cdlt'] for k,v in UNQUANT_FUSION_OP_INFO.items() if k != 'single_layer_info'}
+def load_unquant_fusion_cdlts(cfg):
+    UNQUANT_FUSION_OP_INFO = load_unquant_fusion_op_info(cfg)
+    UNQUANT_FUSION_CODELETS = {k : v['cdlt'] for k,v in UNQUANT_FUSION_OP_INFO.items() if k != 'single_layer_info'}
+    return UNQUANT_FUSION_CODELETS
