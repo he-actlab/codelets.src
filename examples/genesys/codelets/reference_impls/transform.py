@@ -9,13 +9,13 @@ from . import ReferenceOp, quantize_np
 
 class Transform(ReferenceOp):
 
-    def __init__(self, transform_type, cdlt, hag):
+    def __init__(self, transform_type, cdlt, program):
         self.transform_type = transform_type
         self.dtype = "FXP32"
         self.axis = self.cdlt.required_params['axis'].value
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs, hag)
+        super().__init__(cdlt, operands, outputs, program)
 
 
     def fn_impl(self, inouts):

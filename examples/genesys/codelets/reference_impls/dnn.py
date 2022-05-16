@@ -11,12 +11,12 @@ ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 class Pool(ReferenceOp):
 
-    def __init__(self, pool_type, cdlt, hag):
+    def __init__(self, pool_type, cdlt, program):
         self.pool_type = pool_type
         operands = [cdlt.inputs[0],]
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
-        super().__init__(cdlt, operands, outputs, hag, scale=1)
+        super().__init__(cdlt, operands, outputs, program, scale=1)
 
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
@@ -83,15 +83,15 @@ class Pool(ReferenceOp):
 
 class Softmax(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, program):
         operands = [cdlt.inputs[0],]
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
-        super().__init__(cdlt, operands, outputs, scale=1)
+        super().__init__(cdlt, operands, outputs, program, scale=1)
 
 class DWConv(ReferenceOp):
 
-    def __init__(self, cdlt, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
         self.dtype = "FXP32"
         self.use_bias = use_bias
         self.use_quantization = use_quantization
@@ -101,7 +101,7 @@ class DWConv(ReferenceOp):
             operands = [cdlt.inputs[0], cdlt.inputs[1]]
         outputs = [cdlt.outputs[0]]
         self.stride = cdlt.required_params['stride'].value
-        super().__init__(cdlt, operands, outputs, scale=2)
+        super().__init__(cdlt, operands, outputs, program, scale=2)
 
     @property
     def data(self):
@@ -166,11 +166,11 @@ class DWConv(ReferenceOp):
 
 class GlobalAvgPool(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, program):
         operands = [cdlt.inputs[0],]
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
-        super().__init__(cdlt, operands, outputs, scale=2)
+        super().__init__(cdlt, operands, outputs, program, scale=2)
 
 
     def fn_impl(self, inouts):
@@ -187,18 +187,18 @@ class GlobalAvgPool(ReferenceOp):
 
 class Gelu(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, program):
         operands = [cdlt.inputs[0],]
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
-        super().__init__(cdlt, operands, outputs, scale=1)
+        super().__init__(cdlt, operands, outputs, program, scale=1)
 
 class BiasAdd(ReferenceOp):
 
-    def __init__(self, cdlt):
+    def __init__(self, cdlt, program):
         operands = [cdlt.inputs[0], cdlt.inputs[1]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs)
+        super().__init__(cdlt, operands, outputs, program)
 
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data

@@ -8,11 +8,11 @@ from . import ReferenceOp, quantize_np
 
 class Unary(ReferenceOp):
 
-    def __init__(self, cdlt, hag):
+    def __init__(self, cdlt, program):
         self.dtype = "FXP32"
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs, hag)
+        super().__init__(cdlt, operands, outputs, program)
 
     def fn_impl(self, inouts):
         inpt1 = inouts['inputs'][0].data

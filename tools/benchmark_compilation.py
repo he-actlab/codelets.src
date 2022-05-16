@@ -140,7 +140,6 @@ def count_compute_ops(program):
 
 def compile_benchmark(model_name,
                       cfg_name,
-                      fuse_layers=False,
                       identifier=0,
                       custom_config=False,
                       verbose=False,
@@ -161,7 +160,7 @@ def compile_benchmark(model_name,
     arch_config = load_config(f"{CWD}/configs/{cfg_name}")
     dir_ext = ""
     if model_name in BENCHMARK_NAMES:
-        if fuse_layers:
+        if arch_config['FUSE_LAYERS']:
             assert not only_systolic
             num_layers = BENCHMARK_INFO[model_name]['num_layers_fused']
         else:
@@ -203,7 +202,7 @@ def compile_benchmark(model_name,
                                  train_mode=False,
                                  verbose=verbose,
                                  model_data=None,
-                                 fuse_layers=fuse_layers,
+                                 fuse_layers=arch_config['FUSE_LAYERS'],
                                  generate_data=False,
                                     graph=graph
                                      )
@@ -217,7 +216,7 @@ def compile_benchmark(model_name,
     elif skip_broken_layers:
         if verbose:
             print(f"Compiling {model_name} without broken layers.")
-        assert 'fused_skipped' in BENCHMARK_INFO[model_name] and fuse_layers
+        assert 'fused_skipped' in BENCHMARK_INFO[model_name] and arch_config['FUSE_LAYERS']
         all_layers = [i for i in range(num_layers) if i not in BENCHMARK_INFO[model_name]['fused_skipped']]
         program.filtered_compile(all_layers, verbose=verbose, finalize=True, filter_op_types=filter_op_types)
     elif filtered_layers:
@@ -249,10 +248,6 @@ def compile_benchmark(model_name,
                        verbose=verbose,
                         store_whole_program=store_whole_program)
         dgen.generate()
-        # store_program_codelets(program, identifier,
-        #                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
-        #                        generate_data=generate_data,
-        #                        verbose=verbose)
 
     if count_compute:
         count_compute_ops(program)
@@ -282,7 +277,6 @@ if __name__ == "__main__":
 
         argparser.add_argument('-v', '--verbose', action='store_true', help='Use verbose compilation output')
 
-        argparser.add_argument('-f', '--fuse_layers', action='store_true', help='Apply layer fusion.')
         argparser.add_argument('-e', '--extension', type=str, default="0", help="Apply an extension to the compilation output directory name.")
         argparser.add_argument('-g', '--generate_data', action='store_true', help='Generate synthetic data for validation testing.')
         args = argparser.parse_args()
@@ -291,7 +285,6 @@ if __name__ == "__main__":
         if ".onnx" in fname:
             fname = fname.replace(".onnx", "")
 
-        apply_fusion = args.fuse_layers
         extension = args.extension
         verbose = args.verbose
         gen_data = args.generate_data
@@ -299,7 +292,6 @@ if __name__ == "__main__":
 
         compile_benchmark(fname,
                           arch_config,
-                          fuse_layers=apply_fusion,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
@@ -322,9 +314,8 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv-opt',
                       'conv_clip_depthwiseconv_clip_v1-opt']
         #
-        compile_benchmark(benchmarks[0],
+        compile_benchmark(benchmarks[3],
                           config,
-                          fuse_layers=True,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
@@ -334,7 +325,7 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,
-                          identifier=3)
+                          identifier=5)
 
         # compile_benchmark(benchmarks[3],
         #                   fuse_layers=True,

@@ -9,13 +9,13 @@ ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 class Conv(ReferenceOp):
 
-    def __init__(self, cdlt, hag, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
         outputs = [cdlt.outputs[0]]
         self.stride = cdlt.required_params['stride'].value
-        super().__init__(cdlt, operands, outputs, hag, scale=1)
+        super().__init__(cdlt, operands, outputs, program, scale=1)
 
     @property
     def data(self):
@@ -94,12 +94,12 @@ class Conv(ReferenceOp):
 
 class Gemm(ReferenceOp):
 
-    def __init__(self, cdlt, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
         outputs = [cdlt.outputs[0]]
-        super().__init__(cdlt, operands, outputs, scale=1)
+        super().__init__(cdlt, operands, outputs, program, scale=1)
 
     @property
     def data(self):
