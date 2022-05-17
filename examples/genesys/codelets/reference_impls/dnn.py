@@ -29,6 +29,7 @@ class Pool(ReferenceOp):
         else:
             assert self.pool_type == "max"
             output = self.max_pool(data, k, stride, 0)
+        output = output.transpose(*tuple(ACT_CF_TO_CL))
         inouts['outputs'] = [output]
 
         return inouts

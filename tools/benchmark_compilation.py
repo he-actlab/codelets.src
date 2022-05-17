@@ -303,7 +303,7 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        config = "unquantized_fused_custom32x32.json"
+        config = "unquantized_fused_custom8x8.json"
         benchmarks = ['resnet18', 'resnet50',
                       'efficientnet-lite4-opt-no-softmax',
                       'mobilenetv2-opt',
@@ -314,14 +314,14 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv-opt',
                       'conv_clip_depthwiseconv_clip_v1-opt']
         #
-        compile_benchmark(benchmarks[3],
+        compile_benchmark(benchmarks[1],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
                           custom_config=False,
                           verbose=True,
-                          # filtered_layers=[7],
+                          filtered_layers=[1],
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,
