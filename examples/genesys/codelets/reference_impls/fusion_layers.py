@@ -14,13 +14,14 @@ ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
 
 class FusionOp(ReferenceOp):
     SYS_ARRAY_OPS = ["conv", "matmul", "gemm"]
-    def __init__(self, fusion_name, cdlt, program, use_quantization=True):
+    def __init__(self, fusion_name, cdlt, program, use_quantization=True, store_intermediates=False):
         self.use_quantization = use_quantization
         self.fusion_name = fusion_name
         if use_quantization:
             op_info = load_fusion_op_info_impl(program.hag.meta_cfg)
         else:
             op_info = load_unquant_fusion_op_info_impl(program.hag.meta_cfg)
+        self.store_intermediates = store_intermediates
         self.dfg = op_info[fusion_name]['dfg']
         operands = [i for i in cdlt.inputs]
         outputs = [o for o in cdlt.outputs]
@@ -30,7 +31,6 @@ class FusionOp(ReferenceOp):
         res = self.eval_dfg(self.dfg, inouts)
         inouts['outputs'] = [res]
         return inouts
-
 
     def eval_dfg(self, dfg, inouts):
         args = []
@@ -82,6 +82,9 @@ class FusionOp(ReferenceOp):
             out = self.bias_add(*args)
         else:
             raise RuntimeError(f"Unsupported dfg op: {dfg.op}")
+        # if self.store_intermediates:
+        #     operand = OperandData(data=out, opname=)
+        #     inouts'[f"intermediate_{dfg.op}_out"] = out
         return out
 
     def div(self, op1, op2):
@@ -139,8 +142,18 @@ class FusionOp(ReferenceOp):
         assert isinstance(wgt, tuple)
         data, data_op = data
         wgt, wgt_op = wgt
+        wgt = np.zeros_like(wgt)
+        wgt_op.data = wgt.copy()
 
         bias, bias_op = bias
+
+        bias = np.zeros_like(bias)
+        bias_op.data = bias.copy()
+
+        assert data.shape[1] == data.shape[2], f"Invalid shape: {data.shape}"
+        assert data.shape[-1] == wgt.shape[-2]
+        assert bias.shape[0] == wgt.shape[-1]
+
 
         inouts["inputs"].append(
             create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), data_op, fmt='shuffled'))
@@ -182,7 +195,7 @@ class FusionOp(ReferenceOp):
                     out[:, f, i_out, j_out] = np.dot(x_current.reshape((N, -1)), w[f].flatten()) + bias[f]
                     j_out += 1
                 i_out += 1
-
+        assert out.shape[1] == bias.shape[0]
         out = out.transpose(0, 2, 3, 1)
         return out
 
@@ -192,9 +205,9 @@ class FusionOp(ReferenceOp):
 
     def leaky_relu(self, xval, alpha):
         dtype = "FXP32"
+        alpha = 0.01
         if not isinstance(xval, Iterable):
             xval = np.asarray([xval])
-        pw1 = Fxp(1.0, **FXP_CONFIGS[dtype])
 
         alpha_val = Fxp(alpha, **FXP_CONFIGS[dtype]).val
         one_val = Fxp(1.0, **FXP_CONFIGS[dtype]).val
@@ -209,6 +222,7 @@ class FusionOp(ReferenceOp):
         ]
 
         res = np.piecewise(xval, conds, fns)
+        res = quantize_np(res, dtype)
         return res
 
     def clipfn(self, data, minval, maxval):
@@ -462,7 +476,6 @@ def load_fusion_op_info_impl(cfg):
             'conv_bias_leaky_relu_add': {
                 'cdlt': partial(FusionOp, 'conv_bias_leaky_relu_add'),
                 'dfg': DFG('add', [DFG('leaky_relu', [DFG('conv', [0, 1, 2, 'stride', 'pad']), 'alpha']), 3]),
-
                 'seq': ['Conv', 'LeakyRelu', 'Add'],
             },
             'conv_bias_clip_depthwise_conv_bias_add': {

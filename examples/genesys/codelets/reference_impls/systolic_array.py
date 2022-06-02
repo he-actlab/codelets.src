@@ -116,7 +116,7 @@ class Gemm(ReferenceOp):
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
         wgt = inouts['inputs'][1].data
-        bias = inouts['inputs'][1].data
+        bias = inouts['inputs'][2].data
 
         inouts["inputs"].append(
             create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), self.data, fmt='shuffled'))

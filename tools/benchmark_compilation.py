@@ -303,7 +303,7 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        config = "unquantized_unfused_custom8x8.json"
+        config = "unquantized_fused_custom32x32.json"
         benchmarks = ['resnet18', 'resnet50',
                       'efficientnet-lite4-opt-no-softmax',
                       'mobilenetv2-opt',
@@ -312,9 +312,13 @@ if __name__ == "__main__":
                       'lenet-opt-trimmed',
                       'conv_add_relu_pool-opt',
                       'conv_clip_depthwiseconv-opt',
-                      'conv_clip_depthwiseconv_clip_v1-opt']
+                      'conv_clip_depthwiseconv_clip_v1-opt',
+                      'custom_gemm-opt',
+                      'conv_lrelu_add_oc64_v3-opt',
+                      'conv_lrelu_oc64'
+                      ]
         #
-        compile_benchmark(benchmarks[3],
+        compile_benchmark(benchmarks[-1],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -325,7 +329,7 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,
-                          identifier=5)
+                          identifier=3)
 
         # compile_benchmark(benchmarks[3],
         #                   fuse_layers=True,
