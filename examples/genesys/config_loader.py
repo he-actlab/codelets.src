@@ -40,6 +40,7 @@ def set_defaults(cfg):
     assert 'OBUF_DEPTH' in cfg, f"Invalid config, key 'OBUF_DEPTH' not found"
     assert 'BBUF_DEPTH' in cfg, f"Invalid config, key 'BBUF_DEPTH' not found"
     assert 'PARAM_BUF_CHANNEL_BW' in cfg, f"Invalid config, key PARAM_BUF_CHANNEL_BW not found"
+
     if 'IBUF_CHANNEL_BW' not in cfg:
         cfg['IBUF_CHANNEL_BW'] = cfg['PARAM_BUF_CHANNEL_BW']
 

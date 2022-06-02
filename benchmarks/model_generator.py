@@ -1861,9 +1861,9 @@ if __name__ == "__main__":
         #           "Sub",
         #          "Add"]
         # ]
-        model = "lenet"
-        optimize_graph(model)
-        extract_lenet()
+        # model = "lenet"
+        # optimize_graph(model)
+        # extract_lenet()
         # name = "mobilenetv2-opt"
         # sequences = [['Conv', 'Add'],
         #              # ['Conv', 'Clip', 'AveragePool'],
@@ -1871,4 +1871,6 @@ if __name__ == "__main__":
         #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
         # fusion_generator(name, sequences, test_run=True)
 
+
+        create_custom_gemm(True, False, False, False, 8, 128, 128)
 #

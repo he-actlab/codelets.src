@@ -43,10 +43,10 @@ def simd_start_template(hag: ComputeNode):
 
     # TODO: THis is a hotfix. need to more intelligently set the config for this later
     instr = hag.get_primitive_template("DTYPE_CFG")
-    instr.set_field_flex_param("DTYPE", "str(cdlt.inputs[0].dtype.bits()) + cdlt.inputs[0].dtype.type")
-    instr.set_field_flex_param("DST_BITS", "cdlt.inputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC1_BITS", "cdlt.inputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC2_BITS", "cdlt.inputs[0].dtype.exp")
+    instr.set_field_flex_param("DTYPE", "str(cdlt.outputs[0].dtype.bits()) + cdlt.outputs[0].dtype.type")
+    instr.set_field_flex_param("DST_BITS", "cdlt.outputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC1_BITS", "cdlt.outputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC2_BITS", "cdlt.outputs[0].dtype.exp")
     instructions.append(instr)
 
 
