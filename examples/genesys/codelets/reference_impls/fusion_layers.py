@@ -142,13 +142,9 @@ class FusionOp(ReferenceOp):
         assert isinstance(wgt, tuple)
         data, data_op = data
         wgt, wgt_op = wgt
-        wgt = np.zeros_like(wgt)
-        wgt_op.data = wgt.copy()
 
         bias, bias_op = bias
 
-        bias = np.zeros_like(bias)
-        bias_op.data = bias.copy()
 
         assert data.shape[1] == data.shape[2], f"Invalid shape: {data.shape}"
         assert data.shape[-1] == wgt.shape[-2]

@@ -315,7 +315,8 @@ if __name__ == "__main__":
                       'conv_clip_depthwiseconv_clip_v1-opt',
                       'custom_gemm-opt',
                       'conv_lrelu_add_oc64_v3-opt',
-                      'conv_lrelu_oc64'
+                      'conv_lrelu_oc64',
+                      'conv_clip_depthwise_v1-opt'
                       ]
         #
         compile_benchmark(benchmarks[-1],
@@ -329,7 +330,7 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,
-                          identifier=5)
+                          identifier=0)
 
         # compile_benchmark(benchmarks[3],
         #                   fuse_layers=True,
