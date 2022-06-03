@@ -49,7 +49,6 @@ def simd_start_template(hag: ComputeNode):
     instr.set_field_flex_param("SRC2_BITS", "cdlt.outputs[0].dtype.exp")
     instructions.append(instr)
 
-
     block_iter = ('operand', f'cdlt.operands')
     block_cond = f'"SIMD" in operand.data_path and operand.data_path[0] == "DRAM" and operand not in cdlt.outputs'
     macro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")

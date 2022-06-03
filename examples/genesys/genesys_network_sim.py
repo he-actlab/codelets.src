@@ -306,12 +306,12 @@ def compile_full_model(model_name,
                        fuse_layers=False,
                        generate_data=True,
                        tile_method=None,
+                       batch_size=1,
                        graph=None
                        ):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
-    batch_size = 1
     tile_method = tile_method or "min_tiles"
 
     update_cfg_dtypes = False

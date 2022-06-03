@@ -204,8 +204,8 @@ def compile_benchmark(model_name,
                                  model_data=None,
                                  fuse_layers=arch_config['FUSE_LAYERS'],
                                  generate_data=False,
-                                    graph=graph
-                                     )
+                                    graph=graph,
+                                    batch_size=arch_config['BATCH_SIZE'])
 
     if only_systolic:
         if verbose:
@@ -329,7 +329,7 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           generate_data=True,
                           store_whole_program=False,
-                          identifier=3)
+                          identifier=5)
 
         # compile_benchmark(benchmarks[3],
         #                   fuse_layers=True,

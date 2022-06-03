@@ -33,6 +33,11 @@ def set_defaults(cfg):
     if 'INSTR_WIDTH' not in cfg:
         cfg['INSTR_WIDTH'] = 32
 
+    if 'BATCH_SIZE' not in cfg:
+        cfg['BATCH_SIZE'] = 1
+
+    assert isinstance(cfg['BATCH_SIZE'], int)
+
     assert 'ARRAY_N' in cfg, f"Invalid config, key 'ARRAY_N' not found"
     assert 'ARRAY_M' in cfg, f"Invalid config, key 'ARRAY_M' not found"
     assert 'IBUF_DEPTH' in cfg, f"Invalid config, key 'IBUF_DEPTH' not found"
