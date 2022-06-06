@@ -1,5 +1,7 @@
 import argparse
 import os
+import numpy as np
+
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -266,6 +268,21 @@ def run_benchmarks(benchmarks,
             print(f"Compiling {b}")
             compile_benchmark(b, cfg, **kwargs)
 
+
+
+def nearest_coeffs(ratio: float, mode: str = 'round_prefer_floor') -> np.ndarray:
+    if type(ratio) == int or ratio.is_integer():
+        return np.array([0, 1])
+    elif mode == 'round_prefer_floor':
+        return np.array([ratio <= 0.5, ratio > 0.5])
+    elif mode == 'round_prefer_ceil':
+        return np.array([ratio < 0.5, ratio >= 0.5])
+    elif mode == 'floor':
+        return np.array([1, 0])
+    elif mode == 'ceil':
+        return np.array([0, 1])
+
+
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
         argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
@@ -319,7 +336,7 @@ if __name__ == "__main__":
                       'conv_clip_depthwise_v1-opt'
                       ]
         #
-        compile_benchmark(benchmarks[-1],
+        compile_benchmark(benchmarks[4],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -328,45 +345,6 @@ if __name__ == "__main__":
                           verbose=True,
                           # filtered_layers=[1],
                           skip_broken_layers=False,
-                          generate_data=True,
+                          generate_data=False,
                           store_whole_program=False,
                           identifier=0)
-
-        # compile_benchmark(benchmarks[3],
-        #                   fuse_layers=True,
-        #                   only_systolic=False,
-        #                   verbose=True,
-        #                   addr_gen_test=False,
-        #                   custom_config=False,
-        #                   # stop_stage="codelet_instantiation",
-        #                   # filtered_layers=[51],
-        #                   # filter_op_types=['conv_bias_clip_depthwise_conv_bias_clip'],
-        #                   sw_pipeline_test=True,
-        #                   skip_broken_layers=False,
-        #                   store_results=False,
-        #                   count_compute=True,
-        #                   identifier=7)
-
-        # run_benchmarks(benchmarks[1:],
-        #                   fuse_layers=True,
-        #                   only_systolic=False,
-        #                   verbose=True,
-        #                   addr_gen_test=ADDR_GEN_TEST,
-        #                   custom_config=CUSTOM_CFG,
-        #                   sw_pipeline_test=SW_PIPELINE_TEST,
-        #                   skip_broken_layers=False,
-        #                 count_compute=False,
-        #                 store_results=True,
-        #                 parallel=False,
-        #                   identifier=5)
-        #
-        # for b in benchmarks[1:]:
-        #     compile_benchmark(b,
-        #                       fuse_layers=True,
-        #                       only_systolic=False,
-        #                       verbose=True,
-        #                       addr_gen_test=False,
-        #                       custom_config=False,
-        #                       sw_pipeline_test=True,
-        #                       skip_broken_layers=False,
-        #                       identifier=2)

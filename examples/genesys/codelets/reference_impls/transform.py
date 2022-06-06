@@ -28,6 +28,10 @@ class Transform(ReferenceOp):
             out = data.reshape(out_shape)
         elif self.transform_type == "squeeze":
             out = np.squeeze(data)
+        elif self.transform_type == "concat":
+            out = data.copy()
+        elif self.transform_type == "resize":
+            out = data.copy()
         else:
             raise RuntimeError("unknown reduction type")
 
@@ -44,8 +48,8 @@ def load_transform_impls(cfg):
         'tensor_reshape3d4d': partial(Transform, 'reshape'),
         # 'tensor_flip': tensor_flip,
         # 'tensor_pad': tensor_pad,
-        # 'concat': concat,
+        'concat': partial(Transform, 'concat'),
         'tensor_squeeze' : partial(Transform, 'squeeze'),
-        # 'resize': partial(Transform, 'resize')
+        'resize': partial(Transform, 'resize')
     }
     return TRANSFORM_IMPLS

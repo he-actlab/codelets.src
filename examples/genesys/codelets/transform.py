@@ -85,10 +85,9 @@ def tensor_resize(hag: ArchitectureNode):
         DIMS = cdlt.dummy_op('DIMS', cdlt.node.inputs[1].shape[0])
 
         op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H1, W1], default_dtype=OP_DTYPES[2])
-        scale = cdlt.create_operand_template("scale", OP_DTYPES, [DIMS], default_dtype=OP_DTYPES[2])
-        # op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        scales = cdlt.create_operand_template("scale", OP_DTYPES, [DIMS], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H2, W2], default_dtype=OP_DTYPES[2])
-        cdlt.set_inputs([op1, scale])
+        cdlt.set_inputs([op1, scales])
         cdlt.set_outputs([out])
     return cdlt
 
@@ -152,10 +151,10 @@ def load_transform_cdlts(cfg):
         'tensor_reshape4d2d': tensor_reshape4d2d,
         'tensor_reshape4d3d': tensor_reshape4d3d,
         'tensor_reshape3d4d': tensor_reshape3d4d,
+        'tensor_squeeze': tensor_squeeze,
+        'concat': concat,
+        'resize': tensor_resize,
         # 'tensor_flip': tensor_flip,
         # 'tensor_pad': tensor_pad,
-        # 'concat': concat,
-        'tensor_squeeze': tensor_squeeze,
-        # 'resize': tensor_resize
     }
     return TRANSFORM_CDLTS
