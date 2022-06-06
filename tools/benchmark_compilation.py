@@ -326,25 +326,20 @@ if __name__ == "__main__":
                       'mobilenetv2-opt',
                       'yolov3-opt-static',
                       'bert-base-cased-transpose-opt-trimmed-ort',
-                      'lenet-opt-trimmed',
-                      'conv_add_relu_pool-opt',
-                      'conv_clip_depthwiseconv-opt',
-                      'conv_clip_depthwiseconv_clip_v1-opt',
-                      'custom_gemm-opt',
                       'conv_lrelu_add_oc64_v3-opt',
                       'conv_lrelu_oc64',
-                      'conv_clip_depthwise_v1-opt'
+                      'conv_clip_depthwise_v1-opt',
+                      ''
                       ]
         #
-        compile_benchmark(benchmarks[4],
+        compile_benchmark(benchmarks[5],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
                           addr_gen_test=False,
                           custom_config=False,
                           verbose=True,
-                          # filtered_layers=[1],
                           skip_broken_layers=False,
                           generate_data=False,
                           store_whole_program=False,
-                          identifier=0)
+                          identifier=1)

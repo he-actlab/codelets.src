@@ -468,7 +468,7 @@ def softmax(hag):
                 out.set_write_destination("VMEM1")
                 cdlt.compute("ADD", [p[n], imm4], [out[n, c]], target="SIMD")
                 cdlt.transfer(out, ["VMEM1", "DRAM"])
-
+        cdlt.configure('end', 'SIMD')
     cdlt = add_simd_constraint(hag, cdlt, "C")
     return cdlt
 
@@ -543,7 +543,7 @@ def softmax4d(hag):
 
 
                         cdlt.transfer(out, ["VMEM1", "DRAM"])
-
+        cdlt.configure('end', 'SIMD')
     cdlt = add_simd_constraint(hag, cdlt, "W")
     cdlt = add_simd_tile_constraint(hag, cdlt, ["H"])
     return cdlt
