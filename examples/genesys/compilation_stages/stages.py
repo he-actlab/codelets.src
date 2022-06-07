@@ -96,8 +96,9 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         # Need to pad IC
         # if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
         sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
-        bandwidth = program.hag.get_subgraph_edge('DRAM', 'VMEM1').bandwidth_bytes
-        pad_constr = max(sys_dims, bandwidth)
+        bandwidth = program.hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth_bytes
+        pad_constr = bandwidth
+        # pad_constr = max(sys_dims, bandwidth)
         # if sys_dims > bandwidth:
         #     pad_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
         # else:
