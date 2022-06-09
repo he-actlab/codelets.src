@@ -30,6 +30,8 @@ FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'],
                ["C", "ONE", "KH", "KW"],
                ["OC", "ONE", "KH1", "KW1"]]
 
+LANGUAGE_MODELS = ['bert-base-cased-transpose-opt-trimmed-ort', 'gpt-opt']
+
 
 def quantize_codelet(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
 
@@ -96,7 +98,8 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         # Need to pad IC
         # if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
         sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
-        bandwidth = program.hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth_bytes
+        # bandwidth = program.hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth_bytes
+        bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         pad_constr = bandwidth
         # pad_constr = max(sys_dims, bandwidth)
         # if sys_dims > bandwidth:
@@ -118,7 +121,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         updated_dims.append(out_dim.name)
 
     # Need to figure out if this works for DW Conv
-    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name != 'bert-base-cased-transpose-opt-trimmed-ort':
+    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name not in LANGUAGE_MODELS:
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         # updated_dims = []
         for c in compute_ops:

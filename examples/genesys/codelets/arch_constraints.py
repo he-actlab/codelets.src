@@ -42,7 +42,7 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
 
     if hag.meta_cfg['SA_TILE_CONSTR'] and not hag.meta_cfg['ASIC_CONFIG']:
         ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {ic_bandwidth} == 0"
-        oc_hint = f"sizes['OC']*{OP_DTYPES[2].bits()} % {oc_bandwidth} == 0"
+        oc_hint = f"sizes['OC']*{OP_DTYPES[0].bits()} % {oc_bandwidth} == 0"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     elif not hag.meta_cfg['SA_TILE_CONSTR']:
         ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} >= {ic_bandwidth}"
