@@ -96,10 +96,9 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 break
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
-        # if GENESYS_CFG['ARRAY_M'] > (GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8):
-        sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
-        # bandwidth = program.hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth_bytes
-        bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        # sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
+        # bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        bandwidth = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         pad_constr = bandwidth
         # pad_constr = max(sys_dims, bandwidth)
         # if sys_dims > bandwidth:
