@@ -28,9 +28,15 @@ class Transform(ReferenceOp):
             out = data.reshape(out_shape)
         elif self.transform_type == "squeeze":
             out = np.squeeze(data)
+        elif self.transform_type == "where":
+            x = inouts['inputs'][1].data
+            cond = data
+            out = np.where(cond, x)
         elif self.transform_type == "concat":
             out = data.copy()
         elif self.transform_type == "resize":
+            out = data.copy()
+        elif self.transform_type == 'split':
             out = data.copy()
         else:
             raise RuntimeError("unknown reduction type")
@@ -46,7 +52,11 @@ def load_transform_impls(cfg):
         'tensor_reshape4d2d': partial(Transform, 'reshape'),
         'tensor_reshape4d3d': partial(Transform, 'reshape'),
         'tensor_reshape3d4d': partial(Transform, 'reshape'),
+        'tensor_reshape3d2d': partial(Transform, 'reshape'),
+        'tensor_reshape2d3d': partial(Transform, 'reshape'),
+        'split': partial(Transform, 'split'),
         # 'tensor_flip': tensor_flip,
+        'elem_where': partial(Transform, 'where'),
         # 'tensor_pad': tensor_pad,
         'concat': partial(Transform, 'concat'),
         'tensor_squeeze' : partial(Transform, 'squeeze'),

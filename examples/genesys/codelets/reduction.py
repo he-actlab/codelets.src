@@ -35,13 +35,14 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
         denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[axis]), dtype="FXP32")
         axis_op = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        zero = cdlt.dummy_op('zero', 0)
 
+        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=zero)
+        cdlt.configure("start", "IMM", immediate_value=denom)
 
         loops = []
         input_indices = [None] * len(input_dims)
@@ -102,8 +103,9 @@ def reduce_min2d(hag: ArchitectureNode):
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
         _, max_val = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
-
-        cdlt.configure("start", "IMM", immediate_value=max_val, index=0)
+        max_val_dummy = cdlt.dummy_op('max_val', max_val)
+        max_val_temp = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max_val")
+        cdlt.configure("start", "IMM", immediate_value=max_val_dummy)
 
         with cdlt.loop(ONE) as o:
             with cdlt.loop(C) as c:
@@ -140,15 +142,16 @@ def reduce_mean2d(hag: ArchitectureNode):
         denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
         axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
 
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=denom)
         with cdlt.loop(ONE) as o:
             with cdlt.loop(C) as c:
                 with cdlt.loop(N) as n:
@@ -162,14 +165,18 @@ def reduce_mean2d(hag: ArchitectureNode):
         cdlt.configure("end", "SIMD")
 
         ############ TESTING####################################
+        denom = cdlt.dummy_op("denom1", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
+
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        zero0 = cdlt.dummy_op('zero0', 0)
+        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero0')
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom1')
 
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=zero0)
+
+        cdlt.configure("start", "IMM", immediate_value=denom)
         with cdlt.loop(ONE) as o:
             with cdlt.loop(C) as c:
                 with cdlt.loop(N) as n:

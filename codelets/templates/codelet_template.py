@@ -95,8 +95,12 @@ class CodeletTemplate(object):
         op_temp = OperandTemplate(name, dtypes, shape_list, **kwargs)
         return op_temp
 
-    def create_temp_operand(self, shape_list, location):
-        name = f"temp{len(self.temps)}"
+    def create_temp_operand(self, shape_list, location, name=None):
+        if name is None:
+            assert location != 'IMM'
+            name = f"temp{len(self.temps)}"
+        if location == "IMM":
+            assert name in self.dummy_ops, "Temporary operand for immediate requires a corresponding dummy operand"
         # TODO: Infer supported dtypes somehow
         supported_dtypes = self.inputs[0].supported_dtypes
         # TODO: Fix check for node existance
@@ -233,7 +237,7 @@ class CodeletTemplate(object):
     def remove_input(self, operand):
         self._inputs.remove(operand)
 
-    def dummy_op(self, key: str, op: DummyOp, check_key=True, dtype=None):
+    def dummy_op(self, key: str, op: Union[DummyOp, int, float], check_key=True, dtype=None):
         if key in self.dummy_ops:
             if check_key:
                 raise KeyError(f"Key {key} already exists in dummy ops for {self.op_name} codelet {self.codelet_id}:\n"
@@ -241,11 +245,23 @@ class CodeletTemplate(object):
                                f"Updated op: {op}")
             else:
                 return self.dummy_ops[key]
-        assert isinstance(op, DummyOp)
-        op.flex_param.name = key
-        op.dtype = dtype
+        if not isinstance(op, DummyOp):
+            assert isinstance(op, (int, float))
+            flex_param = FlexParam(key, [], str(op))
+            flex_param.create_static_from_str(op)
+            op = DummyOp([], flex_param, dtype=dtype)
+        else:
+            op.flex_param.name = key
+            op.dtype = dtype
+
         self._dummy_ops[key] = op
         return op
+
+    def temp_index(self, name: str) -> int:
+        for i, t in enumerate(self.temps):
+            if t.name == name:
+                return i
+        raise RuntimeError(f"Unable to find temporary variable name for {name}")
 
     def update_dummy_op(self, key: str, op: DummyOp):
         if key not in self.dummy_ops:
@@ -293,6 +309,11 @@ class CodeletTemplate(object):
         self.global_op_map[op.global_op_id] = op
 
     def configure(self, start_end: str, target: str, **kwargs):
+        if target == 'IMM':
+            assert 'immediate_value' in kwargs and 'index' not in kwargs
+            assert isinstance(kwargs['immediate_value'], DummyOp)
+            assert self.has_temp(kwargs['immediate_value'].name)
+            kwargs['index'] = self.temp_index(kwargs['immediate_value'].name)
         cfg_op_template = ConfigureTemplate(start_end, target, add_codelet=False, **kwargs)
         self.add_op(cfg_op_template)
         return cfg_op_template
@@ -316,6 +337,9 @@ class CodeletTemplate(object):
         for do in self.dummy_ops.values():
             if do.flex_param.is_set():
                 do.flex_param.reset()
+
+    def has_temp(self, name: str) -> bool:
+        return any([t.name == name for t in self.temps])
 
     def instantiate(self, instance_args):
         assert all([not do.flex_param.is_set() for do in self.dummy_ops.values()])

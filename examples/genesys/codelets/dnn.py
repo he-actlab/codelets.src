@@ -29,12 +29,16 @@ def depthwise_conv(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+
         # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
@@ -83,9 +87,14 @@ def depthwise_conv_bias(hag: ArchitectureNode):
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+
+
         # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
@@ -214,8 +223,8 @@ def mean_var(hag: ArchitectureNode):
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
         eps_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        cdlt.configure("start", "IMM", immediate_value=denom, index=0)
-        cdlt.configure("start", "IMM", immediate_value=0.0001, index=1)
+        cdlt.configure("start", "IMM", immediate_value=denom, index=denom_op)
+        cdlt.configure("start", "IMM", immediate_value=0.0001, index=eps_op)
 
 
         with cdlt.loop(C) as c:
@@ -297,9 +306,12 @@ def maxpool2d(hag: ArchitectureNode):
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
+        min_val_op = cdlt.dummy_op('min_val',min_val)
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        min_val_temp = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min_val")
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=min_val, index=0)
+        cdlt.configure("start", "IMM", immediate_value=min_val_op)
         pad = cdlt.dummy_op("pad", cdlt.node.pad[0])
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
@@ -337,12 +349,13 @@ def averagepool2d(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
         cdlt.configure("start", "SIMD")
         # denom = IH*IW
-        cdlt.configure("start", "IMM", immediate_value=denom, index=0)
-        cdlt.configure("start", "IMM", immediate_value=0, index=1)
+        cdlt.configure("start", "IMM", immediate_value=denom)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         with cdlt.loop(N) as n:
@@ -385,15 +398,16 @@ def global_avg_pool(hag: ArchitectureNode):
 
         denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3]), dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero')
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
 
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
-        cdlt.configure("start", "IMM", immediate_value=denom, index=1)
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=denom)
 
         with cdlt.loop(OH) as oy:
             with cdlt.loop(OW) as ox:
@@ -431,14 +445,16 @@ def softmax(hag):
 
 
         cdlt.configure("start", "SIMD")
-        ln2 = create_immediate_with_operand(cdlt, 0, np.log(2), simd_size=simd_size)
-        inv_ln2 = create_immediate_with_operand(cdlt, 1, -1/np.log(2), simd_size=simd_size)
-        imm2 = create_immediate_with_operand(cdlt, 2, 1.353, simd_size=simd_size)
-        imm3 = create_immediate_with_operand(cdlt, 3, 0.3585, simd_size=simd_size)
-        imm4 = create_immediate_with_operand(cdlt, 4, 0.344, simd_size=simd_size)
-        powimm = create_immediate_with_operand(cdlt, 5, 2, simd_size=simd_size)
+        ln2 = create_immediate_with_operand(cdlt, 'ln2', 0, np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        inv_ln2 = create_immediate_with_operand(cdlt,'inv_ln2', 1, -1/np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        imm2 = create_immediate_with_operand(cdlt, 'imm2', 2, 1.353, simd_size=simd_size, cast_float_to_fxp=True)
+        imm3 = create_immediate_with_operand(cdlt, 'imm3', 3, 0.3585, simd_size=simd_size, cast_float_to_fxp=True)
+        imm4 = create_immediate_with_operand(cdlt, 'imm3', 4, 0.344, simd_size=simd_size, cast_float_to_fxp=True)
+        powimm = create_immediate_with_operand(cdlt, 'powimm', 5, 2, simd_size=simd_size, cast_float_to_fxp=True)
         min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
-        cdlt.configure("start", "IMM", immediate_value=min_val, index=5)
+        mval_op = cdlt.dummy_op("minval", min_val)
+        # cdlt.configure("start", "IMM", immediate_value=min_val, index=5)
+        cdlt.configure("start", "IMM", immediate_value=mval_op)
 
         # Max reduce output
         mx = cdlt.create_operand_template("mx", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
@@ -488,16 +504,18 @@ def softmax4d(hag):
 
 
         cdlt.configure("start", "SIMD")
-        aval = create_immediate_with_operand(cdlt, np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
-        bval = create_immediate_with_operand(cdlt, -1/np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
-        cval = create_immediate_with_operand(cdlt, 1.353, simd_size=simd_size, cast_float_to_fxp=True)
-        dval = create_immediate_with_operand(cdlt, 0.3585, simd_size=simd_size, cast_float_to_fxp=True)
-        eval = create_immediate_with_operand(cdlt, 0.344, simd_size=simd_size, cast_float_to_fxp=True)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=simd_size)
+        aval = create_immediate_with_operand(cdlt,'aval', np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        bval = create_immediate_with_operand(cdlt,'bval', -1/np.log(2), simd_size=simd_size, cast_float_to_fxp=True)
+        cval = create_immediate_with_operand(cdlt,'cval', 1.353, simd_size=simd_size, cast_float_to_fxp=True)
+        dval = create_immediate_with_operand(cdlt,'dval', 0.3585, simd_size=simd_size, cast_float_to_fxp=True)
+        eval = create_immediate_with_operand(cdlt,'eval', 0.344, simd_size=simd_size, cast_float_to_fxp=True)
+        zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=simd_size)
         min_val, _ = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
-        cdlt.configure("start", "IMM", immediate_value=min_val, index=len(cdlt.temps))
+        mval_op = cdlt.dummy_op('min_val', min_val)
+        min_op = cdlt.create_temp_operand([simd_size], "IMM", name='min_val')
 
-        min_op = cdlt.create_temp_operand([simd_size], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=mval_op)
+
         # Max reduce output
         mx = cdlt.create_operand_template("mx", OP_DTYPES, [N, C, W], default_dtype=OP_DTYPES[2])
         cdlt.add_temp_operand(mx)
@@ -567,13 +585,13 @@ def gelu(hag):
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        b_s = create_immediate_with_operand(cdlt, -1.769 / QUANT_SCALE, simd_size=simd_size, cast_float_to_fxp=True)
-        aop = create_immediate_with_operand(cdlt, -0.2888, simd_size=simd_size, cast_float_to_fxp=True)
-        bop = create_immediate_with_operand(cdlt, -1.769, simd_size=simd_size, cast_float_to_fxp=True)
-        cop = create_immediate_with_operand(cdlt, 1, simd_size=simd_size)
-        s_f = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        b_s = create_immediate_with_operand(cdlt,'b_s', -1.769 / QUANT_SCALE, simd_size=simd_size, cast_float_to_fxp=True)
+        aop = create_immediate_with_operand(cdlt,'aop', -0.2888, simd_size=simd_size, cast_float_to_fxp=True)
+        bop = create_immediate_with_operand(cdlt,'bop', -1.769, simd_size=simd_size, cast_float_to_fxp=True)
+        cop = create_immediate_with_operand(cdlt,'cop', 1, simd_size=simd_size)
+        s_f = create_immediate_with_operand(cdlt, 's_f', QUANT_SCALE, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'scale', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'sign_shift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(P) as p:
             with cdlt.loop(B) as b:
                 with cdlt.loop(M) as m:

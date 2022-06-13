@@ -30,7 +30,7 @@ FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'],
                ["C", "ONE", "KH", "KW"],
                ["OC", "ONE", "KH1", "KW1"]]
 
-LANGUAGE_MODELS = ['bert-base-cased-transpose-opt-trimmed-ort', 'gpt-opt']
+LANGUAGE_MODELS = ['bert-base-cased-transpose-opt-trimmed-ort', 'gpt2-trimmed-opt']
 
 
 def quantize_codelet(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet') -> 'Codelet':

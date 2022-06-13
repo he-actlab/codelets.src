@@ -1029,6 +1029,7 @@ def rename_yolo_ops():
     with open(store_path, "wb") as f:
         f.write(model.SerializeToString())
 
+
 def remove_softmax_efficientnet():
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
@@ -1037,6 +1038,20 @@ def remove_softmax_efficientnet():
 
     output_names = ['efficientnet-lite4/model/head/dense/BiasAdd:0']
     onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+
+def trim_gpt2():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/gpt2-opt.onnx"
+    store_path = f'{MODEL_DIR}/gpt2-trimmed-opt.onnx'
+    input_names = [
+        'onnx::Add_204'
+    ]
+    model_proto = onnx.load(load_path)
+    output_names = [o.name for o in model_proto.graph.output]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
 
 
 def trim_bert():
@@ -1870,7 +1885,7 @@ if __name__ == "__main__":
         #              ['Conv', 'Clip', 'DepthwiseConv',],
         #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
         # fusion_generator(name, sequences, test_run=True)
-
-
-        create_custom_gemm(True, False, False, False, 8, 128, 128)
+        trim_gpt2()
+        # model = "gpt2-opt"
+        # create_custom_gemm(True, False, False, False, 8, 128, 128)
 #

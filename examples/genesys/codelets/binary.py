@@ -4,7 +4,7 @@ from codelets.templates.operation_template import OperationTemplate
 from examples.genesys import OP_DTYPES
 from functools import partial
 
-from . import add_simd_constraint
+from . import add_simd_constraint, add_flex_simd_constraints
 
 def elem_binary_op_(cdlt_name: str, instr_name: str, hag: ArchitectureNode):
 
@@ -50,6 +50,7 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: A
         op1_dims = []
         op2_dims = []
         assert num_dims <= len(DIM_NAMES)
+        used_names = [DIM_NAMES[i] for i in range(num_dims)]
         for i in range(num_dims):
             dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
             if i < nop1_dims:
@@ -97,7 +98,63 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: A
 
         cdlt.configure("end", "SIMD")
 
-        cdlt = add_simd_constraint(hag, cdlt, "C")
+        # cdlt = add_simd_constraint(hag, cdlt, "C")
+        cdlt = add_flex_simd_constraints(hag, cdlt, used_names)
+
+    return cdlt
+
+def elem_binary_op_constant(cdlt_name: str, instr_name: str, nop1_dims, hag: ArchitectureNode):
+    DIM_NAMES = ["N", "C", "H", "W"]
+    with CodeletTemplate(cdlt_name) as cdlt:
+        num_dims = nop1_dims
+        inpt_idx = 0
+
+        dummy_dims = []
+        op1_dims = []
+        assert num_dims <= len(DIM_NAMES)
+        used_names = [DIM_NAMES[i] for i in range(num_dims)]
+        for i in range(num_dims):
+            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
+            if i < nop1_dims:
+                op1_dims.append(dim)
+
+            dummy_dims.append(dim)
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, op1_dims, default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, dummy_dims, default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([op1])
+        cdlt.set_outputs([out])
+        cdlt.configure("start", "SIMD")
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        dummy_imm = cdlt.dummy_op("op2", cdlt.node.args[1].default, dtype="FXP32")
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="op2")
+        cdlt.configure("start", "IMM", immediate_value=dummy_imm)
+        loops = []
+        op1_indices = []
+        for i, d in enumerate(dummy_dims):
+            l = cdlt.loop(d)
+            loops.append(l)
+            if i < nop1_dims:
+                op1_indices.append(l)
+            OperationTemplate.loop_ctxt_level += 1
+            OperationTemplate.loop_stack.append(l.loop_id)
+            OperationTemplate.loop_ctx_dependencies.append(l.op_str)
+
+        cdlt.transfer(op1, ["DRAM", "VMEM1"])
+        out.set_write_destination("VMEM1")
+
+        cdlt.compute(instr_name, [op1[tuple(op1_indices)], param], [out[tuple(loops)]], target="SIMD")
+        cdlt.transfer(out, ["VMEM1", "DRAM"])
+
+        for d in reversed(dummy_dims):
+            OperationTemplate.loop_ctxt_level -= 1
+            OperationTemplate.loop_stack.pop()
+            OperationTemplate.loop_ctx_dependencies.pop()
+
+        cdlt.configure("end", "SIMD")
+
+        cdlt = add_flex_simd_constraints(hag, cdlt, used_names)
 
     return cdlt
 
@@ -105,11 +162,14 @@ def load_binary_cdlts(cfg):
 
     BINARY_CODELETS = {
         "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4),
-        "elem_add1d": partial(elem_binary_op, "elem_add1d", "ADD", 3, 1),
-        "elem_add3d": partial(elem_binary_op, "elem_add3d", "ADD", 3, 3),
+        "elem_add3d_const": partial(elem_binary_op_constant, "elem_add3d_const", "ADD", 3),
+        "elem_add3d3d": partial(elem_binary_op, "elem_add3d3d", "ADD", 3, 3),
         "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
         "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
+        "elem_div_const": partial(elem_binary_op_constant, "elem_div_const", "DIV", 4),
         "elem_mul": partial(elem_binary_op_, "elem_mul", "MUL"),
+        "elem_mul3d_const": partial(elem_binary_op_constant, "elem_mul3d_const", "MUL", 3),
+        "elem_mul3d3d": partial(elem_binary_op, "elem_mul3d3d", "MUL", 3, 3),
         "elem_less": partial(elem_binary_op_, "elem_less", "LT"),
         "elem_equal": partial(elem_binary_op_, "elem_equal", "EQUAL"),
     }

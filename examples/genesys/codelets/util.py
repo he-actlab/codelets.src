@@ -20,12 +20,15 @@ def range_from_cfg(cfg, as_int=True):
     return (lower_val, upper_val)
 
 
-def create_immediate_with_operand(cdlt: CodeletTemplate, value, simd_size, cast_float_to_fxp=False):
-    idx = len(cdlt.temps)
+def create_immediate_with_operand(cdlt: CodeletTemplate, key: str, value, simd_size, cast_float_to_fxp=False):
+    # idx = len(cdlt.temps)
+    dtype = None
     if isinstance(value, float) and cast_float_to_fxp:
         value = CAST_FUNC(value, 'FXP32')
-    cdlt.configure("start", "IMM", immediate_value=value, index=idx)
-    op = cdlt.create_temp_operand([simd_size], "IMM")
+        dtype = 'FXP32'
+    dummy_value = cdlt.dummy_op(key, value, dtype=dtype)
+    op = cdlt.create_temp_operand([simd_size], "IMM", name=key)
+    cdlt.configure("start", "IMM", immediate_value=dummy_value)
     return op
 
 

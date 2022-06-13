@@ -144,7 +144,8 @@ def load_sa_impls(cfg):
             "gemm": partial(Gemm, use_bias=True, use_quantization=True),
             'matmul': partial(Gemm, use_bias=False, use_quantization=True),
             'matmul3d': partial(Gemm, use_bias=False, use_quantization=True),
-            'matmul4d': partial(Gemm, use_bias=False, use_quantization=True)
+            'matmul4d': partial(Gemm, use_bias=False, use_quantization=True),
+            'matmul4d2d': partial(Gemm, use_bias=False, use_quantization=True)
         }
     else:
         SA_IMPLS = {
@@ -153,7 +154,8 @@ def load_sa_impls(cfg):
             "gemm": partial(Gemm, use_bias=True, use_quantization=False),
             'matmul': partial(Gemm, use_bias=False, use_quantization=False),
             'matmul3d': partial(Gemm, use_bias=False, use_quantization=False),
-            'matmul4d': partial(Gemm, use_bias=False, use_quantization=False)
+            'matmul4d': partial(Gemm, use_bias=False, use_quantization=False),
+            'matmul4d2d': partial(Gemm, use_bias=False, use_quantization=False)
 
         }
     return SA_IMPLS

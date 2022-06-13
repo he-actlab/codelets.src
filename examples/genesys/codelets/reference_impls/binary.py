@@ -48,10 +48,14 @@ def load_binary_impls(cfg):
     BINARY_IMPLS = {
         "elem_add": Binary,
         "elem_add1d": Binary,
-        "elem_add3d": Binary,
+        "elem_add3d_const": Binary,
+        "elem_add3d3d": Binary,
         "elem_sub": Binary,
         "elem_div": Binary,
+        "elem_div_const": Binary,
         "elem_mul": Binary,
+        "elem_mul3d_const": Binary,
+        "elem_mul3d3d": Binary,
         "elem_less": Binary,
         "elem_equal": Binary,
     }

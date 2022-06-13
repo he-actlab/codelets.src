@@ -23,12 +23,13 @@ def elem_unary_nd(cdlt_name, instr_name, num_dims, imm_val, hag):
         cdlt.configure("start", "SIMD")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         if isinstance(imm_val, int):
-            cdlt.configure("start", "IMM", immediate_value=imm_val, index=0)
-            param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+            imm_dummy = cdlt.dummy_op('imm_dummy', imm_val)
+            param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='imm_dummy')
+            cdlt.configure("start", "IMM", immediate_value=imm_dummy)
         elif isinstance(imm_val, str):
             dummy_imm = cdlt.dummy_op(imm_val, cdlt.node.kwargs[imm_val], dtype="FXP32")
-            cdlt.configure("start", "IMM", immediate_value=dummy_imm, index=0)
-            param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+            param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name=imm_val)
+            cdlt.configure("start", "IMM", immediate_value=dummy_imm)
         else:
             assert imm_val is None
             param = None
@@ -292,10 +293,11 @@ def elem_tanh2d(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out_tanh", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         cdlt.set_outputs([out])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        param_op = cdlt.dummy_op("param", 16)
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=param_op)
         # fix C dim to array size
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
@@ -343,11 +345,13 @@ def elem_pow2d(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
         exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-
+        zero_op = cdlt.dummy_op('zero', 0)
         cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
@@ -375,8 +379,11 @@ def elem_pow3d(hag: ArchitectureNode):
 
         cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
 
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
@@ -517,13 +524,13 @@ def clip(hag: ArchitectureNode):
         minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=minval, index=0)
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=minval)
 
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=1)
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         # temp_res = cdlt.create_operand_template("partial", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
         temp_res = cdlt.create_temp_operand([N, C, H, W], "VMEM1")
 
@@ -549,6 +556,7 @@ def load_unary_cdlts(cfg):
         "coarse_flatten": coarse_flatten,
         "coarse_flatten2d": coarse_flatten2d,
         "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
+        "elem_tanh3d": partial(elem_unary_nd, "elem_tanh3d", "TANH", 3, 16),
         "elem_tanh2d": elem_tanh2d,
         # TODO: Check if this needs to be 'sigmoid'
         "elem_sigmoid": partial(elem_unary_nd, "elem_sigmoid", "SIGMOID", 4, 16),

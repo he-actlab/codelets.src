@@ -242,6 +242,7 @@ def load_unary_impls(cfg):
         "coarse_flatten2d": Unary,
         "elem_tanh": Unary,
         "elem_tanh2d": Unary,
+        "elem_tanh3d": Unary,
         # TODO: Check if this needs to be 'sigmoid'
         "elem_sigmoid": Unary,
         "leaky_relu": Unary,

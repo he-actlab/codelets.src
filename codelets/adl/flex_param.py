@@ -30,7 +30,9 @@ class FlexParam:
     flex_id: int = field(default_factory=lambda: next(flex_param_cnt))
 
     def __post_init__(self):
+
         if len(self.fn_args) > 0:
+
             self.value_type = "function"
             if self.fn_body_str is not None:
                 assert self.fn_body_str is not None
@@ -43,6 +45,7 @@ class FlexParam:
                 self.fn_code_str, self.fn_body_str = get_lambda_source(self.fn)
 
         elif self.fn is not None and isinstance(self.fn, LambdaType):
+
             self.value_type = "function"
             assert self.fn_body_str is None
             self.fn_args = list(self.fn.__code__.co_varnames)
@@ -50,6 +53,12 @@ class FlexParam:
             self.fn_code_str, self.fn_body_str = get_lambda_source(self.fn)
         else:
             self.value_type = "static"
+
+    def create_static_from_str(self, fn_body):
+        self.fn_code_str = f"lambda: {fn_body}"
+        self.fn_code = compile(self.fn_code_str, "<string>", "exec")
+        assert 'np' in globals()
+        self.fn = LambdaType(self.fn_code.co_consts[0], globals())
 
     def create_function_from_str(self, arg_names, fn_body):
         self.fn_code_str = f"lambda {','.join(arg_names)}: {fn_body}"

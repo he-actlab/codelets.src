@@ -581,6 +581,11 @@ def load_unquant_fusion_op_info_impl(cfg):
                 'dfg': DFG('add', [DFG('mul', [0, 1]), 2]),
                 'seq': ["Mul", "Add"]
             },
+        'mul_add3d': {
+            'cdlt': partial(FusionOp, 'mul_add3d'),
+            'dfg': DFG('add', [DFG('mul', [0, 1]), 2]),
+            'seq': ["Mul", "Add"]
+        },
         'bias_add_clip': {
             'cdlt': partial(FusionOp, 'bias_add_clip'),
             'dfg': DFG('clip', [DFG('bias_add', [0, 1]), 'min', 'max']),

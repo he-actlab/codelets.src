@@ -776,6 +776,8 @@ class Codelet(object):
         return temp_op
 
     def configure(self, start_end, target_name, **kwargs):
+        if 'index' in kwargs:
+            assert isinstance(kwargs['index'], int)
         cfg = Configure(start_end, target_name,
                         add_codelet=False, **kwargs)
         self.add_op(cfg)

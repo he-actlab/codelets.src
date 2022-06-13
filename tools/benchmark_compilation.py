@@ -321,6 +321,7 @@ if __name__ == "__main__":
 
     else:
         config = "unquantized_fused_custom32x32.json"
+        # config = "broken_config.json"
         benchmarks = ['resnet18', 'resnet50',
                       'efficientnet-lite4-opt-no-softmax',
                       'mobilenetv2-opt',
@@ -329,10 +330,12 @@ if __name__ == "__main__":
                       'conv_lrelu_add_oc64_v3-opt',
                       'conv_lrelu_oc64',
                       'conv_clip_depthwise_v1-opt',
-                      ''
+                      'fcn-resnet101-trimmed-opt',
+                      'gpt2-trimmed-opt',
+                      'conv_clip_depthwise_c32_w112_kw1'
                       ]
         #
-        compile_benchmark(benchmarks[5],
+        compile_benchmark(benchmarks[-2],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -340,6 +343,6 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          generate_data=False,
+                          generate_data=True,
                           store_whole_program=False,
-                          identifier=1)
+                          identifier=2)

@@ -3,7 +3,7 @@ from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
 from . import add_conv_constraints, range_from_cfg, \
     add_simd_constraint, create_immediate_with_operand, add_scale_op, \
-    add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op
+    add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op, add_flex_simd_constraints
 
 def create_matmul3d_args(cdlt):
     params = {}
@@ -201,7 +201,8 @@ def conv_relu(hag: ArchitectureNode):
 
         cdlt, params = create_conv_args(cdlt)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        param_op = cdlt.dummy_op('param', 16)
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
@@ -213,9 +214,9 @@ def conv_relu(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=param_op)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -236,7 +237,9 @@ def conv_leaky_relu(hag: ArchitectureNode):
 
         cdlt, params = create_conv_args(cdlt)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+
+        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
@@ -246,10 +249,9 @@ def conv_leaky_relu(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=alphaval)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -329,7 +331,8 @@ def conv_add_relu(hag: ArchitectureNode):
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        param_op = cdlt.dummy_op('param', 16)
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
         add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         cdlt.add_input(add_lhs)
@@ -343,9 +346,9 @@ def conv_add_relu(hag: ArchitectureNode):
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=param_op)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -369,7 +372,6 @@ def conv_add(hag: ArchitectureNode):
 
     with CodeletTemplate("conv_bias_add") as cdlt:
         cdlt, params = create_conv_args(cdlt)
-
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -383,9 +385,8 @@ def conv_add(hag: ArchitectureNode):
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -411,7 +412,9 @@ def conv_add_leaky_relu(hag: ArchitectureNode):
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+
+        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
         add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
         cdlt.add_input(add_lhs)
@@ -425,10 +428,9 @@ def conv_add_leaky_relu(hag: ArchitectureNode):
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=alphaval)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -460,7 +462,9 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+
+        alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
         add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
         cdlt.add_input(add_lhs)
@@ -474,10 +478,9 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
         cdlt, conv_out = create_conv_func(cdlt, params)
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=alphaval)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -539,16 +542,16 @@ def conv_bias_clip_depthwise_conv_bias_add(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         cdlt, conv_out = create_conv_func(cdlt, params)
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -633,16 +636,16 @@ def conv_bias_clip_depthwise_conv_bias_add_clip(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         cdlt, conv_out = create_conv_func(cdlt, params)
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=2)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -733,15 +736,17 @@ def bias_add_clip(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero')
         # OS ->
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps))
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps)+1)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
+        m0 = create_immediate_with_operand(cdlt,'m0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt,'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
@@ -774,9 +779,10 @@ def conv_clip(hag: ArchitectureNode):
         minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        param_op = cdlt.dummy_op("param", 16)
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="param")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min")
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max")
 
 
         cdlt, conv_out = create_conv_func(cdlt, params)
@@ -790,11 +796,11 @@ def conv_clip(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=param_op)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
                 with cdlt.loop(OH) as y:
@@ -854,8 +860,8 @@ def add_add(hag):
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -885,8 +891,8 @@ def add_add4d(hag):
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -916,8 +922,8 @@ def mul_add(hag):
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -929,6 +935,38 @@ def mul_add(hag):
                     indices = (n,c,h)
                     cdlt.compute("MUL", [op1[n, c, h], op2[h]], [op1[n, c, h]], target="SIMD")
                     cdlt.compute("ADD", [op1[n, c, h], op3[h]], [out[n, c, h]], target="SIMD")
+                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+    cdlt = add_simd_constraint(hag, cdlt, "H")
+    return cdlt
+
+def mul_add3d(hag):
+    with CodeletTemplate('mul_add3d') as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [H], default_dtype=OP_DTYPES[2])
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        cdlt.set_inputs([op1, op2, op3])
+        cdlt.set_outputs([out])
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.configure('start', 'SIMD')
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    cdlt.transfer(op1, ["DRAM", "VMEM2"])
+                    cdlt.transfer(op2, ["DRAM", "VMEM1"])
+                    cdlt.transfer(op3, ["DRAM", "VMEM1"])
+                    op1.set_write_destination("VMEM2")
+                    out.set_write_destination("VMEM1")
+                    indices = (n,c,h)
+                    cdlt.compute("MUL", [op1[n, c, h], op2[h]], [op1[n, c, h]], target="SIMD")
+                    cdlt.compute("ADD", [op1[n, c, h], op3[n, c, h]], [out[n, c, h]], target="SIMD")
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -950,11 +988,11 @@ def sub_mul(hag):
         sub_rhs = cdlt.dummy_op("sub_rhs", cdlt.node.sub_rhs, dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        mul_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        sub_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        mul_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='mul_rhs')
+        sub_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='sub_rhs')
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=mul_rhs, index=len(cdlt.temps))
-        cdlt.configure("start", "IMM", immediate_value=sub_rhs, index=len(cdlt.temps) + 1)
+        cdlt.configure("start", "IMM", immediate_value=mul_rhs)
+        cdlt.configure("start", "IMM", immediate_value=sub_rhs)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -983,8 +1021,11 @@ def sub_pow(hag):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero')
+        # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 with cdlt.loop(H) as h:
@@ -1021,13 +1062,13 @@ def add_sqrt_div(hag):
         add_lhs = cdlt.dummy_op("add_lhs", cdlt.node.kwargs['add_lhs'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        add_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        add_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='add_lhs')
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=add_lhs, index=len(cdlt.temps))
-        t = create_immediate_with_operand(cdlt, 2**16, simd_size=SIMD_SIZE)
-        one = create_immediate_with_operand(cdlt, 1, simd_size=SIMD_SIZE)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=add_lhs)
+        t = create_immediate_with_operand(cdlt, 't', 2**16, simd_size=SIMD_SIZE)
+        one = create_immediate_with_operand(cdlt,'one', 1, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
         with cdlt.loop(H) as h:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1068,8 +1109,9 @@ def add_sqrt_div(hag):
 
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
-
-    cdlt = add_simd_constraint(hag, cdlt, "H")
+    # REVERT THIS BACK TO H
+    # cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_flex_simd_constraints(hag, cdlt, ["C", "H"])
     return cdlt
 
 def matmul_add(hag):
@@ -1132,8 +1174,8 @@ def matmul_add_add(hag):
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(P) as p:
             with cdlt.loop(B) as b:
                 with cdlt.loop(M) as m:
@@ -1167,13 +1209,13 @@ def matmul_add_gelu(hag):
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        b_s = create_immediate_with_operand(cdlt, -1.769/QUANT_SCALE, simd_size=simd_size, cast_float_to_fxp=True)
-        aop = create_immediate_with_operand(cdlt, -0.2888, simd_size=simd_size, cast_float_to_fxp=True)
-        bop = create_immediate_with_operand(cdlt, -1.769, simd_size=simd_size, cast_float_to_fxp=True)
-        cop = create_immediate_with_operand(cdlt, 1, simd_size=simd_size)
-        s_f = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        b_s = create_immediate_with_operand(cdlt, 'b_s', -1.769/QUANT_SCALE, simd_size=simd_size, cast_float_to_fxp=True)
+        aop = create_immediate_with_operand(cdlt, 'a_op', -0.2888, simd_size=simd_size, cast_float_to_fxp=True)
+        bop = create_immediate_with_operand(cdlt, 'bop', -1.769, simd_size=simd_size, cast_float_to_fxp=True)
+        cop = create_immediate_with_operand(cdlt, 'cop', 1, simd_size=simd_size)
+        s_f = create_immediate_with_operand(cdlt, 's_f', QUANT_SCALE, simd_size=simd_size)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(P) as p:
             with cdlt.loop(B) as b:
                 with cdlt.loop(M) as m:
@@ -1230,12 +1272,12 @@ def matmul_div_add(hag):
         mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype="FXP32")
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        mul_op = cdlt.create_temp_operand([simd_size], "IMM")
+        mul_op = cdlt.create_temp_operand([simd_size], "IMM", name="mul_rhs")
 
         cdlt.configure('start', 'SIMD')
-        cdlt.configure("start", "IMM", immediate_value=mul_rhs, index=len(cdlt.temps))
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        cdlt.configure("start", "IMM", immediate_value=mul_rhs)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(P) as p:
             with cdlt.loop(C) as c:
                 with cdlt.loop(B) as b:
@@ -1271,12 +1313,13 @@ def div_add(hag):
         mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype="FXP32")
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        mul_op = cdlt.create_temp_operand([simd_size], "IMM")
+        mul_op = cdlt.create_temp_operand([simd_size], "IMM", name="mul_rhs")
 
         cdlt.configure('start', 'SIMD')
-        cdlt.configure("start", "IMM", immediate_value=mul_rhs, index=len(cdlt.temps))
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        # cdlt.configure("start", "IMM", immediate_value=mul_rhs, index=len(cdlt.temps))
+        cdlt.configure("start", "IMM", immediate_value=mul_rhs)
+        m0 = create_immediate_with_operand(cdlt, 'scale', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt,'sign_shift', SIGN_SHIFT, simd_size=simd_size)
         with cdlt.loop(P) as p:
             with cdlt.loop(C) as c:
                 with cdlt.loop(B) as b:
@@ -1307,15 +1350,12 @@ def add_relu(hag):
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-
-
-
+        param_op = cdlt.dummy_op('param', 16)
+        param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
         cdlt.configure('start', 'SIMD')
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=16, index=0)
-
+        m0 = create_immediate_with_operand(cdlt, 'scale', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'sign_shift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=param_op)
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
@@ -1351,14 +1391,14 @@ def add_leaky_relu(hag):
         cdlt.set_outputs([out])
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
 
-        alpha = cdlt.create_temp_operand([simd_size], "IMM")
+        alpha = cdlt.create_temp_operand([simd_size], "IMM", 'alpha')
 
         cdlt.configure('start', 'SIMD')
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        cdlt.configure("start", "IMM", immediate_value=alphaval)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
 
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
@@ -1393,14 +1433,14 @@ def leaky_relu_add(hag):
         cdlt.set_outputs([out])
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
 
-        alpha = cdlt.create_temp_operand([simd_size], "IMM")
+        alpha = cdlt.create_temp_operand([simd_size], "IMM", name='alpha')
 
         cdlt.configure('start', 'SIMD')
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
-        cdlt.configure("start", "IMM", immediate_value=alphaval, index=0)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=simd_size)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=simd_size)
+        cdlt.configure("start", "IMM", immediate_value=alphaval)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
 
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
@@ -1448,19 +1488,18 @@ def clip_depthwise_conv(hag: ArchitectureNode):
         minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        zero = create_immediate_with_operand(cdlt, 'zero', 0, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1529,15 +1568,18 @@ def depthwise_conv_bias_clip(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min")
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max")
+        # OS ->
+        zero_op = cdlt.dummy_op('zero', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero')
         # OS ->
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps))
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps)+1)
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1597,19 +1639,18 @@ def clip_depthwise_conv_bias(hag: ArchitectureNode):
         minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt,'m0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt,'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1672,19 +1713,18 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
         minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min")
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max")
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         # OS ->
         cdlt.configure("start", "SIMD")
-        cdlt.configure("start", "IMM", immediate_value=0, index=0)
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        zero = create_immediate_with_operand(cdlt, 'zero', 0, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1770,16 +1810,16 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         cdlt, conv_out = create_conv_func(cdlt, params)
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=2)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        zero = create_immediate_with_operand(cdlt, 'zero', 0, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1887,16 +1927,16 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
         maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
+        min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
+        max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
         cdlt, conv_out = create_conv_func(cdlt, params)
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, SIGN_SHIFT, simd_size=SIMD_SIZE)
-        zero = create_immediate_with_operand(cdlt, 0, simd_size=SIMD_SIZE)
-        cdlt.configure("start", "IMM", immediate_value=minval, index=len(cdlt.temps) + 1)
-        cdlt.configure("start", "IMM", immediate_value=maxval, index=len(cdlt.temps) + 2)
+        zero = create_immediate_with_operand(cdlt, 'zero', 0, simd_size=SIMD_SIZE)
+        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
+        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
+        cdlt.configure("start", "IMM", immediate_value=minval)
+        cdlt.configure("start", "IMM", immediate_value=maxval)
         with cdlt.loop(ONE) as one:
             with cdlt.loop(N) as n:
                 with cdlt.loop(C) as c:
@@ -1987,6 +2027,10 @@ def load_unquant_fusion_op_info(cfg):
         },
         'mul_add': {
             'cdlt': mul_add,
+            'seq': ["Mul", "Add"]
+        },
+        'mul_add3d': {
+            'cdlt': mul_add3d,
             'seq': ["Mul", "Add"]
         },
         'sub_mul': {
