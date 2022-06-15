@@ -100,7 +100,11 @@ def set_defaults(cfg):
     assert 'USE_QUANTIZATION' in cfg
     assert 'ALL_QUANT_OFF' in cfg
     assert 'ADDR_GEN_TEST' in cfg
-    assert 'FUSION_CONSTRAINTS' in cfg
+    assert 'FUSE_LAYERS' in cfg
+    if cfg['FUSE_LAYERS']:
+        cfg['FUSION_CONSTRAINTS'] = True
+    else:
+        cfg['FUSION_CONSTRAINTS'] = False
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
     return cfg
