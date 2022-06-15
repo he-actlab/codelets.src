@@ -15,13 +15,13 @@ def add_flex_simd_constraints(hag, cdlt, dim_options):
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
     simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
     bandwidth = simd_edge.bandwidth
-    # l1_constraints = [f"sizes['{i}']*{OP_DTYPES[2].bits()} % {bandwidth} == 0" for i in dim_options]
-    # l1_constraint = f" or ".join(l1_constraints)
-    # cdlt.update_compilation_param("LEVEL1_hint", l1_constraint)
+    l1_constraints = [f"sizes['{i}']*{OP_DTYPES[2].bits()} % {bandwidth} == 0" for i in dim_options]
+    l1_constraint = f" or ".join(l1_constraints)
+    cdlt.update_compilation_param("LEVEL1_hint", l1_constraint)
     #
-    # l2_constraints = [f"sizes['{i}'] == {simd_dims[0]}" for i in dim_options]
-    # l2_constraint = f" or ".join(l2_constraints)
-    # cdlt.update_compilation_param("LEVEL2_hint", l2_constraint)
+    l2_constraints = [f"sizes['{i}'] == {simd_dims[0]}" for i in dim_options]
+    l2_constraint = f" or ".join(l2_constraints)
+    cdlt.update_compilation_param("LEVEL2_hint", l2_constraint)
 
     return cdlt
 
