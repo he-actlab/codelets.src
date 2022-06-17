@@ -118,6 +118,7 @@ def create_conv_args(cdlt):
     params = {}
     stride = cdlt.dummy_op("stride", cdlt.node.stride)
     pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+    dilation = cdlt.dummy_op("dilation", cdlt.node.dilation_int)
     OC = cdlt.dummy_op("OC", cdlt.node.conv_output.shape[1])
     N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
     OH = cdlt.dummy_op("OH", cdlt.node.conv_output.shape[2])

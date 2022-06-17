@@ -85,6 +85,12 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 template.update_dummy_op('IW', template.node.inputs[0].shape[3] + template.node.pad_int)
             updated_dims.append('IH')
             updated_dims.append('IW')
+        if 'dilation' in template.dummy_ops.keys():
+            assert "conv" in template.op_name
+            template.update_dummy_op('KH', (template.node.inputs[1].shape[2] - 1) * template.node.dilation_int + 1)
+            template.update_dummy_op('KW', (template.node.inputs[1].shape[3] - 1) * template.node.dilation_int + 1)
+            updated_dims.append('KH')
+            updated_dims.append('KW')
 
     compute_ops = template.get_ops_by_type('compute')
     if any([o.param_map['target'] == 'pe_array' for o in compute_ops]):

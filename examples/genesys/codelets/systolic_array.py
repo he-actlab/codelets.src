@@ -419,6 +419,8 @@ def conv2d(hag: ArchitectureNode):
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        dilation = cdlt.dummy_op("dilation", cdlt.node.dilation_int)
+
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -479,6 +481,8 @@ def conv2d_bias(hag: ArchitectureNode):
     with CodeletTemplate("conv_bias") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        dilation = cdlt.dummy_op("dilation", cdlt.node.dilation_int)
+
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -629,6 +633,8 @@ def conv2d_unquantized(hag: ArchitectureNode):
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        dilation = cdlt.dummy_op("dilation", cdlt.node.dilation_int)
+
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
@@ -686,6 +692,8 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
     with CodeletTemplate("conv_bias") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
+        dilation = cdlt.dummy_op("dilation", cdlt.node.dilation_int)
+
         OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         IC = cdlt.dummy_op("IC", cdlt.node.inputs[0].shape[1])
