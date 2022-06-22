@@ -102,26 +102,23 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                 break
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
-        # sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
-        # bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
-        bandwidth = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
-        pad_constr = bandwidth
-        # pad_constr = max(sys_dims, bandwidth)
-        # if sys_dims > bandwidth:
-        #     pad_constr = template.hag.all_subgraph_nodes['pe_array'].dimensions[0]
-        # else:
-        #     pad_constr = template.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        # Static padding
+        sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
+        bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        size_constr = max(sys_dims, bandwidth)
+        mod_constr = bandwidth
+        pad_fn = lambda shape, sh_constr, mod_constr: (shape + (sh_constr - shape).max(0)) + (shape + (sh_constr - shape).max(0)) % mod_constr
 
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
-        new_inp_dim = dummy_inp_dim + (pad_constr - dummy_inp_dim) % pad_constr
+        new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
         template.update_dummy_op(inp_dim.name, new_inp_dim)
         updated_dims.append(inp_dim.name)
 
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
         # TODO: Need to validate
         dummy_out_dim = template.node.inputs[1].shape[0]
-        new_out_dim = dummy_out_dim + (pad_constr - dummy_out_dim) % pad_constr
+        new_out_dim = pad_fn(dummy_out_dim, size_constr, mod_constr)
         template.update_dummy_op(out_dim.name, new_out_dim)
         updated_dims.append(out_dim.name)
 
