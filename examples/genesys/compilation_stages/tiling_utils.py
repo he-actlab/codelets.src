@@ -10,12 +10,11 @@ if TYPE_CHECKING:
     from codelets.codelet_impl import Codelet
 
 from .stage_structures import TilingInfo
+from . import CUSTOM_TILE_OPS
 from codelets.compiler.transformations import factors, factors_rand_sort, \
     factors_reversed, level_factors
 
-CUSTOM_TILE_OPS = ['conv_bias_clip_depthwise_conv_bias_clip', 'conv_bias_clip_depthwise_conv_bias',
-                    'conv_bias_clip_depthwise_conv_bias_add_clip', 'conv_bias_clip_depthwise_conv_bias_add',
-                   ]
+
 
 FACTOR_FN_MAP = {'default': factors, 'random': factors_rand_sort, 'reversed': factors_reversed,
                  'level': level_factors
@@ -318,7 +317,6 @@ def set_dw_conv_tiling(cdlt: 'Codelet',
 
     # TODO: IF loop ordering is specified, need to figure out how to handle multiple loop blocks over the same
     # dimension
-
     tile_info.add_derived_tiling("OH", 1, "splits['OH1']", "(sizes['OH1'] - 1)*params['s2'] + sizes['KH1']")
     tile_info.add_derived_tiling("OW", 1, "splits['OW1']", "(sizes['OW1'] - 1)*params['s2'] + sizes['KW1']")
     first_perm = tile_info.initialize_shapes(cdlt)

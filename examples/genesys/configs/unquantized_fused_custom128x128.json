@@ -30,6 +30,6 @@
 	"FUSION_CONSTRAINTS": true,
 	"FUSE_LAYERS": true,
 	"ADDR_GEN_TEST": false,
-	"SA_TILE_CONSTR": true,
+	"SA_TILE_CONSTR": false,
 	"ASIC_CONFIG": false
 }

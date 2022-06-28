@@ -468,7 +468,7 @@ def conv2d(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=False)
     return cdlt
 
 
@@ -534,7 +534,8 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.configure("end", "systolic_array")
         cdlt = add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW)
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
+    # cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=False)
 
     return cdlt
 
@@ -681,7 +682,7 @@ def conv2d_unquantized(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=False)
     return cdlt
 
 def conv2d_bias_unquantized(hag: ArchitectureNode):
@@ -744,7 +745,7 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "systolic_array")
 
-    cdlt = add_conv_constraints(hag, cdlt, is_fusion=hag.meta_cfg['FUSION_CONSTRAINTS'])
+    cdlt = add_conv_constraints(hag, cdlt, is_fusion=False)
     return cdlt
 
 def load_sa_cdlts(cfg):

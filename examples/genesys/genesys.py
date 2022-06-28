@@ -208,7 +208,6 @@ def run_srdfg_passes(graph, cfg, train=False, batch_size=1, verbose=False, fuse_
             print(f"Generating training graph for {graph.name}")
         graph = pm.create_training_graph(graph)
     # Split dw_conv
-
     split_pass = pm.SplitOps(SPLIT_INFO)
     graph = split_pass(graph)
     if fuse_layers:

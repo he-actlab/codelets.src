@@ -11,6 +11,10 @@ from examples.genesys.compilation_stages.tiling_utils import set_codelet_tiling
 from examples.genesys.compilation_stages.stage_utils import default_tile_heuristic, \
     store_tile_checkpoint, \
     find_node_key, insert_simd_typecast
+from . import CUSTOM_TILE_OPS
+
+CUSTOM_PAD_OPS = CUSTOM_TILE_OPS + ["conv_bias", "conv_bias_add", "conv_bias_clip"]
+
 import polymath as pm
 
 TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
@@ -107,18 +111,25 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         size_constr = max(sys_dims, bandwidth)
         mod_constr = bandwidth
-        pad_fn = lambda shape, sh_constr, mod_constr: (shape + (sh_constr - shape).max(0)) + (shape + (sh_constr - shape).max(0)) % mod_constr
-
+        pad_fn = lambda shape, sh_constr, mod_constr: (shape + (sh_constr - shape).max(0)) + (mod_constr - (shape + (sh_constr - shape).max(0))) % mod_constr
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
-        new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
+        if template.op_name in CUSTOM_PAD_OPS:
+            new_inp_dim = pad_fn(dummy_inp_dim, size_constr, size_constr)
+        else:
+            new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
+        # new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
         template.update_dummy_op(inp_dim.name, new_inp_dim)
         updated_dims.append(inp_dim.name)
 
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
         # TODO: Need to validate
         dummy_out_dim = template.node.inputs[1].shape[0]
-        new_out_dim = pad_fn(dummy_out_dim, size_constr, mod_constr)
+        if template.op_name in CUSTOM_PAD_OPS:
+            new_out_dim = pad_fn(dummy_out_dim, size_constr, size_constr)
+        else:
+            new_out_dim = pad_fn(dummy_out_dim, size_constr, mod_constr)
+
         template.update_dummy_op(out_dim.name, new_out_dim)
         updated_dims.append(out_dim.name)
 
