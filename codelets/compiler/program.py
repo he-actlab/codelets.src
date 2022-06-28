@@ -1004,6 +1004,7 @@ class CodeletProgram(object):
     def filtered_compile(self, cdlt_uids=None, verbose=False, sequence_algorithm="default", tiling_path=None,
                 finalize=True, force_recompile=False,
                          filter_op_types=None,
+                         skip_op_types=None,
                 **compile_kwargs):
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
@@ -1022,6 +1023,9 @@ class CodeletProgram(object):
         if filter_op_types is not None:
             assert isinstance(filter_op_types, list)
             node_sequence = [n for n in node_sequence if n.op_name in filter_op_types]
+        elif skip_op_types is not None:
+            node_sequence = [n for n in node_sequence if n.op_name not in skip_op_types]
+
 
         self.update_compilation_state('sequenced_nodes')
 

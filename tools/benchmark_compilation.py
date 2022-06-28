@@ -151,6 +151,7 @@ def compile_benchmark(model_name,
                       skip_broken_layers=False,
                       only_systolic=False,
                       filter_op_types=None,
+                      skip_op_types=None,
                       sw_pipeline_test=False,
                       addr_gen_test=False,
                       store_results=True,
@@ -233,13 +234,17 @@ def compile_benchmark(model_name,
         if verbose:
             print(f"Performing full compilation of {model_name} for layers {filter_op_types}.")
         program.filtered_compile(verbose=verbose, finalize=True, filter_op_types=filter_op_types)
+    elif skip_op_types:
+        assert isinstance(skip_op_types, list)
+        if verbose:
+            print(f"Performing full compilation of {model_name}, skipping layers {skip_op_types}.")
+        program.filtered_compile(verbose=verbose, finalize=True, skip_op_types=skip_op_types)
     else:
         if verbose:
             print(f"Performing full compilation of {model_name}.")
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         if check_layer_count:
             check_fused_layer_count(model_path, program)
-
     if stop_stage is None and store_results:
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
@@ -320,13 +325,17 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        config = "unquantized_fused_custom32x32.json"
+        config = "unquantized_fused_custom128x128.json"
+        # config = "unquantized_fused_custom32x32.json"
+        # config = "unquantized_fused_custom32x32_batch_size.json"
+        # config = "unquantized_fused_custom32x32.json"
         # config = "broken_config.json"
-        benchmarks = ['resnet18', 'resnet50',
-                      'efficientnet-lite4-opt-no-softmax',
-                      'mobilenetv2-opt',
-                      'yolov3-opt-static',
-                      'bert-base-cased-transpose-opt-trimmed-ort',
+        benchmarks = ['resnet18', # 0
+                      'resnet50', # 1
+                      'efficientnet-lite4-opt-no-softmax', # 2
+                      'mobilenetv2-opt', # 3
+                      'yolov3-opt-static', # 4
+                      'bert-base-cased-transpose-opt-trimmed-ort', # 5
                       'conv_lrelu_add_oc64_v3-opt',
                       'conv_lrelu_oc64',
                       'conv_clip_depthwise_v1-opt',
@@ -334,8 +343,9 @@ if __name__ == "__main__":
                       'gpt2-trimmed-opt',
                       'conv_clip_depthwise_c32_w112_kw1'
                       ]
-        #
-        compile_benchmark(benchmarks[-2],
+
+
+        compile_benchmark(benchmarks[5],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -343,6 +353,9 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          generate_data=True,
+                          generate_data=False,
+                          # filter_op_types=["tensor_transpose4d", "tensor_transpose4d1d"],
+                          skip_op_types = ["tensor_transpose4d"],
+                          # filtered_layers=[4],
                           store_whole_program=False,
-                          identifier=2)
+                          identifier=9)
