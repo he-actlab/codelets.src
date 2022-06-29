@@ -164,6 +164,8 @@ def load_binary_cdlts(cfg):
         "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4),
         "elem_add3d_const": partial(elem_binary_op_constant, "elem_add3d_const", "ADD", 3),
         "elem_add3d3d": partial(elem_binary_op, "elem_add3d3d", "ADD", 3, 3),
+        "elem_add1d1d": partial(elem_binary_op, "elem_add1d1d", "ADD", 1, 1),
+        "elem_add2d2d": partial(elem_binary_op, "elem_add2d2d", "ADD", 2, 2),
         "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
         "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
         "elem_div_const": partial(elem_binary_op_constant, "elem_div_const", "DIV", 4),

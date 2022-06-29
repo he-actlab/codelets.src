@@ -334,6 +334,60 @@ def create_custom_conv(optimize_model, training_mode, convert_data_format, to_po
     convert_torch_model(input_var, model, name, optimize_model, training_mode, to_polymath,
                         convert_data_format=convert_data_format)
 
+def create_roots_of_unity(shape):
+    # N = shape[0]
+    # i, j = np.meshgrid(np.arange(N), np.arange(N))
+    # omega = np.exp(- 2 * np.pi * 1J / N)
+    # m = np.power(omega, i * j) / np.sqrt(N)
+
+    n = np.arange(0, shape[0])
+    m = np.exp(-2j * np.pi * (n * n.reshape(-1, 1) / shape[0]))
+    return m.real, m.imag
+
+def custom_fft(inpt):
+    m_real, m_imag = create_roots_of_unity(inpt.shape)
+
+    out_real = inpt.dot(m_real)**2
+    out_imag = inpt.dot(m_imag)**2
+    out = np.sqrt(out_imag + out_real)
+    return out
+
+def create_custom_fft(optimize_model, convert_data_format, to_polymath, input_shape, name=None):
+    class CustomFFT(nn.Module):
+        def __init__(self, shape):
+            assert len(shape) == 2
+            self.shape = shape
+            self.m_real, self.m_imag = self.create_constants()
+            super(CustomFFT, self).__init__()
+
+        def create_constants(self):
+            n = np.arange(0, self.shape[1])
+            m = np.exp(-2j * np.pi * (n * n.reshape(-1, 1) / self.shape[1]))
+            return torch.from_numpy(m.real).type(torch.FloatTensor), torch.from_numpy(m.imag).type(torch.FloatTensor)
+
+        def forward(self, x):
+
+            # x_real = torch.matmul(self.m_real, x)**2
+            # x_imag = torch.matmul(self.m_imag, x)**2
+            x_real = torch.matmul(x, self.m_real)**2
+            x_imag = torch.matmul(x, self.m_imag)**2
+            x = torch.sqrt(x_real + x_imag)
+            return x
+
+    input_var = torch.randn(*input_shape)
+    model = CustomFFT(input_shape)
+    #
+    output = model(input_var)
+    test_out = torch.abs(torch.fft.fft(input_var))
+    print(f"Torch out: {test_out}")
+    print(f"Test out: {output}")
+    torch.testing.assert_allclose(output, test_out)
+    model.eval()
+    if name is None:
+        name = "custom_fft"
+    convert_torch_model(input_var, model, name, optimize_model, False, to_polymath,
+                        convert_data_format=convert_data_format)
+
 
 def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, include_bias=False):
     class CustomMatmul(nn.Module):
@@ -840,7 +894,6 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
     f = io.BytesIO()
     mode = torch.onnx.TrainingMode.TRAINING if training_mode else torch.onnx.TrainingMode.EVAL
     filepath = f"{CWD}/models/{model_name}.onnx"
-
     if 'mask_rcnn' not in model_name:
         torch.onnx.export(model,  # model being run
                           input_var,  # model input (or a tuple for multiple inputs)
@@ -1885,7 +1938,8 @@ if __name__ == "__main__":
         #              ['Conv', 'Clip', 'DepthwiseConv',],
         #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
         # fusion_generator(name, sequences, test_run=True)
-        trim_gpt2()
+        create_custom_fft(True, False, False, (1, 2048))
+        # trim_gpt2()
         # model = "gpt2-opt"
         # create_custom_gemm(True, False, False, False, 8, 128, 128)
 #

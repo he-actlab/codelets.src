@@ -75,6 +75,8 @@ class Unary(ReferenceOp):
             output = self.transposefn(inpt, *params)
         elif "flatten" in self.op_name:
             output = inpt.reshape(inpt.shape[0], -1)
+        elif "sqrt" in self.op_name:
+            output = np.sqrt(inpt)
         else:
             raise RuntimeError
 
@@ -248,6 +250,7 @@ def load_unary_impls(cfg):
         "leaky_relu": Unary,
         "elem_clip": Unary,
         "elem_ceil2d": Unary,
+        "elem_pow1d": Unary,
         "elem_pow2d": Unary,
         "elem_pow3d": Unary,
         "elem_exp": Unary,
@@ -259,6 +262,8 @@ def load_unary_impls(cfg):
         'elem_cast': Unary,
         'elem_cast2d': Unary,
         'elem_sqrt': Unary,
+        'elem_sqrt1d': Unary,
+        'elem_sqrt2d': Unary,
         "inv_sqrt": Unary,
     }
     return UNARY_IMPLS

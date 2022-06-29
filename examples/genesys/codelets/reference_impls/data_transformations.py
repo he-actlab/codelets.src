@@ -39,7 +39,7 @@ def shuffle_weights(w_orig, arch_config, layer_type="conv"):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert  "linear" in layer_type or  "gemm" in layer_type, f"Invalid layer type: {layer_type}"
+        assert  "linear" in layer_type or  "gemm" in layer_type or "matmul" in layer_type, f"Invalid layer type: {layer_type}"
        # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
         for ic in range(0, w_dim[0], tile_n):
             for oc in range(0, w_dim[1], tile_m):
@@ -90,7 +90,7 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                    f"Bandwidth: {bw}\n" \
                                    f"Sys array col size: {systolic_array_column_size}"
     assert tile_n == tile_m
-    if layer_type == 'gemm':
+    if layer_type == 'gemm' or 'matmul' in layer_type:
 
         big_tile_size_oc = dram_tiling[loop_order[0]]
         w_dim_outer = weight_symbols.index(loop_order[0])

@@ -22,6 +22,7 @@ GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP8'
 GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
 
 def set_defaults(cfg):
+
     if 'DATA_WIDTH' not in cfg:
         cfg['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
     if 'WGT_WIDTH' not in cfg:

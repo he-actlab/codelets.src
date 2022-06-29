@@ -97,7 +97,10 @@ class Gemm(ReferenceOp):
     def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
-        operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
+        if self.use_bias:
+            operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
+        else:
+            operands = [cdlt.inputs[0], cdlt.inputs[1]]
         outputs = [cdlt.outputs[0]]
         super().__init__(cdlt, operands, outputs, program, scale=1)
 
@@ -116,7 +119,7 @@ class Gemm(ReferenceOp):
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
         wgt = inouts['inputs'][1].data
-        bias = inouts['inputs'][2].data
+
 
         inouts["inputs"].append(
             create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), self.data, fmt='shuffled'))
@@ -130,7 +133,9 @@ class Gemm(ReferenceOp):
         inouts["inputs"].append(
             create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt, self.hag), self.weight, fmt='raw'))
 
-        output = np.dot(np.int32(data), np.int32(wgt)) + bias
+        output = np.dot(np.int32(data), np.int32(wgt))
+        if self.use_bias:
+            output = output + inouts['inputs'][2].data
         inouts['outputs'] = [output]
         return inouts
 
@@ -143,6 +148,7 @@ def load_sa_impls(cfg):
             "conv": partial(Conv, use_bias=False, use_quantization=True),
             "gemm": partial(Gemm, use_bias=True, use_quantization=True),
             'matmul': partial(Gemm, use_bias=False, use_quantization=True),
+            'matmul2d': partial(Gemm, use_bias=False, use_quantization=True),
             'matmul3d': partial(Gemm, use_bias=False, use_quantization=True),
             'matmul4d': partial(Gemm, use_bias=False, use_quantization=True),
             'matmul4d2d': partial(Gemm, use_bias=False, use_quantization=True)
@@ -152,6 +158,7 @@ def load_sa_impls(cfg):
             "conv_bias": partial(Conv, use_bias=True, use_quantization=False),
             "conv": partial(Conv, use_bias=False, use_quantization=False),
             "gemm": partial(Gemm, use_bias=True, use_quantization=False),
+            'matmul2d': partial(Gemm, use_bias=False, use_quantization=True),
             'matmul': partial(Gemm, use_bias=False, use_quantization=False),
             'matmul3d': partial(Gemm, use_bias=False, use_quantization=False),
             'matmul4d': partial(Gemm, use_bias=False, use_quantization=False),

@@ -134,6 +134,8 @@ def elem_sqrt(num_dims, hag):
         cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
+        cdlt.configure("end", "SIMD")
+
 
     return cdlt
 
@@ -366,6 +368,35 @@ def elem_pow2d(hag: ArchitectureNode):
 
     return cdlt
 
+
+def elem_pow1d(hag: ArchitectureNode):
+    with CodeletTemplate("elem_pow1d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype="FXP32")
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        zero_op = cdlt.dummy_op('zero', 0)
+        cdlt.set_inputs([op1])
+        cdlt.set_outputs([out])
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=zero_op)
+
+        with cdlt.loop(N) as n:
+            cdlt.transfer(op1, ["DRAM", "VMEM1"])
+            out.set_write_destination("VMEM2")
+            cdlt.compute("MOVE", [op1[n]], [out[n]], target="SIMD")
+            cdlt.compute("POW", [op1[n], out[n]], [out[n]], target="SIMD")
+            cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+
+
+    return cdlt
+
 def elem_pow3d(hag: ArchitectureNode):
     with CodeletTemplate("elem_pow3d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -563,6 +594,7 @@ def load_unary_cdlts(cfg):
         "leaky_relu": partial(elem_unary_nd, "leaky_relu", "LEAKY_RELU", 4, 'alpha'),
         "elem_clip": clip,
         "elem_ceil2d": elem_ceil2d,
+        "elem_pow1d": elem_pow1d,
         "elem_pow2d": elem_pow2d,
         "elem_pow3d": elem_pow3d,
         "elem_exp": elem_exp,
@@ -575,5 +607,7 @@ def load_unary_cdlts(cfg):
         'elem_cast2d': elem_cast2d,
         "inv_sqrt": inv_sqrt,
         "elem_sqrt": partial(elem_sqrt, 4),
+        "elem_sqrt1d": partial(elem_sqrt, 1),
+        "elem_sqrt2d": partial(elem_sqrt, 2),
     }
     return UNARY_CODELETS

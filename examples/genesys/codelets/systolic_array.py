@@ -204,6 +204,87 @@ def matmul4d2d(hag: ArchitectureNode):
 
     return cdlt
 
+
+def matmul2d(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul2d") as cdlt:
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        cdlt.add_temp_operand(gemm_out)
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+
+        with cdlt.loop(M) as m:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(P) as p:
+                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                    cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
+                    gemm_out.set_write_destination("OBUF")
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], gemm_out[m, p]], [gemm_out[m, p]],
+                                 target="pe_array")
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+
+        cdlt = add_gemm_quant(cdlt, gemm_out, out, M, P)
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
+
+
+def matmul2d_no_quant(hag: ArchitectureNode):
+
+    with CodeletTemplate("matmul2d") as cdlt:
+        P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
+        M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+
+        cdlt.set_inputs([data, weight])
+        cdlt.set_outputs([out])
+
+        cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "WBUF")
+        cdlt.configure("start", "IBUF")
+        cdlt.configure("start", "OBUF")
+
+        with cdlt.loop(M) as m:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(P) as p:
+                    cdlt.transfer(data, ["DRAM", "IBUF"])
+                    cdlt.transfer(weight, ["DRAM", "WBUF"])
+                    cdlt.transfer(out, ["DRAM", "OBUF"])
+                    out.set_write_destination("OBUF")
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], out[m, p]], [out[m, p]], target="pe_array")
+                    cdlt.transfer(out, ["OBUF", "DRAM"])
+
+        # TODO: Add store off chip
+        cdlt.configure("end", "WBUF")
+        cdlt.configure("end", "IBUF")
+        cdlt.configure("end", "OBUF")
+        cdlt.configure("end", "systolic_array")
+
+    cdlt = add_gemm_constraints(hag, cdlt)
+
+    return cdlt
+
 def matmul4d(hag: ArchitectureNode):
 
     with CodeletTemplate("matmul4d") as cdlt:
@@ -755,6 +836,7 @@ def load_sa_cdlts(cfg):
             "conv_bias": conv2d_bias,
             "conv": conv2d,
             "gemm": gemm,
+            'matmul2d': matmul2d,
             'matmul': gemm_no_bias,
             'matmul4d': matmul4d,
             'matmul4d2d': matmul4d2d,
@@ -765,6 +847,7 @@ def load_sa_cdlts(cfg):
             "conv_bias": conv2d_bias_unquantized,
             "conv": conv2d_unquantized,
             "gemm": gemm_unquantized,
+            'matmul2d': matmul2d_no_quant,
             'matmul': gemm_no_bias_unquantized,
             'matmul3d': matmul3d_no_quant,
             'matmul4d': matmul4d_no_quant,
