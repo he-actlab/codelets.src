@@ -107,7 +107,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         assert compute_op.param_map['op_name'] == 'MVMUL'
         # Need to pad IC
         # Static padding
-        sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]
+        sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]*program.hag.meta_cfg['DATA_WIDTH'] // 8
         bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
         size_constr = max(sys_dims, bandwidth)
         mod_constr = bandwidth
@@ -397,7 +397,9 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                 if all([o == 0 for o in dm.offset_map.values()]):
                     snode = hag.get_subgraph_node(dm.src_node)
                     single_elem_size = snode.data_size
-                    assert single_elem_size == o.data_size
+                    assert single_elem_size == o.data_size, "Single element size does not match data size:\n" \
+                                                            f"Elem size: {single_elem_size}\n" \
+                                                            f"Data size: {o.data_size}"
                     assert len(o.data_path) == 2
                     assert list(dm.offset_map.keys()) == list(o.shape_symbols.keys())
                     dm.reinit_offset_map(o.shape_symbols.copy())

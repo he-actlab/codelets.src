@@ -31,6 +31,10 @@ def set_defaults(cfg):
         cfg['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
     if 'ACC_WIDTH' not in cfg:
         cfg['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+
+    assert cfg['DATA_WIDTH'] == cfg['WGT_WIDTH']
+    assert cfg['DATA_WIDTH']*4 == cfg['ACC_WIDTH']
+    assert cfg['DATA_WIDTH']*4 == cfg['BIAS_WIDTH']
     if 'INSTR_WIDTH' not in cfg:
         cfg['INSTR_WIDTH'] = 32
 
@@ -89,8 +93,8 @@ def set_defaults(cfg):
 
     if 'DRAM_WIDTH' not in cfg:
         cfg['DRAM_WIDTH'] = 8
-    else:
-        assert cfg['DRAM_WIDTH'] == 8
+    # else:
+    #     assert cfg['DRAM_WIDTH'] == 8
 
     if 'DRAM_BANKS' not in cfg:
         cfg['DRAM_BANKS'] = cfg['SIMD_CHANNEL_BW'] // cfg['DRAM_WIDTH']

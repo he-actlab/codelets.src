@@ -801,6 +801,7 @@ class CodeletProgram(object):
                         continue
                     if verbose:
                         print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
+
                     cdlt = fn.run(self, n, cdlt)
 
                 assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id

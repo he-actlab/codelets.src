@@ -1,18 +1,19 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES
+from examples.genesys import OP_DTYPES, DTYPE_MAP
 from . import add_simd_constraint
 
 
 def sgd1d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("sgd1d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
 
-        param = cdlt.create_operand_template("param", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        param = cdlt.create_operand_template("param", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
+        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
         cdlt.configure("start", "SIMD")
@@ -21,8 +22,8 @@ def sgd1d(hag: ArchitectureNode):
 
         cdlt.configure("start", "IMM", immediate_value=lr, index=0)
         cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
-        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.add_temp_operand(itemp1)
         cdlt.add_temp_operand(itemp2)
         lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
@@ -46,15 +47,16 @@ def sgd1d(hag: ArchitectureNode):
 
 
 def sgd2d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("sgd2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
 
-        param = cdlt.create_operand_template("param", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        param = cdlt.create_operand_template("param", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
         cdlt.configure("start", "SIMD")
@@ -63,8 +65,8 @@ def sgd2d(hag: ArchitectureNode):
 
         cdlt.configure("start", "IMM", immediate_value=lr, index=0)
         cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
-        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.add_temp_operand(itemp1)
         cdlt.add_temp_operand(itemp2)
         lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
@@ -88,15 +90,16 @@ def sgd2d(hag: ArchitectureNode):
 
 
 def sgd3d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("sgd3d") as cdlt:
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
-        param = cdlt.create_operand_template("param", OP_DTYPES, [C, H, W], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [C, H, W], default_dtype=OP_DTYPES[2])
-        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [C, H, W], default_dtype=OP_DTYPES[2])
+        param = cdlt.create_operand_template("param", OP_DTYPES, [C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
         cdlt.configure("start", "SIMD")
@@ -115,7 +118,8 @@ def sgd3d(hag: ArchitectureNode):
 
 
 def sgd4d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("sgd4d") as cdlt:
 
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -125,9 +129,9 @@ def sgd4d(hag: ArchitectureNode):
 
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes["SIMD"].dimensions[0])
 
-        param = cdlt.create_operand_template("param", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        param = cdlt.create_operand_template("param", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        updated_param = cdlt.create_operand_template("updated", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([param, grad])
         cdlt.set_outputs([updated_param])
         cdlt.configure("start", "SIMD")
@@ -136,8 +140,8 @@ def sgd4d(hag: ArchitectureNode):
 
         cdlt.configure("start", "IMM", immediate_value=lr, index=0)
         cdlt.configure("start", "IMM", immediate_value=momentum, index=1)
-        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        itemp1 = cdlt.create_operand_template("itemp1", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        itemp2 = cdlt.create_operand_template("itemp2", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.add_temp_operand(itemp1)
         cdlt.add_temp_operand(itemp2)
         lr_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
@@ -163,48 +167,49 @@ def sgd4d(hag: ArchitectureNode):
 
 
 def batchnorm_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("batchnorm_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        scale = cdlt.create_operand_template("scale", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        offset = cdlt.create_operand_template("offset", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        mean = cdlt.create_operand_template("mean", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        istd = cdlt.create_operand_template("istd", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        xhat = cdlt.create_operand_template("xhat", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        scale = cdlt.create_operand_template("scale", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
+        offset = cdlt.create_operand_template("offset", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
+        mean = cdlt.create_operand_template("mean", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
+        istd = cdlt.create_operand_template("istd", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
+        xhat = cdlt.create_operand_template("xhat", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
 
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        scale_grad = cdlt.create_operand_template("scale_grad", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        offset_grad = cdlt.create_operand_template("offset_grad", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        scale_grad = cdlt.create_operand_template("scale_grad", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
+        offset_grad = cdlt.create_operand_template("offset_grad", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
 
         cdlt.set_inputs([data, scale, offset, mean, istd, grad])
         cdlt.set_outputs([data_grad, scale_grad, offset_grad])
 
-        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [C], default_dtype=DTYPE_MAP[acc_dtype])
         temp1.start_location = "VMEM1"
         temp1.set_write_destination("VMEM1")
 
         cdlt.add_temp_operand(temp1)
 
-        temp2 = cdlt.create_operand_template("temp2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        temp2 = cdlt.create_operand_template("temp2", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         temp2.start_location = "VMEM1"
         temp2.set_write_destination("VMEM1")
         cdlt.add_temp_operand(temp2)
 
-        temp3 = cdlt.create_operand_template("temp3", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        temp3 = cdlt.create_operand_template("temp3", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         temp3.start_location = "VMEM1"
         temp3.set_write_destination("VMEM1")
 
-        temp4 = cdlt.create_operand_template("temp4", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        temp4 = cdlt.create_operand_template("temp4", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         temp4.start_location = "VMEM1"
         temp4.set_write_destination("VMEM1")
 
-        temp5 = cdlt.create_operand_template("temp5", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        temp5 = cdlt.create_operand_template("temp5", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         temp5.start_location = "VMEM1"
         temp5.set_write_destination("VMEM1")
 
@@ -212,7 +217,7 @@ def batchnorm_grad(hag: ArchitectureNode):
         cdlt.add_temp_operand(temp4)
         cdlt.add_temp_operand(temp5)
 
-        numer = cdlt.create_operand_template("numer", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        numer = cdlt.create_operand_template("numer", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.add_temp_operand(xhat)
         cdlt.add_temp_operand(numer)
         denom = cdlt.dummy_op("denom",
@@ -264,7 +269,8 @@ def batchnorm_grad(hag: ArchitectureNode):
 
 
 def flatten_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("flatten_grad") as cdlt:
 
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -272,9 +278,9 @@ def flatten_grad(hag: ArchitectureNode):
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([out])
         cdlt.configure("end", "SIMD")
@@ -283,16 +289,17 @@ def flatten_grad(hag: ArchitectureNode):
 
 
 def relu_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("relu_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
         cdlt.configure("start", "SIMD")
@@ -313,14 +320,15 @@ def relu_grad(hag: ArchitectureNode):
 
 
 def relu_grad2d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("relu_grad2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
         cdlt.configure("start", "SIMD")
@@ -338,19 +346,20 @@ def relu_grad2d(hag: ArchitectureNode):
 
 
 def elem_tanh_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("elem_tanh_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
-        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=OP_DTYPES[2])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=DTYPE_MAP[acc_dtype])
         temp1.start_location = "VMEM1"
         cdlt.add_temp_operand(temp1)
         one_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
@@ -378,19 +387,20 @@ def elem_tanh_grad(hag: ArchitectureNode):
 
 
 def elem_tanh_grad2d(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("elem_tanh_grad2d") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
         one_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=OP_DTYPES[2])
+        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [SIMD_SIZE], default_dtype=DTYPE_MAP[acc_dtype])
         temp1.start_location = "VMEM1"
 
         cdlt.add_temp_operand(temp1)
@@ -418,7 +428,8 @@ def elem_tanh_grad2d(hag: ArchitectureNode):
 
 def max_pool_grad(hag: ArchitectureNode):
     #
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     # # TODO: Add option to create operand
     with CodeletTemplate("max_pool_grad") as cdlt:
 
@@ -433,9 +444,9 @@ def max_pool_grad(hag: ArchitectureNode):
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
-        data = cdlt.create_operand_template("max_pool_data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("max_pool_data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("max_pool_data", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("max_pool_data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
         cdlt.configure("start", "SIMD")
@@ -458,7 +469,8 @@ def max_pool_grad(hag: ArchitectureNode):
 
 
 def average_pool_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     # # TODO: Add option to create operand
     with CodeletTemplate("average_pool_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -470,10 +482,10 @@ def average_pool_grad(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("avg_pool_data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("avg_pool_data", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=DTYPE_MAP[acc_dtype])
         #
-        data_grad = cdlt.create_operand_template("avg_pool_data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
+        data_grad = cdlt.create_operand_template("avg_pool_data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
 
@@ -503,7 +515,8 @@ def average_pool_grad(hag: ArchitectureNode):
 
 def global_average_pool_grad(hag: ArchitectureNode):
 
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     # # TODO: Add option to create operand
     with CodeletTemplate("global_average_pool_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
@@ -513,10 +526,10 @@ def global_average_pool_grad(hag: ArchitectureNode):
         OH = cdlt.dummy_op("OH", cdlt.node.outputs[0].shape[2])
         OW = cdlt.dummy_op("OW", cdlt.node.outputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
+        grad = cdlt.create_operand_template("grad", OP_DTYPES, [N, C, OH, OW], default_dtype=DTYPE_MAP[acc_dtype])
         #
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C, IH, IW], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([data, grad])
         cdlt.set_outputs([data_grad])
 
@@ -541,14 +554,15 @@ def global_average_pool_grad(hag: ArchitectureNode):
 
 
 def cross_entropy_loss_grad(hag: ArchitectureNode):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     with CodeletTemplate("cross_entropy_loss_grad") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
+        data_grad = cdlt.create_operand_template("data_grad", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
 
         cdlt.set_inputs([data, target])
         cdlt.set_outputs([data_grad])

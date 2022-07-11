@@ -120,7 +120,7 @@ class Transfer(Operation):
                 break
         return rsize
 
-    def strides_iters(self, divisor = 1, max_bits = 64, contiguous=False):
+    def strides_iters(self, data_width, divisor = 1, max_bits = 64, contiguous=False):
         assert len(self.sizes) == 2
         if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
@@ -145,11 +145,12 @@ class Transfer(Operation):
         iters.append(1)
         strides.append(np.prod(xfer_sizes[idx[-1]:], dtype=np.int32))
 
-        strides = [self.operand.dtype.bytes()*s for s in strides]
-
+        # strides = [self.operand.dtype.bytes()*s for s in strides]
+        strides = [self.operand.dtype.bits()*s//data_width for s in strides]
+        assert all([i != 0 for i in strides])
         total_req_size = strides[-1]
-
         if np.ceil(np.log2(total_req_size)) > max_bits:
+
             total_iters = (1+np.ceil(np.ceil(np.log2(total_req_size))/max_bits))
 
             while total_req_size % total_iters != 0 or total_req_size//total_iters % divisor == 0:

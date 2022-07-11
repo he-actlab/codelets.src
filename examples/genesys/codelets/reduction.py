@@ -1,7 +1,7 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.templates.operation_template import OperationTemplate
-from examples.genesys import OP_DTYPES, FXP_CONFIGS
+from examples.genesys import OP_DTYPES, FXP_CONFIGS, DTYPE_MAP
 from functools import partial
 
 from . import add_simd_constraint, range_from_cfg
@@ -9,6 +9,9 @@ from . import add_simd_constraint, range_from_cfg
 
 def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
     DIM_NAMES = ["N", "C", "H", "W"]
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate(cdlt_name) as cdlt:
         ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[axis])
 
@@ -26,13 +29,13 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
             else:
                 out_dims.append(dim)
         all_dims.append(ONE)
-        data = cdlt.create_operand_template("data", OP_DTYPES, input_dims, default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, out_dims, default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, input_dims, default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, out_dims, default_dtype=acc_dtype)
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
 
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[axis]), dtype="FXP32")
+        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[axis]), dtype=acc_dtype_name)
         axis_op = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         zero = cdlt.dummy_op('zero', 0)
@@ -82,6 +85,8 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
 
 def reduce_min2d(hag: ArchitectureNode):
     #
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     # # TODO: Add option to create operand
     # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
     with CodeletTemplate("reduce_min2d") as cdlt:
@@ -89,8 +94,8 @@ def reduce_min2d(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
@@ -102,7 +107,7 @@ def reduce_min2d(hag: ArchitectureNode):
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
         # This is a temporary hotfix to enable IMM value indexing during instruction generation
-        _, max_val = range_from_cfg(FXP_CONFIGS[str(OP_DTYPES[2])])
+        _, max_val = range_from_cfg(FXP_CONFIGS[str(acc_dtype)])
         max_val_dummy = cdlt.dummy_op('max_val', max_val)
         max_val_temp = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max_val")
         cdlt.configure("start", "IMM", immediate_value=max_val_dummy)
@@ -124,7 +129,9 @@ def reduce_min2d(hag: ArchitectureNode):
 
 def reduce_mean2d(hag: ArchitectureNode):
     #
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     # # TODO: Add option to create operand
     # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
     with CodeletTemplate("reduce_mean2d") as cdlt:
@@ -132,14 +139,14 @@ def reduce_mean2d(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
+        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype=acc_dtype_name)
         axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         zero_op = cdlt.dummy_op('zero', 0)
@@ -165,7 +172,7 @@ def reduce_mean2d(hag: ArchitectureNode):
         cdlt.configure("end", "SIMD")
 
         ############ TESTING####################################
-        denom = cdlt.dummy_op("denom1", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
+        denom = cdlt.dummy_op("denom1", 1/(cdlt.node.inputs[0].shape[0]), dtype=acc_dtype_name)
 
         cdlt.configure("start", "SIMD")
         ## IMPORTANT: The configure index needs to correspond to the order in which the corresponding temporary is created
@@ -196,15 +203,16 @@ def reduce_mean2d(hag: ArchitectureNode):
     return cdlt
 
 def reduce_sum(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("reduce_sum") as cdlt:
 
 
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [C], default_dtype=acc_dtype)
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         with cdlt.loop(N) as n:
@@ -220,7 +228,9 @@ def reduce_sum(hag: ArchitectureNode):
 
 def reduce_mean3d(hag: ArchitectureNode):
     #
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     # # TODO: Add option to create operand
     # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
     with CodeletTemplate("reduce_mean3d") as cdlt:
@@ -228,14 +238,14 @@ def reduce_mean3d(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         ONE = cdlt.dummy_op("ONE", cdlt.node.outputs[0].shape[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ONE, C], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
-        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype="FXP32")
+        denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[0]), dtype=acc_dtype_name)
         axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 

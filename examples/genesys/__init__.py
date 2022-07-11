@@ -18,15 +18,17 @@ DTYPE_MAP['FXP4'] = Datatype(type='FXP', bitwidth=4)
 DTYPE_MAP['FP32'] = Datatype(type='FXP', bitwidth=32)
 DTYPE_MAP['FP16'] = Datatype(type='FXP', bitwidth=16)
 
-GENESYS_DTYPES = {}
-GENESYS_DTYPES['SIMD'] = 'FXP32'
-GENESYS_DTYPES['SYSTOLIC_ARRAY'] = {}
-GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP8'
-GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
+# GENESYS_DTYPES = {}
+# GENESYS_DTYPES['SIMD'] = 'FXP32'
+# GENESYS_DTYPES['SYSTOLIC_ARRAY'] = {}
+# GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP8'
+# GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
 
 FXP_CONFIGS = {
     "FXP32": {"signed": True, "n_int": 15, "n_frac": 16, "overflow": "saturate", "n_word": 32},
     "FXP8": {"signed": True, "n_int": 3, "n_frac": 4, "overflow": "saturate", "n_word": 8},
+    "FXP16": {"signed": True, "n_int": 7, "n_frac": 8, "overflow": "saturate", "n_word": 16},
+    "FXP4": {"signed": True, "n_int": 1, "n_frac": 2, "overflow": "saturate", "n_word": 4},
 }
 QUANT_SCALE = 0.6
 SIGN_SHIFT = 30

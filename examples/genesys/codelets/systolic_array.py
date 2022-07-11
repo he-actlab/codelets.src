@@ -1,11 +1,12 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT
+from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, DTYPE_MAP
 from . import add_conv_constraints, add_gemm_constraints,\
     create_immediate_with_operand, add_scale_op, add_simd_constraint
 
 
 def add_conv_quant(cdlt, conv_out, out, OC, N, OH, OW):
+    
     simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
     cdlt.configure('start', 'SIMD')
     m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
@@ -70,7 +71,8 @@ def add_matmul3d_quant(cdlt, gemm_out, out, B, M, P):
 ## Quantized versions
 
 def gemm(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
 
     with CodeletTemplate("gemm") as cdlt:
 
@@ -78,12 +80,12 @@ def gemm(hag: ArchitectureNode):
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
 
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
         cdlt.set_inputs([data, weight, bias])
@@ -120,15 +122,16 @@ def gemm(hag: ArchitectureNode):
 
 
 def gemm_no_bias(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
 
@@ -162,17 +165,18 @@ def gemm_no_bias(hag: ArchitectureNode):
 
 
 def matmul4d2d(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul4d2d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[-1])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
 
@@ -206,15 +210,16 @@ def matmul4d2d(hag: ArchitectureNode):
 
 
 def matmul2d(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul2d") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
         cdlt.set_inputs([data, weight])
@@ -248,14 +253,15 @@ def matmul2d(hag: ArchitectureNode):
 
 
 def matmul2d_no_quant(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul2d") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
@@ -286,17 +292,18 @@ def matmul2d_no_quant(hag: ArchitectureNode):
     return cdlt
 
 def matmul4d(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul4d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[3])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
 
@@ -329,16 +336,17 @@ def matmul4d(hag: ArchitectureNode):
     return cdlt
 
 def matmul3d(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul3d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[2])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
         cdlt.add_temp_operand(gemm_out)
 
 
@@ -371,16 +379,17 @@ def matmul3d(hag: ArchitectureNode):
 
 
 def matmul4d2d_no_quant(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul4d2d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[3])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
 
 
         cdlt.set_inputs([data, weight])
@@ -413,16 +422,17 @@ def matmul4d2d_no_quant(hag: ArchitectureNode):
     return cdlt
 
 def matmul4d_no_quant(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul4d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[3])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[3])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
 
 
         cdlt.set_inputs([data, weight])
@@ -456,15 +466,16 @@ def matmul4d_no_quant(hag: ArchitectureNode):
 
 
 def matmul3d_no_quant(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul3d") as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[2])
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
 
 
         cdlt.set_inputs([data, weight])
@@ -496,6 +507,8 @@ def matmul3d_no_quant(hag: ArchitectureNode):
     return cdlt
 
 def conv2d(hag: ArchitectureNode):
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     # TODO: Need to figure out how to change the memory layout
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
@@ -512,10 +525,10 @@ def conv2d(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
+        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         cdlt.add_temp_operand(conv_out)
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
@@ -556,7 +569,8 @@ def conv2d(hag: ArchitectureNode):
 
 def conv2d_bias(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     required_params = {}
 
     with CodeletTemplate("conv_bias") as cdlt:
@@ -574,12 +588,12 @@ def conv2d_bias(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=OP_DTYPES[2])
-        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=inpt_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=acc_dtype)
+        conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         cdlt.add_temp_operand(conv_out)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
@@ -624,17 +638,18 @@ def conv2d_bias(hag: ArchitectureNode):
 ## Unquantized versions
 def gemm_unquantized(hag: ArchitectureNode):
 
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm") as cdlt:
 
         P = cdlt.dummy_op("P", cdlt.node.inputs[2].shape[0])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
@@ -675,9 +690,9 @@ def gemm_no_bias_unquantized(hag: ArchitectureNode):
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
 
 
         cdlt.set_inputs([data, weight])
@@ -712,6 +727,8 @@ def gemm_no_bias_unquantized(hag: ArchitectureNode):
 
 def conv2d_unquantized(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("conv") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
@@ -727,9 +744,9 @@ def conv2d_unquantized(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=inpt_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
         cdlt.configure("start", "systolic_array")
@@ -770,7 +787,8 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
     # TODO: Need to figure out how to change the memory layout
 
     required_params = {}
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("conv_bias") as cdlt:
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
@@ -786,10 +804,10 @@ def conv2d_bias_unquantized(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=inpt_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
 
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])

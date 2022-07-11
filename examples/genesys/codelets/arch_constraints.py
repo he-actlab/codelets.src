@@ -1,21 +1,25 @@
-from examples.genesys import OP_DTYPES
+from examples.genesys import DTYPE_MAP
 
 
 def add_simd_constraint(hag, cdlt, fixed_dim):
     assert isinstance(fixed_dim, str)
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
     simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
     bandwidth = simd_edge.bandwidth
     cdlt.update_compilation_param(f"{fixed_dim}_hint2", f"size == {simd_dims[0]}")
-    cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{OP_DTYPES[2].bits()} % {bandwidth} == 0")
+    cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0")
     return cdlt
 
 def add_flex_simd_constraints(hag, cdlt, dim_options):
     assert isinstance(dim_options, list)
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
     simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
     bandwidth = simd_edge.bandwidth
-    l1_constraints = [f"sizes['{i}']*{OP_DTYPES[2].bits()} % {bandwidth} == 0" for i in dim_options]
+    l1_constraints = [f"sizes['{i}']*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0" for i in dim_options]
     l1_constraint = f" or ".join(l1_constraints)
     cdlt.update_compilation_param("LEVEL1_hint", l1_constraint)
     #
@@ -34,6 +38,8 @@ def add_simd_tile_constraint(hag, cdlt, fixed_dims):
     return cdlt
 
 def add_conv_constraints(hag, cdlt, is_fusion=False):
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
     # if not is_fusion:
     #     cdlt.update_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
@@ -56,12 +62,12 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     oc_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
 
     if hag.meta_cfg['SA_TILE_CONSTR'] and not hag.meta_cfg['ASIC_CONFIG']:
-        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} % {ic_bandwidth} == 0"
-        oc_hint = f"sizes['OC']*{OP_DTYPES[2].bits()} % {oc_bandwidth} == 0"
+        ic_hint = f"sizes['IC']*{DTYPE_MAP[acc_dtype].bits()} % {ic_bandwidth} == 0"
+        oc_hint = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} % {oc_bandwidth} == 0"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     elif not hag.meta_cfg['SA_TILE_CONSTR']:
-        ic_hint = f"sizes['IC']*{OP_DTYPES[0].bits()} >= {ic_bandwidth}"
-        oc_hint = f"sizes['OC']*{OP_DTYPES[2].bits()} >= {oc_bandwidth}"
+        ic_hint = f"sizes['IC']*{DTYPE_MAP[inpt_dtype].bits()} >= {ic_bandwidth}"
+        oc_hint = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} >= {oc_bandwidth}"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
 
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
@@ -81,6 +87,7 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     return cdlt
 
 def add_gemm_constraints(hag, cdlt):
+
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
 
     wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
@@ -90,11 +97,13 @@ def add_gemm_constraints(hag, cdlt):
     constraint = f"np.prod(list(splits.values())) > 1"
 
     if not hag.meta_cfg['ASIC_CONFIG']:
+        inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+        acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
         sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
         bandwidth = sg_edge.bandwidth
         fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
                       f"{obuf_index_size} <= {obuf_elements} and " \
-                      f"sizes['N']*{OP_DTYPES[0].bits()} % {bandwidth} == 0"
+                      f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} % {bandwidth} == 0"
         constraint = f"{constraint} and {fpga_constr}"
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 

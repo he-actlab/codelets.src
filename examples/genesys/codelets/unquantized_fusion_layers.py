@@ -1,12 +1,15 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
+from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, DTYPE_MAP
 from . import add_conv_constraints, range_from_cfg, \
     add_simd_constraint, create_immediate_with_operand, add_scale_op, \
     add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op, add_flex_simd_constraints
 
-def create_matmul3d_args(cdlt):
+def create_matmul3d_args(cdlt, hag):
     params = {}
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
     M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
     N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[2])
@@ -17,14 +20,17 @@ def create_matmul3d_args(cdlt):
     params['N'] = N
     params['P'] = P
 
-    data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
-    weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-    bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=OP_DTYPES[2])
+    data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=inpt_dtype)
+    weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+    bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=acc_dtype)
     cdlt.set_inputs([data, weight, bias])
     return cdlt, params
 
-def create_matmul4d_args(cdlt):
+def create_matmul4d_args(cdlt, hag):
     params = {}
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
     C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
     M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
@@ -37,13 +43,16 @@ def create_matmul4d_args(cdlt):
     params['N'] = N
     params['P'] = P
 
-    data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=OP_DTYPES[0])
-    weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=OP_DTYPES[0])
+    data = cdlt.create_operand_template("data", OP_DTYPES, [B, C, M, N], default_dtype=inpt_dtype)
+    weight = cdlt.create_operand_template("weight", OP_DTYPES, [B, C, N, P], default_dtype=inpt_dtype)
 
     cdlt.set_inputs([data, weight])
     return cdlt, params
 
-def create_mamtul4d_func(cdlt, params):
+def create_mamtul4d_func(cdlt, hag, params):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     data = cdlt.inputs[0]
     weight = cdlt.inputs[1]
     B = params['B']
@@ -52,7 +61,7 @@ def create_mamtul4d_func(cdlt, params):
     C = params['C']
     P = params['P']
 
-    gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+    gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
     cdlt.add_temp_operand(gemm_out)
 
     cdlt.configure("start", "systolic_array")
@@ -78,7 +87,10 @@ def create_mamtul4d_func(cdlt, params):
 
     return cdlt, gemm_out
 
-def create_mamtul3d_func(cdlt, params):
+def create_mamtul3d_func(cdlt, hag, params):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     data = cdlt.inputs[0]
     weight = cdlt.inputs[1]
     bias = cdlt.inputs[2]
@@ -87,7 +99,7 @@ def create_mamtul3d_func(cdlt, params):
     N = params['N']
     P = params['P']
 
-    gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+    gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
     cdlt.add_temp_operand(gemm_out)
 
 
@@ -114,7 +126,10 @@ def create_mamtul3d_func(cdlt, params):
     cdlt.configure("end", "systolic_array")
     return cdlt, gemm_out
 
-def create_conv_args(cdlt):
+def create_conv_args(cdlt, hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     params = {}
     stride = cdlt.dummy_op("stride", cdlt.node.stride)
     pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
@@ -142,14 +157,17 @@ def create_conv_args(cdlt):
     params['IH'] = IH
     params['IW'] = IW
 
-    data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=OP_DTYPES[0])
-    weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=OP_DTYPES[0])
-    bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=OP_DTYPES[2])
+    data = cdlt.create_operand_template("data", OP_DTYPES, [N, IC, IH, IW], default_dtype=inpt_dtype)
+    weight = cdlt.create_operand_template("weight", OP_DTYPES, [OC, IC, KH, KW], default_dtype=inpt_dtype)
+    bias = cdlt.create_operand_template("bias", OP_DTYPES, [OC], default_dtype=acc_dtype)
     cdlt.set_inputs([data, weight, bias])
     return cdlt, params
 
 
-def create_conv_func(cdlt, params):
+def create_conv_func(cdlt, hag, params):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     data = cdlt.inputs[0]
     weight = cdlt.inputs[1]
     bias = cdlt.inputs[2]
@@ -165,7 +183,7 @@ def create_conv_func(cdlt, params):
     IH = params['IH']
     IW = params['IW']
 
-    conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+    conv_out = cdlt.create_operand_template("conv_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
     cdlt.add_temp_operand(conv_out)
     # SA Config
     cdlt.configure("start", "systolic_array")
@@ -199,25 +217,26 @@ def create_conv_func(cdlt, params):
     return cdlt, conv_out
 
 def conv_relu(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+
     with CodeletTemplate("conv_bias_relu") as cdlt:
 
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         param_op = cdlt.dummy_op('param', 16)
         param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
-        cdlt, conv_out = create_conv_func(cdlt, params)
-
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
-        # relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        # relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         # relu_out.start_location = "VMEM1"
         # cdlt.add_temp_operand(relu_out)
 
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
-        m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
-        nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
         cdlt.configure("start", "IMM", immediate_value=param_op)
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:
@@ -235,19 +254,22 @@ def conv_relu(hag: ArchitectureNode):
 
 
 def conv_leaky_relu(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_leaky_relu") as cdlt:
 
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype=acc_dtype_name)
 
         alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
 
 
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
@@ -271,15 +293,18 @@ def conv_leaky_relu(hag: ArchitectureNode):
 
 
 def conv_relu_max_pool(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_relu_max_pool") as cdlt:
         # Setup conv arguments
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Add parameter for relu
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         param = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
 
         # Create systolic loop nest
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         # parameters for max pool
         C, N = params['OC'], params['N']
@@ -289,11 +314,11 @@ def conv_relu_max_pool(hag: ArchitectureNode):
         KW = cdlt.dummy_op("KW1", cdlt.node.kernel_size[1])
 
         # Create outputs
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_outputs([out])
 
         # Create temporary storage for relu output
-        relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        relu_out = cdlt.create_operand_template("relu_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         relu_out.start_location = "VMEM1"
         cdlt.add_temp_operand(relu_out)
 
@@ -326,26 +351,28 @@ def conv_relu_max_pool(hag: ArchitectureNode):
 
 
 def conv_add_relu(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_add_relu") as cdlt:
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
 
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         param_op = cdlt.dummy_op('param', 16)
         param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         cdlt.add_input(add_lhs)
         cdlt.set_outputs([out])
 
-        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         add_out.start_location = "VMEM2"
         cdlt.add_temp_operand(add_out)
 
         # Add the convolution
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
@@ -371,20 +398,22 @@ def conv_add_relu(hag: ArchitectureNode):
     return cdlt
 
 def conv_add(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_add") as cdlt:
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         cdlt.add_input(add_lhs)
         cdlt.set_outputs([out])
 
 
         # Add the convolution
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
@@ -407,27 +436,29 @@ def conv_add(hag: ArchitectureNode):
 
 
 def conv_add_leaky_relu(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_add_leaky_relu") as cdlt:
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
 
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype=acc_dtype_name)
 
         alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=inpt_dtype)
         cdlt.add_input(add_lhs)
         cdlt.set_outputs([out])
 
-        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         add_out.start_location = "VMEM2"
         cdlt.add_temp_operand(add_out)
 
         # Add the convolution
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
@@ -458,26 +489,29 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
     # P1_update = (iw' - iw1)/2
     # Halo effect
     # constraint =
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_leaky_relu_add") as cdlt:
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
 
         # Use initial params to setup subsequent operation details
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype=acc_dtype_name)
 
         alpha = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='alpha')
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=inpt_dtype)
         cdlt.add_input(add_lhs)
         cdlt.set_outputs([out])
 
-        leaky_relu_out = cdlt.create_operand_template("leaky_relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        leaky_relu_out = cdlt.create_operand_template("leaky_relu_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         leaky_relu_out.start_location = "VMEM2"
         cdlt.add_temp_operand(leaky_relu_out)
 
         # Add the convolution
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
@@ -503,10 +537,12 @@ def conv_leaky_relu_add(hag: ArchitectureNode):
     return cdlt
 
 def conv_bias_clip_depthwise_conv_bias_add(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_clip_depthwise_conv_bias_add") as cdlt:
         # Setup conv arguments
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Add parameter for clip
         C, N = params['OC'], params['N']
         ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[3].shape[1])
@@ -516,8 +552,8 @@ def conv_bias_clip_depthwise_conv_bias_add(hag: ArchitectureNode):
         KW = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
         # Add dw conv inputs
-        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=acc_dtype)
         cdlt.add_input(weight)
         cdlt.add_input(bias)
 
@@ -526,28 +562,28 @@ def conv_bias_clip_depthwise_conv_bias_add(hag: ArchitectureNode):
 
 
         # Create outputs
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         # Create temporary storage
-        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(clip_out1)
 
-        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(dw_conv_out)
 
-        # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
 
 
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
         cdlt.configure("start", "SIMD")
         zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=SIMD_SIZE)
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
@@ -598,10 +634,12 @@ def conv_bias_clip_depthwise_conv_bias_add(hag: ArchitectureNode):
 
 
 def conv_bias_clip_depthwise_conv_bias_add_clip(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_clip_depthwise_conv_bias_add_clip") as cdlt:
         # Setup conv arguments
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Add parameter for clip
         C, N = params['OC'], params['N']
         ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[3].shape[1])
@@ -611,8 +649,8 @@ def conv_bias_clip_depthwise_conv_bias_add_clip(hag: ArchitectureNode):
         KW = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
         # Add dw conv inputs
-        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=acc_dtype)
         cdlt.add_input(weight)
         cdlt.add_input(bias)
 
@@ -621,27 +659,27 @@ def conv_bias_clip_depthwise_conv_bias_add_clip(hag: ArchitectureNode):
 
 
         # Create outputs
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         # Create temporary storage
-        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(clip_out1)
 
-        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         dw_conv_out.start_location = "VMEM1"
         cdlt.add_temp_operand(dw_conv_out)
 
 
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
         nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
@@ -720,6 +758,9 @@ def bias_add_clip(hag: ArchitectureNode):
     # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
     # TODO: Make sure the output operands use 0 for it's offset
     # TODO: Need to figure out how to change the memory layout
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("bias_add_clip") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
@@ -727,15 +768,15 @@ def bias_add_clip(hag: ArchitectureNode):
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([data, bias])
         cdlt.set_outputs([out])
 
 
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
@@ -774,12 +815,15 @@ def bias_add_clip(hag: ArchitectureNode):
     return cdlt
 
 def conv_clip(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_clip") as cdlt:
 
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         param_op = cdlt.dummy_op("param", 16)
         param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="param")
@@ -787,14 +831,14 @@ def conv_clip(hag: ArchitectureNode):
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max")
 
 
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
 
         OC, N, OH, OW = params['OC'], params['N'], params['OH'], params['OW']
-        # clip_out = cdlt.create_operand_template("clip_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[2])
+        # clip_out = cdlt.create_operand_template("clip_out", OP_DTYPES, [N, OC, OH, OW], default_dtype=acc_dtype)
         # clip_out.start_location = "VMEM1"
         # cdlt.add_temp_operand(clip_out)
 
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "SIMD")
@@ -826,13 +870,16 @@ def conv_clip(hag: ArchitectureNode):
     return cdlt
 
 def inv_sqrt(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("sqrt_reciprocal") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
 
@@ -850,14 +897,17 @@ def inv_sqrt(hag: ArchitectureNode):
     return cdlt
 
 def add_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('add_add') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2, op3])
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -880,15 +930,19 @@ def add_add(hag):
     return cdlt
 
 def add_add4d(hag):
+    
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('add_add4d') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2, op3])
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -912,14 +966,17 @@ def add_add4d(hag):
     return cdlt
 
 def mul_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('mul_add') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [H], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [H], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [H], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2, op3])
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -944,14 +1001,17 @@ def mul_add(hag):
     return cdlt
 
 def mul_add3d(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('mul_add3d') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [H], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [H], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2, op3])
         cdlt.set_outputs([out])
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -976,18 +1036,21 @@ def mul_add3d(hag):
     return cdlt
 
 def sub_mul(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('sub_mul') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([op1])
         cdlt.set_outputs([out])
 
-        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.mul_rhs, dtype="FXP32")
-        sub_rhs = cdlt.dummy_op("sub_rhs", cdlt.node.sub_rhs, dtype="FXP32")
+        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.mul_rhs, dtype=acc_dtype_name)
+        sub_rhs = cdlt.dummy_op("sub_rhs", cdlt.node.sub_rhs, dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         mul_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='mul_rhs')
@@ -1010,17 +1073,20 @@ def sub_mul(hag):
     return cdlt
 
 def sub_pow(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('sub_pow') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
 
 
-        exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype="FXP32")
+        exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
         zero_op = cdlt.dummy_op('zero', 0)
@@ -1044,24 +1110,27 @@ def sub_pow(hag):
     return cdlt
 
 def add_sqrt_div(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('add_sqrt_div') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        # op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        # op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op3])
         cdlt.set_outputs([out])
 
-        x = cdlt.create_operand_template("x", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        x = cdlt.create_operand_template("x", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.add_temp_operand(x)
 
-        y = cdlt.create_operand_template("y", OP_DTYPES, [N, C, H], default_dtype=OP_DTYPES[2])
+        y = cdlt.create_operand_template("y", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
         cdlt.add_temp_operand(y)
 
-        add_lhs = cdlt.dummy_op("add_lhs", cdlt.node.kwargs['add_lhs'], dtype="FXP32")
+        add_lhs = cdlt.dummy_op("add_lhs", cdlt.node.kwargs['add_lhs'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         add_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='add_lhs')
@@ -1117,6 +1186,9 @@ def add_sqrt_div(hag):
     return cdlt
 
 def matmul_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('matmul_add') as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[1])
@@ -1124,15 +1196,15 @@ def matmul_add(hag):
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
 
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=OP_DTYPES[0])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=OP_DTYPES[0])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [B, M, N], default_dtype=inpt_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight, bias])
         data = cdlt.inputs[0]
         weight = cdlt.inputs[1]
         bias = cdlt.inputs[2]
 
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
         cdlt.set_outputs([gemm_out])
 
         cdlt.configure("start", "systolic_array")
@@ -1163,15 +1235,18 @@ def matmul_add(hag):
     return cdlt
 
 def matmul_add_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('matmul_add_add') as cdlt:
-        cdlt, params = create_matmul3d_args(cdlt)
+        cdlt, params = create_matmul3d_args(cdlt, hag)
         B, M, P = params['B'], params['M'], params['P']
 
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
         cdlt.add_input(add_lhs)
 
-        cdlt, gemm_out = create_mamtul3d_func(cdlt, params)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[0])
+        cdlt, gemm_out = create_mamtul3d_func(cdlt, hag, params)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -1194,18 +1269,21 @@ def matmul_add_add(hag):
     return cdlt
 
 def matmul_add_gelu(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('matmul_add_gelu') as cdlt:
-        cdlt, params = create_matmul3d_args(cdlt)
+        cdlt, params = create_matmul3d_args(cdlt,hag)
         B, M, P = params['B'], params['M'], params['P']
 
-        cdlt, gemm_out = create_mamtul3d_func(cdlt, params)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[0])
+        cdlt, gemm_out = create_mamtul3d_func(cdlt, hag, params)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, M, P], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
-        gelu_out = cdlt.create_operand_template("gelu_out", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        gelu_out = cdlt.create_operand_template("gelu_out", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
         gelu_out.start_location = "VMEM2"
         cdlt.add_temp_operand(gelu_out)
 
-        sign_val = cdlt.create_operand_template("sign_val", OP_DTYPES, [B, M, P], default_dtype=OP_DTYPES[2])
+        sign_val = cdlt.create_operand_template("sign_val", OP_DTYPES, [B, M, P], default_dtype=acc_dtype)
         # sign_val.start_location = "VMEM2"
         cdlt.add_temp_operand(sign_val)
 
@@ -1257,21 +1335,24 @@ def matmul_add_gelu(hag):
     return cdlt
 
 def matmul_div_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('matmul_div_add') as cdlt:
-        cdlt, params = create_matmul4d_args(cdlt)
+        cdlt, params = create_matmul4d_args(cdlt, hag)
         B, M, P, C, N = params['B'], params['M'], params['P'], params['C'], params['N']
 
-        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
         cdlt.add_input(add_lhs)
 
-        cdlt, gemm_out = create_mamtul4d_func(cdlt, params)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[0])
+        cdlt, gemm_out = create_mamtul4d_func(cdlt, hag, params)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B, C, M, P], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
-        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [B, C, M, P], default_dtype=OP_DTYPES[2])
+        add_out = cdlt.create_operand_template("add_out", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
         add_out.start_location = "VMEM2"
         cdlt.add_temp_operand(add_out)
 
-        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype="FXP32")
+        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype=acc_dtype_name)
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         mul_op = cdlt.create_temp_operand([simd_size], "IMM", name="mul_rhs")
@@ -1301,18 +1382,21 @@ def matmul_div_add(hag):
 ### SW PIPELINE FUSIONS
 
 def div_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('div_add') as cdlt:
         B = cdlt.dummy_op("B", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[2])
         P = cdlt.dummy_op("P", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [B,C,M,P], default_dtype=OP_DTYPES[2])
-        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [B,C,M,P], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [B,C,M,P], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [B,C,M,P], default_dtype=acc_dtype)
+        op3 = cdlt.create_operand_template("op3", OP_DTYPES, [B,C,M,P], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [B,C,M,P], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op3])
         cdlt.set_outputs([out])
 
-        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype="FXP32")
+        mul_rhs = cdlt.dummy_op("mul_rhs", cdlt.node.div_lhs, dtype=acc_dtype_name)
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         mul_op = cdlt.create_temp_operand([simd_size], "IMM", name="mul_rhs")
@@ -1341,14 +1425,17 @@ def div_add(hag):
     return cdlt
 
 def add_relu(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('add_relu') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
@@ -1381,19 +1468,22 @@ def add_relu(hag):
     return cdlt
 
 def add_leaky_relu(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('add_leaky_relu') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype=acc_dtype_name)
 
         alpha = cdlt.create_temp_operand([simd_size], "IMM", 'alpha')
 
@@ -1423,19 +1513,22 @@ def add_leaky_relu(hag):
     return cdlt
 
 def leaky_relu_add(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('leaky_relu_add') as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
-        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=OP_DTYPES[2])
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op3", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
         cdlt.set_inputs([op1, op2])
         cdlt.set_outputs([out])
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype="FXP32")
+        alphaval = cdlt.dummy_op("alpha", cdlt.node.alpha, dtype=acc_dtype_name)
 
         alpha = cdlt.create_temp_operand([simd_size], "IMM", name='alpha')
 
@@ -1470,6 +1563,9 @@ def clip_depthwise_conv(hag: ArchitectureNode):
     # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
     # TODO: Make sure the output operands use 0 for it's offset
     # TODO: Need to figure out how to change the memory layout
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("clip_depthwise_conv") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
@@ -1481,14 +1577,14 @@ def clip_depthwise_conv(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=acc_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight])
         cdlt.set_outputs([out])
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
@@ -1540,6 +1636,9 @@ def depthwise_conv_bias_clip(hag: ArchitectureNode):
     # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
     # TODO: Make sure the output operands use 0 for it's offset
     # TODO: Need to figure out how to change the memory layout
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("depthwise_conv_bias_clip") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
@@ -1551,14 +1650,14 @@ def depthwise_conv_bias_clip(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=acc_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
         # Create temporary storage
-        # clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        # clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         # cdlt.add_temp_operand(clip_out1)
         # clip_out1.start_location = "VMEM2"
 
@@ -1566,8 +1665,8 @@ def depthwise_conv_bias_clip(hag: ArchitectureNode):
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
 
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min")
@@ -1620,6 +1719,9 @@ def clip_depthwise_conv_bias(hag: ArchitectureNode):
     # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
     # TODO: Make sure the output operands use 0 for it's offset
     # TODO: Need to figure out how to change the memory layout
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("clip_depthwise_conv_bias") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
@@ -1631,15 +1733,15 @@ def clip_depthwise_conv_bias(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=acc_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
@@ -1694,6 +1796,9 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
     # TODO: Replicate inner loops on a per-operand basis, and use the same offset from the previous tile
     # TODO: Make sure the output operands use 0 for it's offset
     # TODO: Need to figure out how to change the memory layout
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("clip_depthwise_conv_bias_clip") as cdlt:
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
@@ -1705,15 +1810,15 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
         IH = cdlt.dummy_op("IH", cdlt.node.inputs[0].shape[2])
         IW = cdlt.dummy_op("IW", cdlt.node.inputs[0].shape[3])
 
-        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=OP_DTYPES[2])
-        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, IH, IW], default_dtype=acc_dtype)
+        weight = cdlt.create_operand_template("weight", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("bias", OP_DTYPES, [C], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data, weight, bias])
         cdlt.set_outputs([out])
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min")
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="max")
@@ -1772,10 +1877,12 @@ def clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
 
 
 def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_clip_depthwise_conv_bias_clip") as cdlt:
         # Setup conv arguments
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Add parameter for clip
         C, N = params['OC'], params['N']
         ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[3].shape[1])
@@ -1785,8 +1892,8 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
         KW = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
         # Add dw conv inputs
-        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=acc_dtype)
         cdlt.add_input(weight)
         cdlt.add_input(bias)
 
@@ -1795,27 +1902,27 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
 
 
         # Create outputs
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         # Create temporary storage
-        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(clip_out1)
 
-        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[2])
+        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         dw_conv_out.start_location = "VMEM1"
         cdlt.add_temp_operand(dw_conv_out)
 
 
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
         cdlt.configure("start", "SIMD")
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)
         nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=SIMD_SIZE)
@@ -1888,10 +1995,13 @@ def conv_bias_clip_depthwise_conv_bias_clip(hag: ArchitectureNode):
     return cdlt
 
 def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
-
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate("conv_bias_clip_depthwise_conv_bias") as cdlt:
+        
         # Setup conv arguments
-        cdlt, params = create_conv_args(cdlt)
+        cdlt, params = create_conv_args(cdlt, hag)
         # Add parameter for clip
         C, N = params['OC'], params['N']
         ONE = cdlt.dummy_op("ONE", cdlt.node.inputs[3].shape[1])
@@ -1901,8 +2011,8 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
         KW = cdlt.dummy_op("KW1", cdlt.node.inputs[3].shape[3])
 
         # Add dw conv inputs
-        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=OP_DTYPES[2])
-        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=OP_DTYPES[2])
+        weight = cdlt.create_operand_template("dw_conv_wgt", OP_DTYPES, [C, ONE, KH, KW], default_dtype=acc_dtype)
+        bias = cdlt.create_operand_template("dw_conv_bias", OP_DTYPES, [C], default_dtype=acc_dtype)
         cdlt.add_input(weight)
         cdlt.add_input(bias)
 
@@ -1911,28 +2021,28 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
 
 
         # Create outputs
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=OP_DTYPES[0])
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=inpt_dtype)
         cdlt.set_outputs([out])
 
         # Create temporary storage
-        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        clip_out1 = cdlt.create_operand_template("clip_out1", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(clip_out1)
 
-        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        dw_conv_out = cdlt.create_operand_template("dw_conv_out", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
         cdlt.add_temp_operand(dw_conv_out)
 
-        # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=OP_DTYPES[2])
+        # clip_out2 = cdlt.create_operand_template("clip_out2", OP_DTYPES, [N, C, params['OH'], params['OW']], default_dtype=acc_dtype)
 
 
         # Setup min/max params
-        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype="FXP32")
-        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype="FXP32")
+        minval = cdlt.dummy_op("min", cdlt.node.kwargs['minval'], dtype=acc_dtype_name)
+        maxval = cdlt.dummy_op("max", cdlt.node.kwargs['maxval'], dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         min_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='min')
         max_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='max')
 
-        cdlt, conv_out = create_conv_func(cdlt, params)
+        cdlt, conv_out = create_conv_func(cdlt, hag, params)
         cdlt.configure("start", "SIMD")
         zero = create_immediate_with_operand(cdlt, 'zero', 0, simd_size=SIMD_SIZE)
         m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=SIMD_SIZE)

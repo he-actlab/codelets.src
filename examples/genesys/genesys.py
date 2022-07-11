@@ -8,7 +8,7 @@ from examples.genesys.instruction_templates.genesys_templates import GENESYS_TEM
 # from .genesys_inference_codelets import GENESYS_CODELETS
 from .codelets import SPLIT_INFO, load_impls_cdlts, load_fusion_op_info
 
-from . import GENESYS_DTYPES, DTYPE_MAP
+from . import DTYPE_MAP
 
 import numpy as np
 from pathlib import Path
@@ -243,13 +243,21 @@ def get_transformed_srdfg(model_name,
 
 
 def get_arch(dtypes, genesys_cfg, update_cfg_dtypes):
-    dtypes = dtypes or GENESYS_DTYPES
+    dtypes = dtypes or dtypes_from_cfg(genesys_cfg)
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(inp_cfg=genesys_cfg, dtypes=dtypes)
     else:
         def_cfg = genesys_cfg
     return def_cfg
 
+
+def dtypes_from_cfg(cfg):
+    dtypes = {}
+    dtypes['SIMD'] = f"FXP{cfg['ACC_WIDTH']}"
+    dtypes['SYSTOLIC_ARRAY'] = {}
+    dtypes['SYSTOLIC_ARRAY']['inp_weight'] = f"FXP{cfg['DATA_WIDTH']}"
+    dtypes['SYSTOLIC_ARRAY']['bias_out'] = f"FXP{cfg['BIAS_WIDTH']}"
+    return dtypes
 
 def compile_genesys(model_name,
                     genesys_cfg,
@@ -280,7 +288,7 @@ def compile_genesys(model_name,
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
-    dtypes = dtypes or GENESYS_DTYPES
+    dtypes = dtypes or dtypes_from_cfg(genesys_cfg)
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(genesys_cfg, dtypes=dtypes)
     else:
@@ -442,7 +450,7 @@ def compile_genesys_layer(layer_file,
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
 
     TILING_DIR = f"{benchmark_path}/tiling_info"
-    dtypes = dtypes or GENESYS_DTYPES
+    dtypes = dtypes or dtypes_from_cfg(genesys_cfg)
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(genesys_cfg, dtypes=dtypes)
     else:
@@ -551,7 +559,7 @@ def compile_extracted_genesys_layer(model_name,
                                     relocation_offsets=None):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
 
-    dtypes = dtypes or GENESYS_DTYPES
+    dtypes = dtypes or dtypes_from_cfg(arch_config)
     if update_cfg_dtypes:
         def_cfg = update_genesys_cfg_from_dtypes(arch_config, dtypes=dtypes)
     else:
