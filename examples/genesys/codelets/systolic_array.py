@@ -685,7 +685,8 @@ def gemm_unquantized(hag: ArchitectureNode):
 
 
 def gemm_no_bias_unquantized(hag: ArchitectureNode):
-
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("matmul") as cdlt:
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
