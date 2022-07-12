@@ -90,7 +90,7 @@ def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
     loop_id_str = f"cdlt.op_id_counters['loop'] + {VMEM_ID_MAP['LD'][buffer_name]} + dim_info[0]"
     loop_iter_str = f"dim_info[1][1] - 1"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
-    data_width = f"hag.get_subgraph_node('DRAM').banks"
+    data_width = f"hag.get_subgraph_node('DRAM').width"
 
     iterable_str = f"enumerate(zip(*op.strides_iters({data_width}, divisor={n_banks}, max_bits=32)))"
     ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"

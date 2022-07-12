@@ -21,7 +21,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     # TODO: Change to LOW/HIGH request
 
     ld_st_loop_str = f"hag.util_fns.get_ld_st_loop_id('{buffer_name}', len(op.sizes_for_node('{buffer_name}')) - 1, '{ld_st}')"
-    data_width = f"hag.get_subgraph_node('DRAM').banks"
+    data_width = f"hag.get_subgraph_node('DRAM').width"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
 
     if buffer_name != "WBUF":
