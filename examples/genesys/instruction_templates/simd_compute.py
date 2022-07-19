@@ -26,7 +26,7 @@ OP_COMPUTE_CYCLES = {
     "EXP": 0,
     "POW": 0,
     "LN": 0,
-    "SQRT": 0,
+    "SQRT": 8,
     "INV_SQRT": 0,
     "LOG2": 0,
     "EQUAL": 0,

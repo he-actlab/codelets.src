@@ -272,7 +272,7 @@ def cross_entropy_loss(hag: ArchitectureNode):
         C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
         res = cdlt.create_operand_template("res", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
         target = cdlt.create_operand_template("target", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
-        loss = cdlt.create_operand_template("loss", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
+        loss = cdlt.create_operand_template("loss", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([res, target])
         cdlt.set_outputs([loss])
         temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
@@ -287,8 +287,8 @@ def cross_entropy_loss(hag: ArchitectureNode):
                 cdlt.transfer(loss, ["DRAM", "VMEM1"])
                 loss.set_write_destination("VMEM1")
                 cdlt.compute("EXP", [res[n, c]], [temp1[n, c]], target="SIMD")
-                cdlt.compute("ADD", [temp1[n, c], loss[n, c]], [loss[n, c]], target="SIMD")
-            cdlt.compute("DIV", [temp1[n, c], loss[n, c]], [loss[n, c]], target="SIMD")
+                cdlt.compute("ADD", [temp1[n, c], loss[n]], [loss[n]], target="SIMD")
+            cdlt.compute("DIV", [temp1[n, c], loss[n]], [loss[n]], target="SIMD")
             cdlt.transfer(loss, ["VMEM1", "DRAM"])
         cdlt.configure("end", "SIMD")
 
@@ -659,7 +659,7 @@ def load_dnn_cdlts(cfg):
         "avg_pool": averagepool2d,
         "softmax4d": softmax4d,
         # "batch_norm": batch_norm,
-        # "cross_entropy_loss": cross_entropy_loss,
+        "cross_entropy_loss": cross_entropy_loss,
         "bias_add": bias_add,
         "depthwise_conv": depthwise_conv,
         "depthwise_conv_bias": depthwise_conv_bias,

@@ -25,10 +25,13 @@
 	"DRAM_WIDTH": 8,
 	"DRAM_BANKS": 64,
 	"SW_PIPELINE_TEST": false,
-	"USE_QUANTIZATION": false,
+	"USE_QUANTIZATION": true,
 	"ALL_QUANT_OFF": true,
+	"FUSION_CONSTRAINTS": true,
 	"FUSE_LAYERS": false,
 	"ADDR_GEN_TEST": false,
 	"SA_TILE_CONSTR": true,
-	"ASIC_CONFIG": false
+	"ASIC_CONFIG": false,
+    "TRAINING": true,
+	"BATCH_SIZE": 1
 }

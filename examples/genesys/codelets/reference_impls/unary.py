@@ -4,6 +4,7 @@ from collections import Iterable, namedtuple
 from examples.genesys import FXP_CONFIGS
 from fxpmath import Fxp
 import numpy as np
+from .ref_op import OperandData
 from . import ReferenceOp, quantize_np
 
 class Unary(ReferenceOp):
@@ -31,7 +32,11 @@ class Unary(ReferenceOp):
         elif "reduce_mean" in self.op_name or "reduce_min" in self.op_name:
             axis = self.cdlt.required_params['axis'].value
             params = (axis,)
-
+        elif "sqrt" in self.op_name:
+            # inpt1 = Fxp(np.abs(inpt1), **FXP_CONFIGS[self.dtype]).val
+            inpt1 = np.abs(inpt1)
+            inouts['inputs'][0] = inouts['inputs'][0]._replace(data=inpt1)
+            params = tuple([])
         else:
             params = tuple([])
 
@@ -41,7 +46,10 @@ class Unary(ReferenceOp):
         output = self.unary_op(inpt1, *params)
         if len(output.shape) == 4:
             output = output.transpose((0, 2, 3, 1))
-
+        if "sqrt" in self.op_name:
+            inpt1 = Fxp(inouts['inputs'][0].data, **FXP_CONFIGS[self.dtype]).val
+            inouts['inputs'][0] = inouts['inputs'][0]._replace(data=inpt1)
+            output = Fxp(output, **FXP_CONFIGS[self.dtype]).val
         inouts['outputs'] = [output]
         return inouts
 

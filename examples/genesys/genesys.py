@@ -197,13 +197,13 @@ def update_genesys_cfg_from_dtypes(inp_cfg, dtypes=None):
     return inp_cfg
 
 
-def run_srdfg_passes(graph, cfg, train=False, batch_size=1, verbose=False, fuse_layers=False):
+def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False):
     FUSION_OP_INFO = load_fusion_op_info(cfg)
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
         graph = batch_size_pass(graph)
 
-    if train:
+    if cfg['TRAINING']:
         if verbose:
             print(f"Generating training graph for {graph.name}")
         graph = pm.create_training_graph(graph)
@@ -278,7 +278,6 @@ def compile_genesys(model_name,
                     batch_size=1,
                     fuse_layers=False,
                     relocation_offsets=None,
-                    train=False,
                     tiling_search_algorithm='valid_split',
                     do_compile=True,
                     graph=None,
@@ -294,12 +293,12 @@ def compile_genesys(model_name,
     else:
         def_cfg = genesys_cfg
 
-    if train:
+    if def_cfg['TRAINING']:
         model_name = f"{model_name}_train"
     if graph is None:
         graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
     if do_srdfg_passes:
-        graph = run_srdfg_passes(graph, def_cfg, train=train, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+        graph = run_srdfg_passes(graph, def_cfg, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -311,7 +310,7 @@ def compile_genesys(model_name,
         sizes_cfg['BBUF_SIZE'] = genesys.get_subgraph_node("BBUF").total_capacity
         pprint(sizes_cfg)
 
-    mode = "training" if train else "inference"
+    mode = "training" if def_cfg['TRAINING'] else "inference"
     # Codelet compilation starts here
     cdlts, impls = load_impls_cdlts(def_cfg)
 
@@ -614,6 +613,3 @@ def compile_extracted_genesys_layer(model_name,
 
     return program
 
-def add_genesys_codelets(hag: ComputeNode):
-    for op_name, cdlt in GENESYS_CODELETS.items():
-        hag.add_codelet(cdlt(hag))

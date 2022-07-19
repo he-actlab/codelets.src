@@ -22,6 +22,10 @@ GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight'] = 'FXP8'
 GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
 
 def set_defaults(cfg):
+    def set_default(name, default_val):
+        if name not in cfg:
+            print(f"{name} not set in config. Defaulting to {default_val}")
+            cfg[name] = default_val
 
     if 'DATA_WIDTH' not in cfg:
         cfg['DATA_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['inp_weight']].bits()
@@ -31,6 +35,10 @@ def set_defaults(cfg):
         cfg['BIAS_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
     if 'ACC_WIDTH' not in cfg:
         cfg['ACC_WIDTH'] = DTYPE_MAP[GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out']].bits()
+
+    if 'TRAINING' not in cfg:
+        cfg['TRAINING'] = False
+
 
     assert cfg['DATA_WIDTH'] == cfg['WGT_WIDTH']
     assert cfg['DATA_WIDTH']*4 == cfg['ACC_WIDTH']
@@ -93,25 +101,32 @@ def set_defaults(cfg):
 
     if 'DRAM_WIDTH' not in cfg:
         cfg['DRAM_WIDTH'] = 8
-    # else:
-    #     assert cfg['DRAM_WIDTH'] == 8
+
 
     if 'DRAM_BANKS' not in cfg:
         cfg['DRAM_BANKS'] = cfg['SIMD_CHANNEL_BW'] // cfg['DRAM_WIDTH']
     else:
         assert cfg['DRAM_BANKS'] == cfg['SIMD_CHANNEL_BW'] // cfg['DRAM_WIDTH']
+    set_default('SW_PIPELINE_TEST', False)
+    set_default('ASIC_CONFIG', False)
+    set_default('ADDR_GEN_TEST', False)
 
     assert 'SW_PIPELINE_TEST' in cfg
     assert 'USE_QUANTIZATION' in cfg
     assert 'ALL_QUANT_OFF' in cfg
     assert 'ADDR_GEN_TEST' in cfg
     assert 'FUSE_LAYERS' in cfg
+
+
     if cfg['FUSE_LAYERS']:
         cfg['FUSION_CONSTRAINTS'] = True
     else:
         cfg['FUSION_CONSTRAINTS'] = False
+
+
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
+
     return cfg
 
 def load_config(fpath):

@@ -210,6 +210,14 @@ class BiasAdd(ReferenceOp):
         inouts['outputs'] = [output]
         return inouts
 
+class UnImplementedOp(ReferenceOp):
+
+    def __init__(self, cdlt, program):
+        operands = []
+        outputs = []
+        super().__init__(cdlt, operands, outputs, program)
+        raise RuntimeError(f"Op {cdlt.op_name} is not yet implemented")
+
 def load_dnn_impls(cfg):
 
     DNN_IMPLS = {
@@ -217,7 +225,7 @@ def load_dnn_impls(cfg):
         "softmax4d": Softmax,
         "bias_add": BiasAdd,
         # "batch_norm": batch_norm,
-        # "cross_entropy_loss": cross_entropy_loss,
+        "cross_entropy_loss": UnImplementedOp,
         "depthwise_conv": partial(DWConv, use_bias=False),
         "depthwise_conv_bias": partial(DWConv, use_bias=True),
         "global_avg_pool": GlobalAvgPool,
