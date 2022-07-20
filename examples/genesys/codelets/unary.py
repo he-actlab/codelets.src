@@ -2,7 +2,7 @@ from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.templates.operation_template import OperationTemplate
 from examples.genesys import OP_DTYPES, DTYPE_MAP
-from . import range_from_cfg, add_simd_constraint
+from . import range_from_cfg, add_simd_constraint, add_flex_simd_constraints
 from functools import partial
 #
 def elem_unary_nd(cdlt_name, instr_name, num_dims, imm_val, hag):
@@ -561,8 +561,15 @@ def tensor_transpose4d(hag: ArchitectureNode):
                         cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['W'] == 1")
-    cdlt = add_simd_constraint(hag, cdlt, "W")
+    ## Changes for benchmarking
+    # cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['W'] == 1")
+    # cdlt = add_simd_constraint(hag, cdlt, "W")
+
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['W'] == 1 or splits['C'] == 1")
+    cdlt = add_flex_simd_constraints(hag, cdlt, ["C", "W", "H"])
+
+    #### End changes for benchmarking
+
 
     return cdlt
 

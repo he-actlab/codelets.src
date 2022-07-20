@@ -12,6 +12,17 @@ def add_simd_constraint(hag, cdlt, fixed_dim):
     cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0")
     return cdlt
 
+def add_multi_simd_constraint(hag, cdlt, fixed_dims):
+    assert isinstance(fixed_dims, list)
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    simd_dims = hag.get_subgraph_node("SIMD").dimensions
+    simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
+    bandwidth = simd_edge.bandwidth
+    cdlt.update_compilation_param(f"{fixed_dims}_hint2", f"size == {simd_dims[0]}")
+    cdlt.update_compilation_param(f"{fixed_dims}_hint1", f"size*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0")
+    return cdlt
+
 def add_flex_simd_constraints(hag, cdlt, dim_options):
     assert isinstance(dim_options, list)
     inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"

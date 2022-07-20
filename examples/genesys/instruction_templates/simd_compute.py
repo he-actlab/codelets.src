@@ -154,15 +154,27 @@ def simd_transpose_wr(hag):
 
     dst_loop_iter_base = f"cdlt.inner_iter({operand}, loop_op[1], loop_op[0])"
 
-    dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else ((({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
+    ## Changes for benchmarking
+    # Original implementation
+    # dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else (({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
+
+    # This is option 1, which worked, but is more inaccurate relative to the number of iterations
+    # alt_dst_iters = f"1 if {dst_outer_iters} == 0 else ((({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
+    # dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else {alt_dst_iters}"
+
+    # Option 2, which uses the lowest tile level to determine iterations, and is more accurate
+    alt_dst_iters = f"loop_op[1].iter_count//128 - 1"
+    cond = f"cdlt.param_tiling[2][cdlt.loop_param_map[loop_op[1].op_str]] != {simd_size}"
+    dst_loop_iters = f"loop_op[1].iter_count-1 if {cond} else {alt_dst_iters}"
+
+    ## End changes for benchmarking
 
     dst_op_loc = f"op.get_operand_location({operand}.name)"
 
     dst_ns_idx = f"(loop_op[1].loop_id % {ALL_LOOP_ID}) + ({operand}.get_mem_index({dst_op_loc}) * {ALL_LOOP_ID}) + 1 if op.get_operand_location({operand}.name) != 'IMM' " \
              f"else cdlt.temps.index({operand}) + 1"
 
-    # dst_base_sign_ext = f"({operand}.get_mem_offset({dst_op_loc})//({operand}.dtype.bits()) + 1) if {dst_op_loc} " \
-    #                 f"!= 'IMM' else cdlt.temps.index({operand})"
+
     dst_base_sign_ext = BASE_SIGN_EXT_TEMPLATE.format(OPERAND=operand, OP_LOC=dst_op_loc)
 
     dst_loop_stride = f"cdlt.inner_stride({operand}, loop_op[1], loop_op[0])"

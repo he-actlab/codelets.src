@@ -2,7 +2,7 @@
 from .util import range_from_cfg, create_immediate_with_operand, add_quantization,\
     add_scale_op, add_sys_array_cast, add_scale_and_cast_op
 from .arch_constraints import add_simd_constraint, add_conv_constraints,\
-    add_gemm_constraints, add_simd_tile_constraint, add_flex_simd_constraints
+    add_gemm_constraints, add_simd_tile_constraint, add_flex_simd_constraints, add_multi_simd_constraint
 
 # SW Impl
 from .reference_impls.fusion_layers import load_fusion_impl, load_unquant_fusion_impl
