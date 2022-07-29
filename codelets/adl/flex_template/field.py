@@ -112,7 +112,13 @@ class Field(object):
         if isinstance(result, str) and result in self.value_names:
             self.value = self.value_names[result]
             self.value_str = result
-        elif not isinstance(result, Integral) and self.param_fn_type == "int":
+        elif isinstance(result, Integral):
+            assert result >= 0, "Integer result for instruction field must be positive:\n" \
+                                f"Field name: {self.field_name}\n" \
+                                f"Param fn: {self.param_fn.fn_body_str}\n" \
+                                f"Value: {result}"
+            self.value = result
+        elif self.param_fn_type == "int":
             err_msg = f"Non-integer result value which is not found in value names:\n" \
                       f"Value: {result}, Type: {type(result)}\n" \
                       f"Possible string values: {list(self.value_names.keys())}" \

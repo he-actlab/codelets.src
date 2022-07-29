@@ -146,7 +146,12 @@ def simd_transpose_wr(hag):
     loop_tabs = f"{ALL_LOOP_ID} + loop_op[0]"
     dst_loop_iter = ('loop_op', f'enumerate(cdlt.get_ops_by_type("loop")[:-2] + [list(cdlt.get_ops_by_type("loop"))[-1]] + [list(cdlt.get_ops_by_type("loop"))[-2]])')
     transpose_axes = f"[i for i,s in enumerate(op.sources[0].shape_list) if s != op.dests[0].shape_list[i]]"
-    dst_outer_iters = f'cdlt.get_ops_by_type("loop")[-2].iter_count // {simd_size}'
+    # Previous dst_outer_iters
+    # dst_outer_iters = f'cdlt.get_ops_by_type("loop")[-2].iter_count // {simd_size}'
+    # New dst outer_iters
+    dst_outer_iters = f'max([l.iter_count for i, l in enumerate(cdlt.get_ops_by_type("loop")) if i >= len(cdlt.get_ops_by_type("loop"))/2]) // {simd_size}'
+    # end changes
+
     dst_outer_stride = f'cdlt.get_ops_by_type("loop")[-1].iter_count'
 
     operand = "op.dests[0]"
@@ -163,7 +168,7 @@ def simd_transpose_wr(hag):
     # dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else {alt_dst_iters}"
 
     # Option 2, which uses the lowest tile level to determine iterations, and is more accurate
-    alt_dst_iters = f"loop_op[1].iter_count//128 - 1"
+    alt_dst_iters = f"loop_op[1].iter_count//{simd_size} - 1"
     cond = f"cdlt.param_tiling[2][cdlt.loop_param_map[loop_op[1].op_str]] != {simd_size}"
     dst_loop_iters = f"loop_op[1].iter_count-1 if {cond} else {alt_dst_iters}"
 

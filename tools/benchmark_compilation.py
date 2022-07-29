@@ -197,12 +197,12 @@ def compile_benchmark(model_name,
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
+    print(f"TRAINING: {arch_config['TRAINING']}")
     program, _ = compile_full_model(model_name,
                                  cfg_name,
                                  store_compile=False,
                                  dir_ext=None,
                                  added_constr=None,
-                                 train_mode=False,
                                  verbose=verbose,
                                  model_data=None,
                                  fuse_layers=arch_config['FUSE_LAYERS'],
@@ -312,18 +312,23 @@ if __name__ == "__main__":
 
     else:
         # config = "unquantized_fused_custom128x128.json"
-        # config = "unquantized_fused_custom32x32.json"
-        config = "unquantized_fused_custom32x32_batch_size.json"
+        # config = "unquantized_unfused_custom32x32_train.json"
+        # config = "unquantized_fused_custom32x32_dtype.json"
+        # config = "unquantized_fused_custom32x32_batch_size.json"
         # config = "unquantized_fused_custom32x32.json"
         # config = "broken_config.json"
+
+        # config = "benchmark_8x8.json"
+        config = "benchmark_baseline.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
                       'mobilenetv2-opt', # 3
                       'yolov3-opt-static', # 4
                       'bert-base-cased-transpose-opt-trimmed-ort', # 5
-                      'gpt2-trimmed-opt', # 6
-                      "custom_fft", # 7
+                      "vgg16", # 6
+                      'gpt2-trimmed-opt', # 7
+                      "custom_fft", # 8
                       'conv_clip_depthwise_c32_w112_kw1',
                       'conv_lrelu_add_oc64_v3-opt',
                       'conv_lrelu_oc64',
@@ -341,7 +346,7 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           generate_data=False,
+                          # filtered_layers=[56],
                           # filter_op_types=["tensor_transpose4d", "tensor_transpose4d1d"],
                           # skip_op_types = ["tensor_transpose4d"],
-                          store_whole_program=False,
-                          identifier=0)
+                          store_whole_program=False, identifier=1)

@@ -1870,6 +1870,7 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
+        create_vgg16(True, False, False, False)
         # MODEL_DIR = Path(f"{Path(__file__).parent}/models")
         # load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
         # optimize_bert_onnx(False)
@@ -1938,7 +1939,7 @@ if __name__ == "__main__":
         #              ['Conv', 'Clip', 'DepthwiseConv',],
         #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
         # fusion_generator(name, sequences, test_run=True)
-        create_custom_fft(True, False, False, (1, 2048))
+        # create_custom_fft(True, False, False, (1, 2048))
         # trim_gpt2()
         # model = "gpt2-opt"
         # create_custom_gemm(True, False, False, False, 8, 128, 128)
