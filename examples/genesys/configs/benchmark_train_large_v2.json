@@ -1,4 +1,5 @@
 {
+	"DATA_WIDTH": 8,
 	"ARRAY_M": 32,
 	"ARRAY_N": 32,
 	"IBUF_DEPTH": 262144,

@@ -346,6 +346,7 @@ class CodeletProgram(object):
         except Exception as e:
             raise RuntimeError(f"Failed to instantiate node\n"
                                f"Node: {node.op_name}, {node.name}:\n"
+                               f"Input name: {node.inputs[0].name}\n"
                                f"Template: {cdlt_template.op_name}\n"
                   f"{e}")
 
@@ -1052,7 +1053,7 @@ class CodeletProgram(object):
         codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
         self.update_compilation_state('compilation_stages')
 
-        if finalize:
+        if finalize and self.hag.meta_cfg['GENERATE_INSTRUCTIONS']:
             print(f"Finalizing instructions")
             self.finalize_program(node_sequence, codelets, verbose=verbose)
             self.update_compilation_state('finalized')
@@ -1112,7 +1113,7 @@ class CodeletProgram(object):
             return
         print(f"Finalizing instructions")
 
-        if finalize:
+        if finalize and self.hag.meta_cfg['GENERATE_INSTRUCTIONS']:
             self.finalize_program(node_sequence, codelets, verbose=verbose)
             self.update_compilation_state('finalized')
 

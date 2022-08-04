@@ -123,6 +123,8 @@ def set_defaults(cfg):
     else:
         cfg['FUSION_CONSTRAINTS'] = False
 
+    if 'GENERATE_INSTRUCTIONS' not in cfg:
+        cfg['GENERATE_INSTRUCTIONS'] = True
 
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg

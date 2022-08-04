@@ -264,6 +264,7 @@ def run_benchmarks(benchmarks,
                    parallel=True,
                    **kwargs
                    ):
+
     if parallel:
         kwargs['verbose'] = False
         bench_pool = mp.Pool()
@@ -319,7 +320,7 @@ if __name__ == "__main__":
         # config = "broken_config.json"
 
         # config = "benchmark_8x8.json"
-        config = "benchmark_train_large.json"
+        config = "benchmark_train_large_v2.json"
         # config = "benchmark_baseline.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
@@ -347,7 +348,8 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           generate_data=False,
-                          filtered_layers=[501],
+                          # filtered_layers=[1],
+                          # filtered_layers=[501],
                           # filtered_layers=filtered_layers,
                           store_whole_program=False,
-                          identifier=2)
+                          identifier=0)
