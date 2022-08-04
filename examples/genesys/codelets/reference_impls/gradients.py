@@ -21,6 +21,17 @@ def load_gradient_impls(cfg):
             "sgd1d": Gradient,
             "sgd2d": Gradient,
             "sgd3d": Gradient,
-            "sgd4d": Gradient
+            "sgd4d": Gradient,
+          "batchnorm_grad_x_mu": Gradient,
+          "batchnorm_grad_inv_std": Gradient,
+          "batchnorm_grad_xhat": Gradient,
+          "batchnorm_grad_dx_rhs": Gradient,
+          "batchnorm_grad_gamma_inv_std": Gradient,
+          "batchnorm_grad_scaled_gy": Gradient,
+          "batchnorm_grad_dbeta": Gradient,
+          "batchnorm_grad_dgamma_xhat": Gradient,
+          "batchnorm_grad_dgamma": Gradient,
+          "batchnorm_grad_dgamma_mul_xhat": Gradient,
+          "batchnorm_grad_dx": Gradient,
           }
     return GRADIENT_IMPLS

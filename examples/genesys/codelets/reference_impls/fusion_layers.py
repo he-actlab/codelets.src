@@ -1,5 +1,6 @@
 from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT
-from collections import Iterable, namedtuple
+from collections import namedtuple
+from collections.abc import Iterable
 from functools import partial
 import numpy as np
 from fxpmath import Fxp

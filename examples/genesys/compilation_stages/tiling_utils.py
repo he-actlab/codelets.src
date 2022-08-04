@@ -263,6 +263,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
         hint_str = "\n".join([f"{k} : {v.fn_body_str}" for k, v in tile_info.tile_hints.items() if hasattr(v, 'fn_body_str')])
         raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
                            f"Dimensions: {cdlt.operand_dim_mapping()}\n"
+                           f"Operands: {[f'{o.name}: {o.shape}' for o in cdlt.operands]}\n"
                            f"Times per level: {level_counter}\n"
                            f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
                            f"Constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n\n"

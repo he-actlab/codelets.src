@@ -113,7 +113,10 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
     instr.set_field_by_name("MEM_TYPE", "BUFFER")
     instr.set_field_by_name("BUFFER", f"{buffer_name}")
     instr.set_field_flex_param("LOOP_ID", ld_st_loop_str)
-    instr.set_field_flex_param("REQUEST_SIZE", f"{req_size_str}//{n_banks}")
+
+    # TEMP FIX
+    # instr.set_field_flex_param("REQUEST_SIZE", f"{req_size_str}//{n_banks}")
+    instr.set_field_flex_param("REQUEST_SIZE", f"0")
     instr.set_print_tabs(ld_st_tabs)
 
 

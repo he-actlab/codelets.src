@@ -1,6 +1,7 @@
 import numpy as np
 from fxpmath import Fxp
-from collections import Iterable, namedtuple
+from collections import namedtuple
+from collections.abc import Iterable
 from . import FXP_CONFIGS
 # from . import GENESYS_CFG
 import torch.nn.functional as F

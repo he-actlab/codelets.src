@@ -122,6 +122,7 @@ def depthwise_conv_bias(hag: ArchitectureNode):
     return cdlt
 
 
+
 def batch_norm(hag: ArchitectureNode):
     inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
     acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
@@ -143,10 +144,6 @@ def batch_norm(hag: ArchitectureNode):
         cdlt.set_inputs([data, scale, offset, mean, istd])
         cdlt.set_outputs([out])
 
-        numer = cdlt.create_operand_template("numer", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
-        denom = cdlt.create_operand_template("denom", OP_DTYPES, [N, C, H, W], default_dtype=DTYPE_MAP[acc_dtype])
-        cdlt.add_temp_operand(numer)
-        cdlt.add_temp_operand(denom)
 
         cdlt.configure("start", "SIMD")
         with cdlt.loop(C) as c:
@@ -154,19 +151,18 @@ def batch_norm(hag: ArchitectureNode):
                 with cdlt.loop(H) as h:
                     with cdlt.loop(W) as w:
                         cdlt.transfer(data, ["DRAM", "VMEM1"])
-                        cdlt.transfer(out, ["DRAM", "VMEM1"])
+                        cdlt.transfer(scale, ["DRAM", "VMEM1"])
+                        cdlt.transfer(offset, ["DRAM", "VMEM1"])
                         cdlt.transfer(mean, ["DRAM", "VMEM2"])
                         cdlt.transfer(istd, ["DRAM", "VMEM2"])
-                        cdlt.transfer(scale, ["DRAM", "VMEM2"])
-                        cdlt.transfer(offset, ["DRAM", "VMEM2"])
-                        numer.set_write_destination("VMEM1")
-                        denom.set_write_destination("VMEM2")
-                        out.set_write_destination("VMEM1")
-                        cdlt.compute("SUB", [data[n, c, h, w], mean[c]], [numer[n, c, h, w]], target="SIMD")
-                        cdlt.compute("MUL", [numer[n, c, h, w], istd[c]], [out[n, c, h, w]], target="SIMD")
+
+                        data.set_write_destination("VMEM1")
+                        out.set_write_destination("VMEM2")
+                        cdlt.compute("SUB", [data[n, c, h, w], mean[c]], [data[n, c, h, w]], target="SIMD")
+                        cdlt.compute("MUL", [data[n, c, h, w], istd[c]], [out[n, c, h, w]], target="SIMD")
                         cdlt.compute("MUL", [out[n, c, h, w], scale[c]], [out[n, c, h, w]], target="SIMD")
                         cdlt.compute("ADD", [out[n, c, h, w], offset[c]], [out[n, c, h, w]], target="SIMD")
-                        cdlt.transfer(out, ["VMEM1", "DRAM"])
+                        cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
     cdlt = add_simd_constraint(hag, cdlt, "C")
@@ -223,17 +219,18 @@ def mean_var(hag: ArchitectureNode):
         temp2.start_location = "VMEM2"
         temp3.start_location = "VMEM2"
         temp1.set_write_destination("VMEM1")
-        temp2.set_write_destination("VMEM1")
-        temp3.set_write_destination("VMEM1")
+        temp2.set_write_destination("VMEM2")
+        temp3.set_write_destination("VMEM2")
 
         cdlt.set_inputs([data])
         cdlt.set_outputs([mean, istd])
         denom = cdlt.dummy_op("denom", cdlt.node.inputs[0].shape[0]*cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        eps_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM")
-        cdlt.configure("start", "IMM", immediate_value=denom, index=denom_op)
-        cdlt.configure("start", "IMM", immediate_value=0.0001, index=eps_op)
+        denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="denom")
+        eps = cdlt.dummy_op('eps', 0.0001)
+        eps_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="eps")
+        cdlt.configure("start", "IMM", immediate_value=denom)
+        cdlt.configure("start", "IMM", immediate_value=eps)
 
 
         with cdlt.loop(C) as c:
@@ -243,7 +240,6 @@ def mean_var(hag: ArchitectureNode):
                         cdlt.transfer(data, ["DRAM", "VMEM1"])
                         cdlt.transfer(mean, ["DRAM", "VMEM1"])
                         cdlt.transfer(istd, ["DRAM", "VMEM2"])
-                        data.set_write_destination("VMEM1")
                         mean.set_write_destination("VMEM1")
                         istd.set_write_destination("VMEM2")
                         cdlt.compute("ADD", [data[n, c, h, w], mean[c]], [mean[c]], target="SIMD")
@@ -263,7 +259,6 @@ def mean_var(hag: ArchitectureNode):
 
     return cdlt
 
-
 def cross_entropy_loss(hag: ArchitectureNode):
     inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
     acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
@@ -275,26 +270,23 @@ def cross_entropy_loss(hag: ArchitectureNode):
         loss = cdlt.create_operand_template("loss", OP_DTYPES, [N], default_dtype=DTYPE_MAP[acc_dtype])
         cdlt.set_inputs([res, target])
         cdlt.set_outputs([loss])
-        temp1 = cdlt.create_operand_template("temp1", OP_DTYPES, [N, C], default_dtype=DTYPE_MAP[acc_dtype])
-        temp1.start_location = "VMEM1"
-        temp1.set_write_destination("VMEM1")
-        cdlt.add_temp_operand(temp1)
-        cdlt.configure("start", "SIMD")
 
+        cdlt.configure("start", "SIMD")
         with cdlt.loop(N) as n:
             with cdlt.loop(C) as c:
                 cdlt.transfer(res, ["DRAM", "VMEM1"])
-                cdlt.transfer(loss, ["DRAM", "VMEM1"])
-                loss.set_write_destination("VMEM1")
-                cdlt.compute("EXP", [res[n, c]], [temp1[n, c]], target="SIMD")
-                cdlt.compute("ADD", [temp1[n, c], loss[n]], [loss[n]], target="SIMD")
-            cdlt.compute("DIV", [temp1[n, c], loss[n]], [loss[n]], target="SIMD")
-            cdlt.transfer(loss, ["VMEM1", "DRAM"])
+                cdlt.transfer(target, ["DRAM", "VMEM2"])
+                res.set_write_destination("VMEM1")
+                loss.set_write_destination("VMEM2")
+                cdlt.compute("EXP", [res[n, c]], [res[n, c]], target="SIMD")
+                cdlt.compute("ADD", [res[n, c], target[n]], [loss[n]], target="SIMD")
+                cdlt.compute("DIV", [res[n, c], loss[n]], [loss[n]], target="SIMD")
+            cdlt.transfer(loss, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_simd_constraint(hag, cdlt, "N")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['C'] == 1")
     return cdlt
-
 
 def maxpool2d(hag: ArchitectureNode):
     #
@@ -658,14 +650,14 @@ def load_dnn_cdlts(cfg):
     DNN_CDLTS = {
         "avg_pool": averagepool2d,
         "softmax4d": softmax4d,
-        # "batch_norm": batch_norm,
+        "batch_norm": batch_norm,
         "cross_entropy_loss": cross_entropy_loss,
         "bias_add": bias_add,
         "depthwise_conv": depthwise_conv,
         "depthwise_conv_bias": depthwise_conv_bias,
         "global_avg_pool": global_avg_pool,
         "max_pool": maxpool2d,
-        # "mean_var": mean_var,
+        "mean_var": mean_var,
         "gelu": gelu,
     }
     return DNN_CDLTS

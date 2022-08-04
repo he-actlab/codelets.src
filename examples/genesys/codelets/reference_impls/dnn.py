@@ -224,13 +224,13 @@ def load_dnn_impls(cfg):
         "avg_pool": partial(Pool, "avg"),
         "softmax4d": Softmax,
         "bias_add": BiasAdd,
-        # "batch_norm": batch_norm,
+        "batch_norm": UnImplementedOp,
         "cross_entropy_loss": UnImplementedOp,
         "depthwise_conv": partial(DWConv, use_bias=False),
         "depthwise_conv_bias": partial(DWConv, use_bias=True),
         "global_avg_pool": GlobalAvgPool,
         "max_pool": partial(Pool, "max"),
-        # "mean_var": mean_var,
+        "mean_var": UnImplementedOp,
         "gelu": Gelu,
     }
     return DNN_IMPLS

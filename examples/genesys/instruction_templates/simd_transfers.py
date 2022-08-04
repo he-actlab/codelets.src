@@ -14,6 +14,11 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
 
     # ns_idx = f"{all_loop_id} + op.operand.get_mem_index({buff_name_str}) * {all_loop_id}"
     ns_idx = f"0"
+    imm_base_sign_ext = f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()"
+    base_sign_ext_low = f"program.extract_bits({imm_base_sign_ext}, 16, 0)"
+    base_sign_ext_high = f"program.extract_bits({imm_base_sign_ext}, 16, 16)"
+    bitwidth = f"len(np.binary_repr({imm_base_sign_ext})) + int(np.signbit({imm_base_sign_ext}))"
+    bitwidth_cond = f"{bitwidth} <= 16"
 
 
     imm_operand_cond = f"op.operand in cdlt.outputs"
@@ -33,11 +38,28 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     instructions.append(macro_instr)
 
     macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
-    macro_instr.add_condition(imm_operand_cond)
+    macro_instr.add_condition(f"{imm_operand_cond} and {bitwidth_cond}")
     macro_instr.set_field_by_name('NS_ID', buffer_name)
     macro_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
     # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
-    macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
+    macro_instr.set_field_flex_param('IMM', imm_base_sign_ext)
+
+    low_instr = hag.get_primitive_template("BASE_LOW")
+    low_instr.add_condition(f"{imm_operand_cond} and not {bitwidth_cond}")
+    low_instr.set_field_by_name('NS_ID', buffer_name)
+    low_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
+    low_instr.set_field_flex_param('IMM', base_sign_ext_low)
+    macro_instr.add_base_instruction(low_instr)
+
+    high_instr = hag.get_primitive_template("BASE_HIGH")
+    high_instr.add_condition(f"{imm_operand_cond} and not {bitwidth_cond}")
+    high_instr.set_field_by_name('NS_ID', buffer_name)
+    high_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
+    high_instr.set_field_flex_param('IMM', base_sign_ext_high)
+    macro_instr.add_base_instruction(high_instr)
+
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)

@@ -62,6 +62,11 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     updated_dims = []
+    if 'TRAINING' in program.hag.meta_cfg.keys() and program.hag.meta_cfg['TRAINING']:
+        train = True
+    else:
+        train = False
+
     if template.op_name in program.metadata['FUSION_OP_INFO'].keys():
         pad_attrs = [k for k in template.dummy_ops.keys() if 'pad' in k]
         if 'max_pool' in template.op_name:
@@ -135,19 +140,30 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
 
     # Need to figure out if this works for DW Conv
     if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name not in LANGUAGE_MODELS:
+        simd_pad_dims = ["IC", "OC", "C"]
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         # updated_dims = []
         for c in compute_ops:
             if c.param_map['target'] == "SIMD":
                 for idx, i in enumerate(c.param_map['sources']):
-                    if "IC" in i.operand_shape_list_names:
-                        dim = "IC"
-                    elif "OC" in i.operand_shape_list_names:
-                        dim = "OC"
-                    elif "C" in i.operand_shape_list_names:
-                        dim = "C"
-                    else:
+                    dim = None
+                    for d in simd_pad_dims:
+                        if d in i.operand_shape_list_names:
+                            dim = d
+                            break
+                        elif train and 'cross_entropy_loss' in template.op_name and "N" in i.operand_shape_list_names:
+                            dim = "N"
+                            break
+                    if dim is None:
                         continue
+                    # if "IC" in i.operand_shape_list_names:
+                    #     dim = "IC"
+                    # elif "OC" in i.operand_shape_list_names:
+                    #     dim = "OC"
+                    # elif "C" in i.operand_shape_list_names:
+                    #     dim = "C"
+                    # else:
+                    #     continue
                     dim_idx = i.operand_shape_list_names.index(dim)
                     prev_idx = dim_idx
                     if i.operand_shape_list_names in POST_TRANSPOSE_SHAPES:
@@ -177,7 +193,6 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
                         dummy_dim = template.node.inputs[idx].shape[prev_idx]
                         template.update_dummy_op(dimname, dummy_dim + (constr - dummy_dim) % constr)
                         updated_dims.append(dimname)
-
 
     return template
 
@@ -369,6 +384,7 @@ def update_temporary_data_moves(cdlt):
 
                 if mmove is None:
                     raise RuntimeError(f"UNable to find movement for missing tile {m}\n"
+                                       f"Operand: {t.name}\n"
                                        f"Moves: {t.movement_keys()}")
                 t.tiling[m] = mmove.get_size_from_loops(cdlt, level_sizes)
 

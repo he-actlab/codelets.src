@@ -319,7 +319,8 @@ if __name__ == "__main__":
         # config = "broken_config.json"
 
         # config = "benchmark_8x8.json"
-        config = "benchmark_baseline.json"
+        config = "benchmark_train_large.json"
+        # config = "benchmark_baseline.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -329,15 +330,15 @@ if __name__ == "__main__":
                       "vgg16", # 6
                       'gpt2-trimmed-opt', # 7
                       "custom_fft", # 8
+                      "resnet50_train", # 9
+                      "resnet18_train", # 10
                       'conv_clip_depthwise_c32_w112_kw1',
                       'conv_lrelu_add_oc64_v3-opt',
                       'conv_lrelu_oc64',
                       'conv_clip_depthwise_v1-opt',
                       'fcn-resnet101-trimmed-opt',
                       ]
-
-
-        compile_benchmark(benchmarks[6],
+        compile_benchmark(benchmarks[10],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -346,7 +347,7 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           generate_data=False,
-                          # filtered_layers=[56],
-                          # filter_op_types=["tensor_transpose4d", "tensor_transpose4d1d"],
-                          # skip_op_types = ["tensor_transpose4d"],
-                          store_whole_program=False, identifier=1)
+                          filtered_layers=[501],
+                          # filtered_layers=filtered_layers,
+                          store_whole_program=False,
+                          identifier=2)

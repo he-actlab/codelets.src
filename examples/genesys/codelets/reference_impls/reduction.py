@@ -1,6 +1,4 @@
-from typing import List
 
-from collections import Iterable, namedtuple
 from examples.genesys import FXP_CONFIGS
 from fxpmath import Fxp
 import numpy as np
