@@ -129,7 +129,12 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
 
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
         # TODO: Need to validate
-        dummy_out_dim = template.node.inputs[1].shape[0]
+        if inp_dim.name == "N":
+            idx = 1
+        else:
+            assert inp_dim.name == "IC"
+            idx = 0
+        dummy_out_dim = template.node.inputs[1].shape[idx]
         if template.op_name in CUSTOM_PAD_OPS:
             new_out_dim = pad_fn(dummy_out_dim, size_constr, size_constr)
         else:
