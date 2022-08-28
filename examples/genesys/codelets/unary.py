@@ -96,6 +96,21 @@ def coarse_flatten2d(hag: ArchitectureNode):
         cdlt.configure("end", "SIMD")
     return cdlt
 
+def coarse_flatten3d(hag: ArchitectureNode):
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
+    with CodeletTemplate("coarse_flatten3d") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC], default_dtype=acc_dtype)
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+    return cdlt
+
 
 def tensor_transpose(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
@@ -621,6 +636,7 @@ def load_unary_cdlts(cfg):
     UNARY_CODELETS = {
         "coarse_flatten": coarse_flatten,
         "coarse_flatten2d": coarse_flatten2d,
+        "coarse_flatten3d": coarse_flatten3d,
         "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
         "elem_tanh3d": partial(elem_unary_nd, "elem_tanh3d", "TANH", 3, 16),
         "elem_tanh2d": elem_tanh2d,

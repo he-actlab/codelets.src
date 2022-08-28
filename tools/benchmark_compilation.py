@@ -320,8 +320,8 @@ if __name__ == "__main__":
         # config = "broken_config.json"
 
         # config = "benchmark_8x8.json"
-        config = "benchmark_train_large_v2.json"
-        # config = "benchmark_baseline.json"
+        # config = "benchmark_train_large_v2.json"
+        config = "benchmark_baseline.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -339,7 +339,7 @@ if __name__ == "__main__":
                       'conv_clip_depthwise_v1-opt',
                       'fcn-resnet101-trimmed-opt',
                       ]
-        compile_benchmark(benchmarks[10],
+        compile_benchmark(benchmarks[0],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -348,8 +348,8 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           generate_data=False,
-                          # filtered_layers=[1],
+                          # filtered_layers=[24, 48],
                           # filtered_layers=[501],
                           # filtered_layers=filtered_layers,
                           store_whole_program=False,
-                          identifier=0)
+                          identifier=3)

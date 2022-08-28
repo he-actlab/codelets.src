@@ -250,6 +250,7 @@ def load_unary_impls(cfg):
     UNARY_IMPLS = {
         "coarse_flatten": Unary,
         "coarse_flatten2d": Unary,
+        "coarse_flatten3d": Unary,
         "elem_tanh": Unary,
         "elem_tanh2d": Unary,
         "elem_tanh3d": Unary,
