@@ -73,8 +73,13 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     oc_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
 
     if hag.meta_cfg['SA_TILE_CONSTR'] and not hag.meta_cfg['ASIC_CONFIG']:
-        ic_hint = f"sizes['IC']*{DTYPE_MAP[acc_dtype].bits()} % {ic_bandwidth} == 0"
-        oc_hint = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} % {oc_bandwidth} == 0"
+        ic_hint0 = f"sizes['IC']*{DTYPE_MAP[acc_dtype].bits()} % {ic_bandwidth} == 0"
+        oc_hint0 = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} % {oc_bandwidth} == 0"
+        ic_hint1 = f"sizes['IC']*{DTYPE_MAP[inpt_dtype].bits()} % {ic_bandwidth} == 0"
+        oc_hint1 = f"sizes['OC']*{DTYPE_MAP[inpt_dtype].bits()} % {oc_bandwidth} == 0"
+
+        ic_hint = f"{ic_hint0} and {ic_hint1}"
+        oc_hint = f"{oc_hint0} and {oc_hint1}"
         constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     elif not hag.meta_cfg['SA_TILE_CONSTR']:
         ic_hint = f"sizes['IC']*{DTYPE_MAP[inpt_dtype].bits()} >= {ic_bandwidth}"

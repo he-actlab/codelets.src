@@ -262,6 +262,8 @@ class DataGen(object):
                         os.makedirs(base_path)
                     except OSError as e:
                         raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+                if self.verbose:
+                    print(f"Generating data to be stored in {base_path}")
                 self.generate_cdlt_data(cdlt, base_path)
 
 

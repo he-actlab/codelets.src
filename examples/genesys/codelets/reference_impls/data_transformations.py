@@ -150,7 +150,6 @@ def dram_layout(weights, print_debug=False):
     n = flat_weights.shape[0]
     assert n >= 4
     i = 0
-    nums = [i]
     while i < (n-4):
         concat_weights = (flat_weights[i]) + \
                          (flat_weights[i + 1] << 8) + \
@@ -159,8 +158,6 @@ def dram_layout(weights, print_debug=False):
         dram_weights.append(concat_weights)
 
         i += 4
-        nums.append(i)
-
     concat_weights = flat_weights[i]
     if i + 1 < n:
         concat_weights += flat_weights[i + 1] << 8

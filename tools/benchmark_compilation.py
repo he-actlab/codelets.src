@@ -276,7 +276,8 @@ def run_benchmarks(benchmarks,
 
 
 if __name__ == "__main__":
-    if sys.stdin and sys.stdin.isatty():
+    # if sys.stdin and sys.stdin.isatty():
+    if False:
         argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
         argparser.add_argument('-m', '--model', required=True,
                                help='Name of the onnx model to create.')
@@ -321,7 +322,8 @@ if __name__ == "__main__":
 
         # config = "benchmark_8x8.json"
         # config = "benchmark_train_large_v2.json"
-        config = "benchmark_baseline.json"
+        # config = "benchmark_baseline.json"
+        config = "benchmark_baseline_debug.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -338,8 +340,10 @@ if __name__ == "__main__":
                       'conv_lrelu_oc64',
                       'conv_clip_depthwise_v1-opt',
                       'fcn-resnet101-trimmed-opt',
+                      'yolo_conv_lrelu_test1', # yolo_conv_lrelu_OH12_KH1_S1
+                      'yolo_conv_lrelu_test2' # yolo_conv_lrelu_OH22_KH3_S1
                       ]
-        compile_benchmark(benchmarks[0],
+        compile_benchmark(benchmarks[-2],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -347,9 +351,9 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          generate_data=False,
-                          # filtered_layers=[24, 48],
+                          generate_data=True,
+                          # filtered_layers=[0],
                           # filtered_layers=[501],
                           # filtered_layers=filtered_layers,
                           store_whole_program=False,
-                          identifier=3)
+                          identifier=0)
