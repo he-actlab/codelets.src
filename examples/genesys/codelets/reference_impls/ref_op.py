@@ -8,6 +8,7 @@ from .util import numpy_datagen
 
 OperandData = namedtuple('OperandData', ['data', 'node_name', 'opname', 'idx', 'fmt'], defaults=[None])
 
+
 def create_operand_data(data, operand, fmt=None):
     assert not isinstance(data, OperandData)
     assert not isinstance(data, Operand)
@@ -55,6 +56,8 @@ class ReferenceOp(object):
         raise NotImplemented
 
     def compute_outputs(self, inouts):
+
+
         inouts = inouts or {"inputs": [], "params": [], "outputs": []}
         inouts = self.set_operands(inouts)
 
@@ -78,12 +81,14 @@ class ReferenceOp(object):
         for idx, op in enumerate(self.operands):
             found_inp = False
             for i in inouts['inputs']:
-                if i.opname == op.name:
+                if i.node_name == op.node_name:
                     found_inp = True
                     new_inputs.append(i)
                     break
+
             if found_inp:
                 continue
+
             data = numpy_datagen(op.shape, op.dtype.bits(),
                                  fxp_dtype=f"{op.dtype}",
                                  scale=self.scale, constant_val=constant_val, print_range=print_range)

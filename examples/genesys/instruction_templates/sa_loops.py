@@ -7,10 +7,20 @@ IS_SA_COMPUTE_LOOP = ""
 def inner_sa_loops(hag: ArchitectureNode):
     instructions = []
     inner_loop_id_str = f"(op.loop_level % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL}"
-    reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
-                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
-    sa_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "OC"]) ' \
-                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["N", "P"])'
+    conv_red_loop = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"])'
+    gemm_red_loop = '("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    matmul_red_loop = '("matmul" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    # reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
+    #                       'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    reduction_loop_cond = f"{conv_red_loop} or {gemm_red_loop} or {matmul_red_loop}"
+
+
+    conv_sa_loop = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "OC"])'
+    gemm_sa_loop = '("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["N","P"])'
+    matmul_sa_loop = '("matmul" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["N","P"])'
+    # sa_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "OC"]) ' \
+    #                       'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["N", "P"])'
+    sa_loop_cond = f"{conv_sa_loop} or {gemm_sa_loop} or {matmul_sa_loop}"
     rd_loc = "{operand}.get_transfer_source('pe_array')"
     wr_loc = "{operand}.get_transfer_dest('pe_array')"
     # rd_check = "({operand}.has_transfer([{operand}.get_ld_storage_location(cdlt, 1), 'pe_array']))"
@@ -100,8 +110,12 @@ def outer_sa_loops(hag: ArchitectureNode):
     # temp_operand_storage_cond = f"(hag.is_adjacent(operand.get_ld_storage_location(cdlt, 1, return_null=True), 'pe_array'))"
 
     # loop_cond_str = f"{pe_target_cond} and {operand_storage_cond}"
-    reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
-                          'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    conv_red_loop = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"])'
+    gemm_red_loop = '("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    matmul_red_loop = '("matmul" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    # reduction_loop_cond = '("conv" in cdlt.op_name and cdlt.loop_param_map[op.op_str] in ["IC", "KH", "KW"]) ' \
+    #                       'or ("gemm" in cdlt.op_name and cdlt.loop_param_map[op.op_str] == "N")'
+    reduction_loop_cond = f"{conv_red_loop} or {gemm_red_loop} or {matmul_red_loop}"
 
     systolic_compute = f"(cdlt.loop_compute_op(op))"
     # systolic_operands = f"({systolic_compute}.operands)"

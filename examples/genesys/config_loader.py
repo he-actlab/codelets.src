@@ -126,6 +126,9 @@ def set_defaults(cfg):
     if 'GENERATE_INSTRUCTIONS' not in cfg:
         cfg['GENERATE_INSTRUCTIONS'] = True
 
+    if 'SHARED_DATAGEN' not in cfg:
+        cfg['SHARED_DATAGEN'] = False
+
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
 

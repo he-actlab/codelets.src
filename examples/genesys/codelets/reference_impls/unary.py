@@ -17,7 +17,6 @@ class Unary(ReferenceOp):
 
     def fn_impl(self, inouts):
         inpt1 = inouts['inputs'][0].data
-
         if "clip" in self.op_name:
             minval = self.cdlt.required_params['min'].value
             maxval = self.cdlt.required_params['max'].value
@@ -104,7 +103,8 @@ class Unary(ReferenceOp):
     def powfn(self, data, exp):
         out = np.copy(data)
         for _ in range(exp - 1):
-            out = quantize_np(out * data, self.dtype)
+            temp = out*data
+            out = quantize_np(temp, self.dtype)
         return out
 
     def meanfn(self, data, axis):

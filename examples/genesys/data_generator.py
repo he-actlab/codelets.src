@@ -114,14 +114,28 @@ class DataGen(object):
         return inouts
 
 
-    def store_inputs(self, base_path):
-        for n, i in self.value_dict['inputs'].items():
+    def store_inputs(self, base_path, inouts):
+        # for n, i in self.value_dict['inputs'].items():
+        for inp in inouts['inputs']:
             # node_name = i.node_name.replace("/", "_")
+            if inp.node_name in self.value_dict['inputs']:
+                i = self.value_dict['inputs'][inp.node_name]
+            elif inp.node_name in self.value_dict['intermediate']:
+                i = self.value_dict['intermediate'][inp.node_name]
+            else:
+                raise RuntimeError(f"No value found found for cdlt operand: {inp.node_name}\n" \
+                                                   f"UID: {inp.node_name}\n" \
+                                                   f"Value inputs: {list(self.value_dict['inputs'].keys())}\n"
+                                   f"Value intermediates: {list(self.value_dict['intermediate'].keys())}\n")
+
             assert isinstance(i, OperandData)
             assert isinstance(i.data, np.ndarray)
 
-            node_name = i.opname
-            assert node_name in self.storage_info, f"No storage info found for {node_name}"
+            node_name = i.node_name
+
+            assert node_name in self.storage_info, f"No storage info found for cdlt operand: {node_name}\n" \
+                                                   f"UID: {i.node_name}\n" \
+                                                   f"Storage keys: {list(self.storage_info.keys())}"
 
             if Path(f"{base_path}/{node_name}").exists():
                 save_array(f'{base_path}/{node_name}/{node_name}.txt', i.data)
@@ -138,7 +152,7 @@ class DataGen(object):
             if i.fmt is None and i.node_name not in self.value_dict['inputs'] and \
                     i.node_name not in self.value_dict['intermediate']:
                 self.value_dict['inputs'][i.node_name] = i
-                node_name = i.opname
+                node_name = i.node_name
                 self.storage_info[node_name] = {"cdlt": cdlt.cdlt_uid,
                                                 "path": None,
                                                 'cdlt_name': i.idx.name,
@@ -152,31 +166,37 @@ class DataGen(object):
         for f in formatted:
             if f.node_name in self.value_dict['inputs']:
                 assert f.fmt is not None
-                node_name = f.opname
+                node_name = f.node_name
                 if not Path(f"{base_path}/{node_name}").exists():
                     os.makedirs(f"{base_path}/{node_name}")
                 save_array(f'{base_path}/{node_name}/{node_name}_{f.fmt}.txt', f.data)
 
     def store_outputs(self, cdlt, inouts, base_path):
 
-
-        for o in inouts['outputs']:
+        for idx in range(len(inouts['outputs'])):
+            o = inouts['outputs'][idx]
             if o.fmt is None:
-                # node_name = o.node_name.replace("/", "_")
-                node_name = o.opname
+                node_name = o.node_name
                 assert isinstance(o, OperandData)
                 assert isinstance(o.data, np.ndarray)
-                self.value_dict['outputs'][o.node_name] = o
+                if o.data.dtype != np.int64:
+                    # o.data = o.data.astype(np.int64)
+                    o = o._replace(data=o.data.astype(np.int64))
+                    inouts['outputs'][idx] = o
+
+                self.value_dict['outputs'][node_name] = o
                 self.storage_info[node_name] = {"cdlt": cdlt.cdlt_uid,
                                              "path": None,
                                              'cdlt_name': o.idx.name,
                                              'operand_type': 'output'}
 
 
-        for n, o in self.value_dict['outputs'].items():
-            # node_name = o.node_name.replace("/", "_")
-            node_name = o.opname
-            assert node_name in self.storage_info
+        for o in inouts['outputs']:
+
+            node_name = o.node_name
+            assert node_name in self.storage_info, f"No storage info found for output cdlt operand: {node_name}\n" \
+                                                   f"UID: {o.node_name}\n" \
+                                                   f"Storage keys: {list(self.storage_info.keys())}"
 
             if Path(f"{base_path}/{node_name}").exists():
                 save_array(f'{base_path}/{node_name}/{node_name}.txt', o.data)
@@ -190,15 +210,18 @@ class DataGen(object):
         opgen = self.program.metadata['GENESYS_IMPLS'][cdlt.op_name](cdlt, self.program)
         inouts = opgen.compute_outputs(inouts)
         formatted = self.initialize_storage(cdlt, inouts)
-        self.store_inputs(base_path)
+        self.store_inputs(base_path, inouts)
         self.store_outputs(cdlt, inouts, base_path)
         self.store_formatted(formatted, base_path)
 
 
         with open(f"{base_path}/data_locations.json", "w") as outf:
             outf.write(json.dumps(self.storage_info, indent=2))
-        self.storage_info.clear()
-        self.reset_value_dict()
+
+        if self.single_codelets:
+            self.storage_info.clear()
+            self.reset_value_dict()
+
         assert all([isinstance(i.data, np.ndarray) for i in self.value_dict['inputs'].values()])
         assert all([isinstance(o.data, np.ndarray) for o in self.value_dict['outputs'].values()])
         assert all([isinstance(i.data, np.ndarray) for i in self.value_dict['intermediate'].values()])
@@ -208,7 +231,7 @@ class DataGen(object):
                                                                "intermediate": {},
                                                                "outputs": {}}
 
-    def single_codelet_generator(self):
+    def generate_codelet_data(self):
         for layer_id, cdlt in enumerate(self.program.codelets):
             if self.verbose:
                 print(f"Storing codelet {cdlt.cdlt_uid}")
@@ -262,13 +285,13 @@ class DataGen(object):
                         os.makedirs(base_path)
                     except OSError as e:
                         raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+
+                self.generate_cdlt_data(cdlt, base_path)
                 if self.verbose:
                     print(f"Generating data to be stored in {base_path}")
-                self.generate_cdlt_data(cdlt, base_path)
 
 
-    def program_generator(self):
-        pass
+
 
     def store_program(self):
         if self.verbose:
@@ -323,9 +346,9 @@ class DataGen(object):
                     os.makedirs(base_path)
                 except OSError as e:
                     raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
-            self.generate_program_data(base_path)
+            self.generate_whole_program_data(base_path)
 
-    def generate_program_data(self, base_path):
+    def generate_whole_program_data(self, base_path):
         pass
 
     def generate(self):
@@ -336,10 +359,7 @@ class DataGen(object):
             with open(f"{self.output_dir}/{self.program.name}_arch_cfg.json", "w") as outfile:
                 outfile.write(res)
 
-        if self.single_codelets:
-            self.single_codelet_generator()
-        else:
-            self.program_generator()
+        self.generate_codelet_data()
 
         if self.store_whole_program:
             self.store_program()

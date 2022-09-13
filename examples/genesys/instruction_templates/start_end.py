@@ -1,7 +1,8 @@
 from codelets.adl.graph import ArchitectureNode, ComputeNode
 from . import GENERATING_BENCH, BENCH_BASE_ADDR
-# SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 16, "ST_VMEM1": 2048 << 16, "ST_VMEM2": 4096 << 16}
-SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 11, "ST_VMEM1": 1024 << 12, "ST_VMEM2": 1024 << 13}
+# SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 16, "ST_VMEM1": 1024 << 17, "ST_VMEM2": 1024 << 8}
+# SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 11, "ST_VMEM1": 1024 << 12, "ST_VMEM2": 1024 << 13}
+SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 10, "ST_VMEM1": 1024 << 11, "ST_VMEM2": 1024 << 12}
 SIMD_BASE_ADDR_STR = str(SIMD_BASE_ADDR)
 BASE_ADDR_STR_SIMD = f"program.extract_bits({SIMD_BASE_ADDR}[" + "'{LS}_' + relocation_table.get_namespace_by_name({OPERAND_NAME})], {NUM_BITS}, {POS})"
 
