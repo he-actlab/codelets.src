@@ -2091,6 +2091,59 @@ def conv_bias_clip_depthwise_conv_bias(hag: ArchitectureNode):
 
     return cdlt
 
+def pow_mul_add_tanh_mul(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    with CodeletTemplate('pow_mul_add_tanh_mul') as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+
+        exp = cdlt.dummy_op("exp", cdlt.node.kwargs['exp'], dtype=acc_dtype_name)
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        param = cdlt.dummy_op('param', 16)
+        param_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='param')
+
+        mul_lhs1 = cdlt.dummy_op("mul_lhs1", cdlt.node.kwargs['mul_lhs1'], dtype=acc_dtype_name)
+        mul_op1 = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="mul_lhs1")
+
+        add_lhs = cdlt.dummy_op("add_lhs", cdlt.node.kwargs['add_lhs'], dtype=acc_dtype_name)
+        add_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="add_lhs")
+
+        mul_lhs2 = cdlt.dummy_op("mul_lhs2", cdlt.node.kwargs['mul_lhs2'], dtype=acc_dtype_name)
+        mul_op2 = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="mul_lhs2")
+
+
+
+
+        cdlt.configure("start", "SIMD")
+        cdlt.configure("start", "IMM", immediate_value=param)
+        cdlt.configure("start", "IMM", immediate_value=mul_lhs1)
+        cdlt.configure("start", "IMM", immediate_value=add_lhs)
+        cdlt.configure("start", "IMM", immediate_value=mul_lhs2)
+        with cdlt.loop(N) as n:
+            with cdlt.loop(C) as c:
+                with cdlt.loop(H) as h:
+                    cdlt.transfer(data, ["DRAM", "VMEM1"])
+                    out.set_write_destination("VMEM2")
+                    data.set_write_destination("VMEM1")
+                    cdlt.compute("MOVE", [data[n, c, h]], [out[n, c, h]], target="SIMD")
+                    cdlt.compute("MUL", [data[n, c, h], out[n, c, h]], [data[n, c, h]], target="SIMD")
+                    cdlt.compute("MUL", [data[n, c, h], mul_op1], [data[n, c, h]], target="SIMD")
+                    cdlt.compute("ADD", [data[n, c, h], add_op], [data[n, c, h]], target="SIMD")
+                    cdlt.compute("TANH", [data[n, c, h], param_op], [data[n, c, h]], target="SIMD")
+                    cdlt.compute("MUL", [data[n, c, h], mul_op2], [out[n, c, h]], target="SIMD")
+                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+    cdlt = add_simd_constraint(hag, cdlt, "H")
+    return cdlt
+
 def load_unquant_fusion_op_info(cfg):
 
     UNQUANT_FUSION_OP_INFO = {
@@ -2156,6 +2209,10 @@ def load_unquant_fusion_op_info(cfg):
         'add_sqrt_div': {
             'cdlt': add_sqrt_div,
             'seq': ["Add", "Sqrt", "Div"],
+        },
+        'pow_mul_add_tanh_mul': {
+            'cdlt': pow_mul_add_tanh_mul,
+            'seq': ["Pow", "Mul", "Add", "Tanh", "Mul"],
         },
         'depthwise_conv_bias_clip': {
             'cdlt': depthwise_conv_bias_clip,

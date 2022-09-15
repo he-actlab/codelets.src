@@ -592,46 +592,74 @@ def load_unquant_fusion_op_info_impl(cfg):
             'dfg': DFG('clip', [DFG('bias_add', [0, 1]), 'min', 'max']),
             'seq': ['BiasAdd', 'Clip']
         },
-            'sub_mul': {
-                'cdlt': partial(FusionOp, 'sub_mul'),
-                'dfg': DFG('mul', [DFG('sub', [0, "sub_rhs"]), "mul_rhs"]),
-                'seq': ["Sub", "Mul"]
-            },
-            'sub_pow': {
-                'cdlt': partial(FusionOp, 'sub_pow'),
-                'dfg': DFG('square', [DFG('sub', [0, 1])]),
-                'seq': ["Sub", "Pow"],
-            },
-            'add_sqrt_div': {
-                'cdlt': partial(FusionOp, 'add_sqrt_div'),
-                'dfg': DFG('div', [DFG('sqrt', [
-                                                DFG('add', [0, 'add_lhs'])
-                                            ]),
-                                   1]),
+        'sub_mul': {
+            'cdlt': partial(FusionOp, 'sub_mul'),
+            'dfg': DFG('mul', [DFG('sub', [0, "sub_rhs"]), "mul_rhs"]),
+            'seq': ["Sub", "Mul"]
+        },
+        'pow_mul_add_tanh_mul': {
+            'cdlt': partial(FusionOp, 'pow_mul_add_tanh_mul'),
+            'dfg': DFG('mul', ['mul_lhs2',
+                               DFG('tanh', [
+                                   DFG('add', [
+                                       'add_lhs',
+                                       DFG('mul', ['mul_lhs1',
+                                                   DFG('square', [0])]
+                                           )]
+                                       )]
+                                   )]),
 
-                'seq': ["Add", "Sqrt", "Div"],
-            },
-            'matmul_add': {
-                'cdlt': partial(FusionOp, 'matmul_add'),
-                'dfg': DFG('gemm', [0, 1, 2]),
-                'seq': ["MatMul", "Add"]
-            },
+            'seq': ["Pow", "Mul", "Add", "Tanh", "Mul"],
+        },
+        'sub_pow': {
+            'cdlt': partial(FusionOp, 'sub_pow'),
+            'dfg': DFG('square', [DFG('sub', [0, 1])]),
+            'seq': ["Sub", "Pow"],
+        },
+        'add_sqrt_div': {
+            'cdlt': partial(FusionOp, 'add_sqrt_div'),
+            'dfg': DFG('div', [DFG('sqrt', [
+                                            DFG('add', [0, 'add_lhs'])
+                                        ]),
+                               1]),
 
-            'single_layer_info':
-                {
-                    'Conv' : {'inputs': 3, 'outputs': 1},
-                    'Relu' : {'inputs': 1, 'outputs': 1},
-                    'LeakyRelu' : {'inputs': 1, 'outputs': 1},
-                    'Add' : {'inputs': 2, 'outputs': 1},
-                    'MaxPool': {'inputs': 1, 'outputs': 1}
-                },
-            'clip_depthwise_conv_bias': {
-                'cdlt': partial(FusionOp, 'clip_depthwise_conv_bias'),
-                'dfg': DFG('depthwise_conv',
-                           [DFG('clip', [0, 'min', 'max']), 1, 2, 'stride', 'pad']),
-                'seq': ['Clip', 'DepthwiseConv'],
+            'seq': ["Add", "Sqrt", "Div"],
+        },
+        'pow_mul_add_tanh_mul': {
+            'cdlt': partial(FusionOp, 'pow_mul_add_tanh_mul'),
+            'dfg': DFG('mul', ['mul_lhs2',
+                                DFG('tanh', [
+                                    DFG('add', [
+                                            'add_lhs',
+                                            DFG('mul', ['mul_lhs1',
+                                                        DFG('square', [0])]
+                                                )]
+                                        )]
+                               )]),
 
+            'seq': ["Pow", "Mul", "Add", "Tanh", "Mul"],
+        },
+        'matmul_add': {
+            'cdlt': partial(FusionOp, 'matmul_add'),
+            'dfg': DFG('gemm', [0, 1, 2]),
+            'seq': ["MatMul", "Add"]
+        },
+
+        'single_layer_info':
+            {
+                'Conv' : {'inputs': 3, 'outputs': 1},
+                'Relu' : {'inputs': 1, 'outputs': 1},
+                'LeakyRelu' : {'inputs': 1, 'outputs': 1},
+                'Add' : {'inputs': 2, 'outputs': 1},
+                'MaxPool': {'inputs': 1, 'outputs': 1}
             },
+        'clip_depthwise_conv_bias': {
+            'cdlt': partial(FusionOp, 'clip_depthwise_conv_bias'),
+            'dfg': DFG('depthwise_conv',
+                       [DFG('clip', [0, 'min', 'max']), 1, 2, 'stride', 'pad']),
+            'seq': ['Clip', 'DepthwiseConv'],
+
+        },
             'clip_depthwise_conv_bias_clip': {
                 'cdlt': partial(FusionOp, 'clip_depthwise_conv_bias_clip'),
                 'dfg': DFG('clip',

@@ -46,8 +46,8 @@ class Unary(ReferenceOp):
         if len(output.shape) == 4:
             output = output.transpose((0, 2, 3, 1))
         if "sqrt" in self.op_name:
-            inpt1 = Fxp(inouts['inputs'][0].data, **FXP_CONFIGS[self.dtype]).val
-            inouts['inputs'][0] = inouts['inputs'][0]._replace(data=inpt1)
+            # inpt1 = Fxp(inouts['inputs'][0].data, **FXP_CONFIGS[self.dtype]).val
+            # inouts['inputs'][0] = inouts['inputs'][0]._replace(data=inpt1)
             output = Fxp(output, **FXP_CONFIGS[self.dtype]).val
         inouts['outputs'] = [output]
         return inouts
@@ -83,7 +83,9 @@ class Unary(ReferenceOp):
         elif "flatten" in self.op_name:
             output = inpt.reshape(inpt.shape[0], -1)
         elif "sqrt" in self.op_name:
-            output = np.sqrt(inpt)
+            inpt_fp = Fxp(None, **FXP_CONFIGS[self.dtype])
+            inpt_fp.val = inpt
+            output = np.sqrt(inpt_fp.astype(float))
         else:
             raise RuntimeError
 

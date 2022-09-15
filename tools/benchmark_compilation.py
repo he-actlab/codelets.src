@@ -248,7 +248,7 @@ def compile_benchmark(model_name,
     if stop_stage is None and store_results:
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
-                       single_codelets=True,
+                       single_codelets=not arch_config['SHARED_DATAGEN'],
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
                        identifier=identifier,
                        generate_data=generate_data,
@@ -322,8 +322,8 @@ if __name__ == "__main__":
 
         # config = "benchmark_8x8.json"
         # config = "benchmark_train_large_v2.json"
-        # config = "benchmark_baseline.json"
-        config = "benchmark_baseline_debug.json"
+        config = "benchmark_baseline.json"
+        # config = "benchmark_baseline_debug.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -333,17 +333,17 @@ if __name__ == "__main__":
                       "vgg16", # 6
                       'gpt2-trimmed-opt', # 7
                       "custom_fft", # 8
-                      "resnet50_train", # 9
-                      "resnet18_train", # 10
-                      'conv_clip_depthwise_c32_w112_kw1',
-                      'conv_lrelu_add_oc64_v3-opt',
-                      'conv_lrelu_oc64',
-                      'conv_clip_depthwise_v1-opt',
-                      'fcn-resnet101-trimmed-opt',
-                      'yolo_conv_lrelu_test1', # yolo_conv_lrelu_OH12_KH1_S1
-                      'yolo_conv_lrelu_test2' # yolo_conv_lrelu_OH22_KH3_S1
+                      "custom_small_fft", # 9
+                      "resnet50_train", # 10
+                      "resnet18_train", # 11
+                      'conv_clip_depthwise_c32_w112_kw1', # 12
+                      'conv_lrelu_add_oc64_v3-opt', # 13
+                      'conv_lrelu_oc64', # 14
+                      'conv_clip_depthwise_v1-opt', # 15
+                      'fcn-resnet101-trimmed-opt', # 16
+                      'mel_scale' # # 17
                       ]
-        compile_benchmark(benchmarks[-2],
+        compile_benchmark(benchmarks[-1],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -351,9 +351,9 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          generate_data=True,
-                          # filtered_layers=[0],
+                          generate_data=False,
+                          # filtered_layers=[3],
                           # filtered_layers=[501],
                           # filtered_layers=filtered_layers,
                           store_whole_program=False,
-                          identifier=0)
+                          identifier=2)
