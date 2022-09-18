@@ -1,17 +1,14 @@
 from codelets.adl.graph import ArchitectureNode, ComputeNode
 from . import GENERATING_BENCH, BENCH_BASE_ADDR
-SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 16, "ST_VMEM1": 2048 << 16, "ST_VMEM2": 4096 << 16 }
+# SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 16, "ST_VMEM1": 1024 << 17, "ST_VMEM2": 1024 << 8}
+# SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 11, "ST_VMEM1": 1024 << 12, "ST_VMEM2": 1024 << 13}
+SIMD_BASE_ADDR = {"LD_VMEM1": 0, "LD_VMEM2": 1024 << 10, "ST_VMEM1": 1024 << 11, "ST_VMEM2": 1024 << 12}
 SIMD_BASE_ADDR_STR = str(SIMD_BASE_ADDR)
 BASE_ADDR_STR_SIMD = f"program.extract_bits({SIMD_BASE_ADDR}[" + "'{LS}_' + relocation_table.get_namespace_by_name({OPERAND_NAME})], {NUM_BITS}, {POS})"
 
 
 def codelet_start(hag: ArchitectureNode):
     instructions = []
-    # instr = hag.get_primitive_template("IMM_SIGN_EXT", template_type="codelet")
-    # instr.set_field_by_name("NS_ID", "IMM")
-    # instr.set_field_flex_param("NS_INDEX_ID", "1 + 5")
-    # instr.set_field_value("IMM", 50)
-    # instructions.append(instr)
     return instructions
 
 
@@ -27,28 +24,31 @@ def program_start(hag: ArchitectureNode):
 
 def codelet_end(hag: ArchitectureNode):
     instructions = []
+    instr = hag.get_primitive_template("BLOCK_END")
+    # # TODO: Make sure this is evaluated after having gone through all codelets
+    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
+    instructions.append(instr)
     return instructions
-
 
 def simd_start_template(hag: ComputeNode):
 
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
     instr.set_field_by_name("START_END", "START")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
-    # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
-    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
+    instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
+    # instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr_by_group('SIMD')", lazy_eval=True)
     instructions.append(instr)
 
+    # TODO: THis is a hotfix. need to more intelligently set the config for this later
     instr = hag.get_primitive_template("DTYPE_CFG")
-    instr.set_field_flex_param("DTYPE", "str(cdlt.inputs[0].dtype.bits()) + cdlt.inputs[0].dtype.type")
+    instr.set_field_flex_param("DTYPE", "str(cdlt.outputs[0].dtype.bits()) + cdlt.outputs[0].dtype.type")
     instr.set_field_flex_param("DST_BITS", "cdlt.outputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC1_BITS", "cdlt.inputs[0].dtype.exp")
-    instr.set_field_flex_param("SRC2_BITS", "cdlt.inputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC1_BITS", "cdlt.outputs[0].dtype.exp")
+    instr.set_field_flex_param("SRC2_BITS", "cdlt.outputs[0].dtype.exp")
     instructions.append(instr)
-
 
     block_iter = ('operand', f'cdlt.operands')
     block_cond = f'"SIMD" in operand.data_path and operand.data_path[0] == "DRAM" and operand not in cdlt.outputs'
@@ -121,12 +121,12 @@ def simd_start_template(hag: ComputeNode):
 def simd_end_template(hag: ComputeNode):
     #TODO: Add conditional block end instruction
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SIMD")
     instr.set_field_by_name("START_END", "END")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id - 1")
-    # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
+    instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
     instr.set_field_flex_param("NUM_INSTR", "0")
     instructions.append(instr)
     return instructions
@@ -135,13 +135,14 @@ def simd_end_template(hag: ComputeNode):
 def sa_start_template(hag: ComputeNode):
 
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "START")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
+    instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
     # Figure out what this is
-    instr.set_field_value("LOOP_ID", 0)
-    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    # instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr", lazy_eval=True)
+    instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr_by_group('systolic_array')", lazy_eval=True)
     instructions.append(instr)
 
     if GENERATING_BENCH:
@@ -202,18 +203,13 @@ def sa_start_template(hag: ComputeNode):
 def sa_end_template(hag: ComputeNode):
     #TODO: Add conditional block end instruction
     instructions = []
-    instr = hag.get_primitive_template("INST_GROUP")
+    instr = hag.get_primitive_template("SYNC_INST")
     instr.set_field_by_name("COMPUTE_TARGET", "SYSTOLIC_ARRAY")
     instr.set_field_by_name("START_END", "END")
-    instr.set_field_flex_param("GROUP_NUM", "cdlt.instance_id")
-    # Figure out what this is
-    instr.set_field_flex_param("LOOP_ID", "0")
-    instr.set_field_value("NUM_INSTR", 0)
-    instructions.append(instr)
+    instr.set_field_by_name("EXEC_BUF", "EXEC")
+    instr.set_field_flex_param("GROUP_NUM", "(cdlt.instance_id - 1) % 64")
 
-    instr = hag.get_primitive_template("BLOCK_END")
-    # TODO: Make sure this is evaluated after having gone through all codelets
-    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
+    instr.set_field_value("NUM_INSTR", 0)
     instructions.append(instr)
     return instructions
 

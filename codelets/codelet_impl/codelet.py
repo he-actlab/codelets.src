@@ -43,6 +43,7 @@ class Codelet(object):
         self._loop_ctxt_level = 0
         self._op_id_counters = defaultdict(int)
         self._compilation_params = {}
+        self._derived_fps = defaultdict(dict)
         self._loop_param_map = {}
 
         if required_params is not None:
@@ -63,6 +64,7 @@ class Codelet(object):
             self._cdlt_id = Codelet.codelet_id
             Codelet.codelet_id += 1
 
+
     def __enter__(self):
         Operation.current_codelet = self
         Operation.loop_stack.append(-1)
@@ -79,7 +81,8 @@ class Codelet(object):
         self._id_counter = deepcopy(Operation.id_counter)
         self._loop_ctxt_level = deepcopy(Operation.loop_ctxt_level)
         self._op_id_counters = deepcopy(Operation.op_id_counters)
-        assert last_id == -1
+        assert last_id == -1, f"Last operation id is invalid when exiting codelet ctxt: {last_id}\n" \
+                              f"loop{last_id}\n"
 
     @contextmanager
     def exit_context(self):
@@ -231,6 +234,10 @@ class Codelet(object):
         return self._tile_levels
 
     @property
+    def all_operands(self):
+        return self.inputs + self.temps + self.outputs
+
+    @property
     def all_oploc_indices(self):
         indices = defaultdict(list)
         all_operands = self.operands + self.temps
@@ -258,6 +265,47 @@ class Codelet(object):
             for loopname, tile_size in tiling.items():
                 ptiling[l][self.loop_param_map[loopname]] = tile_size
         return ptiling
+
+    def num_instr_by_group(self, group_name):
+        start_op = None
+        end_op = None
+        for o in self.ops:
+            if o.op_type == "config" and o.target_name == group_name:
+                if o.start_or_finish == "start":
+                    start_op = o
+                elif o.start_or_finish == "end":
+                    end_op = o
+                    assert start_op is not None
+                    break
+        if start_op is None:
+            raise RuntimeError(f"Unable to find start operation for {group_name} in {self.cdlt_id}")
+        if end_op is None:
+            raise RuntimeError(f"Unable to find end operation for {group_name} in {self.cdlt_id}")
+
+        start_idx = self.ops.index(start_op)
+        end_idx = self.ops.index(end_op)
+        ilen = 0
+        for o in self.ops[start_idx: end_idx]:
+            ilen += sum([len(ft.instructions) for ft in o.instructions])
+        return ilen
+
+    def remove_input(self, operand):
+        self._inputs.remove(operand)
+
+    def filtered_read_operands(self, compute_name):
+        ops = []
+        for c in self.get_ops_by_type("compute"):
+            if c.target == compute_name:
+                ops += c.sources
+        return ops
+
+    def filtered_write_operands(self, compute_name):
+        ops = []
+        for c in self.get_ops_by_type("compute"):
+            if c.target == compute_name:
+                ops += c.dests
+        return ops
+
 
     def is_tiling_set(self, level: int):
         return level in self.domain_tiling
@@ -297,7 +345,7 @@ class Codelet(object):
         return list(set(loops))
 
     def operand_dim_mapping(self):
-        operands = self.inputs + self.outputs
+        operands = self.inputs + self.outputs + self.temps
         operand_dims = {}
         for o in operands:
             operand_dims.update(o.shape_symbols)
@@ -305,6 +353,14 @@ class Codelet(object):
 
     def add_compilation_param(self, key, value):
         self._compilation_params[key] = value
+
+    def update_compilation_param(self, key, value):
+        if key in self.compilation_params:
+            prev = self.compilation_params[key]
+            new_param = f"({prev}) and ({value})"
+            self._compilation_params[key] = new_param
+        else:
+            self._compilation_params[key] = value
 
     def unset_params(self):
         unset_params = []
@@ -396,6 +452,7 @@ class Codelet(object):
         obj._domain_tiling = deepcopy(self._domain_tiling)
         obj._tile_levels = deepcopy(self._tile_levels)
         obj._domain_loop_map = deepcopy(self._domain_loop_map)
+        obj._derived_fps = deepcopy(self._derived_fps)
         obj._op_id_counters = deepcopy(self._op_id_counters)
         obj._id_counter = self._id_counter
         obj._loop_ctxt_level = self._loop_ctxt_level
@@ -599,12 +656,31 @@ class Codelet(object):
         self.required_params[key].value = value
 
     def is_loop_node_target(self, loop, hag_node):
-        for o in self.ops:
+        scoped_ops = self.loop_scope(loop.op_str)
+        # for o in self.ops:
+        for o in scoped_ops:
             if o.op_type == 'compute' and o.target == hag_node and loop.loop_level <= o.loop_level:
                 return True
             elif o.op_type == 'transfer' and hag_node in o.path and loop.loop_level <= o.loop_level:
                 return True
         return False
+
+    def loop_scope(self, loopname):
+        loop = self.op_map[loopname]
+        start = self.ops.index(loop) + 1
+
+        idx = start + 1
+        end = None
+        while idx < len(self.ops):
+            o = self.ops[idx]
+            if isinstance(o, LoopEnd) and o.loop_name == loopname:
+                end = idx
+                break
+            idx += 1
+        if end is None:
+            raise RuntimeError(f"Uable to find loop end for {loopname}")
+        scoped_ops = self.ops[start: end + 1]
+        return scoped_ops
 
     def is_direct_loop_dep(self, loop, hag_node):
         for o in self.ops:
@@ -613,6 +689,55 @@ class Codelet(object):
             elif o.op_type == 'transfer' and hag_node in o.path and loop.op_str in o.dependencies:
                 return True
         return False
+
+    def compute_loop_deps(self, compute_op):
+        deps = self.op_map[compute_op].dependencies
+        filtered_deps = []
+        for d in deps:
+            if self.op_map[d].op_type == "loop":
+                dep_names = [l.op_str for l in self.loop_scope(d)]
+                if compute_op in dep_names:
+                    filtered_deps.append(d)
+        return filtered_deps
+
+    def compute_node_loops(self, node_name):
+        compute_ops = self.get_ops_by_type('compute')
+        loops = []
+        for c in compute_ops:
+            if c.target == node_name:
+                loops += self.compute_loop_deps(c.op_str)
+        return list(set(loops))
+
+    def loop_node_compute(self, loop, node_name):
+        scope_ops = self.loop_scope(loop.op_str)
+
+        for c in scope_ops:
+            if c.target == node_name:
+                return c
+        options = {c.op_str: c.target for c in scope_ops if c.op_type == "compute"}
+        raise RuntimeError(f"Could not find compute node for {loop.op_str} with target {node_name}\n"
+                           f"{options}")
+
+    def loop_compute_op(self, loop, src_op=None, dst_op=None):
+        assert not (src_op is not None and dst_op is not None)
+        if isinstance(loop, Loop):
+            loop = loop.op_str
+        scope_ops = self.loop_scope(loop)
+        for c in scope_ops:
+            if c.op_type == "compute":
+                if src_op is not None and src_op in c.sources:
+                    return c
+                elif dst_op is not None and dst_op in c.dests:
+                    return c
+                elif dst_op is None and src_op is None:
+                    return c
+
+        options = {c.op_str: c.target for c in scope_ops if c.op_type == "compute"}
+        raise RuntimeError(f"Could not find compute node for {loop.op_str}. "
+                           f"Src op: {src_op}\n"
+                           f"Dst op: {dst_op}\n"
+                           f"Possible ops:\n"
+                           f"{options}\n")
 
 
     def ordered_loop_ops(self):
@@ -651,6 +776,8 @@ class Codelet(object):
         return temp_op
 
     def configure(self, start_end, target_name, **kwargs):
+        if 'index' in kwargs:
+            assert isinstance(kwargs['index'], int)
         cfg = Configure(start_end, target_name,
                         add_codelet=False, **kwargs)
         self.add_op(cfg)
@@ -741,7 +868,8 @@ class Codelet(object):
         for i in self.tile_levels.keys():
             if node_name in self.tile_levels[i]:
                 return i
-        raise KeyError(f"Unable to find tile level for node {node_name}")
+        raise KeyError(f"Unable to find tile level for node {node_name}\n"
+                       f"Tile keys: {self.tile_levels}")
 
     def get_loop_scope(self, loop_name: str):
         op_names = []
@@ -920,6 +1048,9 @@ class Codelet(object):
             deps += self.all_dependencies(self.op_map[l].dependencies)
         return list(set(deps))
 
+    def is_fusion(self) -> bool:
+        return len(set([c.target for c in self.ops if c.op_type == "compute"])) > 1
+
     def inner_stride(self, operand, loop, loop_idx):
 
         loop_tile_level = self.get_loop_tile_level(loop.loop_level)
@@ -951,6 +1082,10 @@ class Codelet(object):
     def num_loops(self):
         return len(self.loop_param_map)
 
+    @property
+    def derived_params(self):
+        return self._derived_fps
+
     def instantiate_operations(self, node: pm.Node, hag):
         # First initialize shapes and symbols for operands, as well as datatypes
         self.instantiate_operands(node)
@@ -967,8 +1102,26 @@ class Codelet(object):
 
             assert isinstance(o, Operation)
         # Now set the required parameters in each operation, as specified
+
         for o in self.ops:
             o.evaluate_parameters(node, hag, self)
+
+        for o in self.ops:
+            if o.op_type == "compute":
+                deps = self.compute_loop_deps(o.op_str)
+                for operand in o.operands:
+                    dms = operand.get_op_accesses(o.op_str)
+                    for dm in dms:
+                        names = [str(i) for i in dm.symbol_str_map.keys()]
+                        symbol_deps = {self.loop_param_map[d]: d for d in deps}
+                        for i in names:
+                            if i in self.loop_param_map and symbol_deps[self.loop_param_map[i]] != i:
+
+                                tgt_name = symbol_deps[self.loop_param_map[i]]
+                                symbol = self.op_map[tgt_name].param_symbols[tgt_name]
+                                dm.update_offset_map(self.loop_param_map[i], symbol)
+
+
 
         for operand in self.operands:
             operand.evaluate_operand(node, hag, self)

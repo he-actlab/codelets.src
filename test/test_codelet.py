@@ -3,8 +3,8 @@ from codelets.adl.operation import Operand
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, define_genesys, GENESYS_CFG
 from examples.genesys.genesys_instantiated_codelets import relu, averagepool2d, gemm
-from examples.genesys.genesys_codelets import averagepool2d as avgpool_template,\
-    gemm as gemm_template
+from examples.genesys.codelets.dnn import averagepool2d as avgpool_template
+from examples.genesys.codelets.systolic_array import gemm as gemm_template
 from pathlib import Path
 
 from .util import compare_dataclasses

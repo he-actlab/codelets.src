@@ -1,8 +1,9 @@
 import json
-from typing import List, Callable, Dict, List, Any
+from typing import List, Callable, Dict, List, Any, Union
 from collections import defaultdict
 from time import time
 from codelets.adl.flex_param import FlexParam
+from codelets.adl.flex_template import FlexTemplate
 from codelets.templates.codelet_template import CodeletTemplate
 from codelets.adl.operation import Operand, Loop, Compute, Transfer, Configure, Operation
 from codelets.adl.graph import ArchitectureNode
@@ -52,13 +53,26 @@ class OperandDataflow:
 
 class CodeletProgram(object):
 
-    def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference"):
+    def __init__(self, graph: pm.Node, hag: ArchitectureNode, program_mode: str="inference", metadata=None):
+        self._metadata = metadata
         Operation.reset()
         Codelet.reset()
+        self._compilation_state = {
+            'sequenced_nodes': False,
+            'template_stages': False,
+            'codelet_instantiation': False,
+            'preprocessed': False,
+            'operation_instantiation': False,
+            'compilation_stages': False,
+            'finalized': False,
+            'instruction_stages': False,
+        }
         self._name = graph.name
         self._hag = hag
         self._graph = graph
         self._codelets = []
+        self._program_flex_templates = {"start": [], "end": []}
+        self._cdlt_flex_templates = {"start": [], "end": []}
         self._codelet_templates = {}
         self._relocatables = RelocationTable(hag.get_off_chip_storage())
         self._compilation_pipeline = defaultdict(list)
@@ -68,11 +82,48 @@ class CodeletProgram(object):
         self._program_mode = program_mode
         self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
         self._operand_mapping = {}
-        self._codelet_instructions = {}
+
+    def reset_compilation_state(self):
+        Operation.reset()
+        Codelet.reset()
+        self._compilation_state = {
+            'sequenced_nodes': False,
+            'template_stages': False,
+            'codelet_instantiation': False,
+            'preprocessed': False,
+            'operation_instantiation': False,
+            'compilation_stages': False,
+            'finalized': False,
+            'instruction_stages': False,
+        }
+
+        self._codelets = []
+        self._program_flex_templates = {"start": [], "end": []}
+        self._cdlt_flex_templates = {"start": [], "end": []}
+        self._codelet_templates = {}
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage())
+        self._compilation_pipeline = defaultdict(list)
+        self._preproc_stages = defaultdict(list)
+        self._template_stages = defaultdict(list)
+        self._instruction_stages = defaultdict(list)
+        self._side_effect_params = {'program': {}, 'codelet': {}, 'op': {}}
+        self._operand_mapping = {}
+
+    @property
+    def metadata(self):
+        return self._metadata
+
+    @property
+    def compilation_state(self):
+        return self._compilation_state
 
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def is_finalized(self) -> bool:
+        return self.compilation_state['instruction_stages']
 
     @property
     def hag(self) -> ArchitectureNode:
@@ -101,6 +152,14 @@ class CodeletProgram(object):
     @property
     def compilation_pipeline(self) -> Dict[int, List[CompilationStage]]:
         return self._compilation_pipeline
+
+    @property
+    def program_flex_templates(self) -> Dict[str, List[FlexTemplate]]:
+        return self._program_flex_templates
+
+    @property
+    def cdlt_flex_templates(self) -> Dict[str, List[FlexTemplate]]:
+        return self._cdlt_flex_templates
 
     @property
     def preproc_stages(self) -> Dict[int, List[CompilationStage]]:
@@ -237,18 +296,23 @@ class CodeletProgram(object):
 
     def set_instruction_templates(self, cdlt: Codelet):
         for o in cdlt.ops:
-
             template = self.hag.get_operation_template(o)
             template_copy = [ft.template_copy() for ft in template]
-
             o.set_template(template_copy)
 
-    def instantiate_instructions(self, cdlt: Codelet, fixed_val=None):
+    def instantiate_instructions(self, cdlt: Codelet, fixed_val=None, verbose=True):
 
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
             for ft in o.instructions:
                 ft.evaluate(*args)
+
+    def update_compilation_state(self, state_name):
+        if self.compilation_state[state_name]:
+            raise RuntimeError(f"Somehow ran {state_name}"
+                               f" despite having already ran this stage.")
+        self._compilation_state[state_name] = True
+
 
     def get_template_shapes(self, t):
         shapes = [len(i.shape_list) for i in t.inputs]
@@ -259,15 +323,33 @@ class CodeletProgram(object):
         shapes = [len(i.shape) for i in node.inputs]
         shapes += [len(o.shape) for o in node.outputs]
         for tname, t in self.codelet_templates.items():
-            if node.op_name in tname and shapes == self.get_template_shapes(t):
+            if node.op_name == tname and shapes == self.get_template_shapes(t):
                 return t
-        raise RuntimeError(f"Node: {node.op_name}, Shapes: {shapes}")
+            elif node.op_name == tname:
+                raise RuntimeError(f"Unable to match node operation to codelet with the same name:\n"
+                                   f"Node operation: {node.op_name}\n"
+                                   f"Input shape dimensions: {[len(i.shape) for i in node.inputs]}\n"
+                                   f"Output shape dimensions: {[len(i.shape) for i in node.outputs]}\n"
+                                   f"Codelet: {tname}\n"
+                                   f"Codelet shapes: {self.get_template_shapes(t)}\n")
+        raise RuntimeError(f"Unable to match node operation to codelet:\n"
+                           f"Node operation: {node.op_name}\n"
+                           f"Input shape dimensions: {[len(i.shape) for i in node.inputs]}\n"
+                           f"Output shape dimensions: {[len(i.shape) for i in node.outputs]}")
 
     def instantiate_codelet(self, node):
-        # cdlt_template = self.codelet_templates[node.op_name]
         cdlt_template = self.get_template_through_mapping(node)
+
         assert isinstance(cdlt_template, CodeletTemplate), f"Invalid template: {cdlt_template}"
-        cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+        try:
+            cdlt = cdlt_template.instantiate({"HAGPlaceholder": self.hag, "NodePlaceholder": node})
+        except Exception as e:
+            raise RuntimeError(f"Failed to instantiate node\n"
+                               f"Node: {node.op_name}, {node.name}:\n"
+                               f"Input name: {node.inputs[0].name}\n"
+                               f"Template: {cdlt_template.op_name}\n"
+                  f"{e}")
+
         self.add_codelet(cdlt)
 
         for i, operand in enumerate(cdlt.inputs):
@@ -370,8 +452,10 @@ class CodeletProgram(object):
         Operation.current_codelet = cdlt
         if output_type in ["operations", "operations_idx"]:
             input_str = ", ".join([f"{i.name}{i.shape_list}" for i in cdlt.inputs])
+            temp_str = ", ".join([f"{t.name}{t.shape_list}" for t in cdlt.temps])
             out_str = ", ".join([f"{o.name}{o.shape_list}" for o in cdlt.outputs])
             operand_str = f"inputs={input_str}\n" \
+                          f"intermediates={temp_str}\n" \
                           f"outputs={out_str}\n"
             op_str = f"// CODELET:\t{cdlt.op_name}{cdlt.instance_id}\n"
             op_str += operand_str
@@ -384,38 +468,39 @@ class CodeletProgram(object):
                 op_str += ostr
         elif output_type == "json":
             op_params = {}
-            operand_dim_map = cdlt.operand_dim_mapping()
+            loop_order = [v for v in cdlt.loop_param_map.values()]
+
             for k, v in cdlt.required_params.items():
-                if k not in operand_dim_map:
+                if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
 
             op_str = {}
-            loop_order = cdlt.get_loop_order()
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
-            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
+            op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
             op_str['outputs'] = [o.emit(output_type) for o in cdlt.outputs]
             op_str['operation_sequence'] = [op.emit(output_type) for op in cdlt.ops]
         elif output_type == "json_no_ops":
             op_params = {}
-            operand_dim_map = cdlt.operand_dim_mapping()
 
-            loop_order = cdlt.get_loop_order()
+            loop_order = [v for v in cdlt.loop_param_map.values()]
 
             for k, v in cdlt.required_params.items():
-                if k not in operand_dim_map:
+                if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
 
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
-            op_str['iterable_dimensions'] = {k: operand_dim_map[k] for k in loop_order}
+            op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
+            op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
             op_str['outputs'] = [o.emit("json") for o in cdlt.outputs]
 
         elif output_type not in ["decimal", "binary"]:
@@ -425,12 +510,15 @@ class CodeletProgram(object):
                 if len(instr_list) > 0:
                     instr_list = f"\n".join(instr_list) + "\n"
                     op_str += instr_list
+            if len(op_str) > 0 and op_str[-1] == "\n":
+                op_str = op_str[:-1]
         else:
             op_str = []
             for o in cdlt.ops:
                 instr_list = self.emit_operation(o, output_type)
                 op_str += instr_list
             op_str = "\n".join(op_str)
+
         return op_str
 
     def emit_codelets(self, output_type):
@@ -438,33 +526,35 @@ class CodeletProgram(object):
         for c in self.codelets:
 
             # Emit codelet start
-            if self.hag.has_op_template("codelet", "start"):
-                cdlt_start = self.hag.get_cdlt_op_template("start")
-                for ft in cdlt_start.instructions:
+            if output_type not in ['operations', 'operations_idx']:
+
+                cdlt_start = self.cdlt_flex_templates['start']
+                assert isinstance(cdlt_start, list)
+                assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start])
+                for ft in cdlt_start:
                     codelet_strings += ft.emit(output_type)
             codelet_strings.append(self.emit_single_codelet(c, output_type))
-
             # Emit codelet end
-            if self.hag.has_op_template("codelet", "end"):
-                cdlt_end = self.hag.get_cdlt_op_template("end")
-                for ft in cdlt_end.instructions:
+            if output_type not in ['operations', 'operations_idx']:
+                cdlt_end = self.cdlt_flex_templates['end']
+                assert isinstance(cdlt_end, list)
+                assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end])
+                for ft in cdlt_end:
                     codelet_strings += ft.emit(output_type)
         return codelet_strings
 
     def emit(self, output_type: str):
         program_strings = []
 
-        if self.hag.has_op_template("program", "start"):
-            start_instrs = self.hag.get_program_template("start")
-            for ft in start_instrs.instructions:
-                program_strings += ft.emit(output_type)
+        start_instrs = self.program_flex_templates['start']
+        for ft in start_instrs:
+            program_strings += ft.emit(output_type)
 
         program_strings += self.emit_codelets(output_type)
 
-        if self.hag.has_op_template("program", "end"):
-            end_instrs = self.hag.get_program_template("end")
-            for ft in end_instrs.instructions:
-                program_strings += ft.emit(output_type)
+        end_instrs = self.program_flex_templates['end']
+        for ft in end_instrs:
+            program_strings += ft.emit(output_type)
 
         if output_type not in ["json", "json_no_ops"]:
             return "\n".join(program_strings)
@@ -473,22 +563,71 @@ class CodeletProgram(object):
             res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
             return res
 
-    def instantiate_instructions_templates(self, node, cdlt):
+
+
+    def emit_codelet_as_program(self, cdlt_id, output_type: str):
+        program_strings = []
+        # Emit program start
+        start_instrs = self.program_flex_templates['start']
+        for ft in start_instrs:
+            program_strings += ft.emit(output_type)
+
+        # Emit codelet start
+        if output_type not in ['operations', 'operations_idx']:
+
+            cdlt_start = self.cdlt_flex_templates['start']
+            assert isinstance(cdlt_start, list)
+            assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start])
+            for ft in cdlt_start:
+                program_strings += ft.emit(output_type)
+
+        # Emit target codelet
+        cdlt = self.get_codelet(cdlt_id)
+        program_strings.append(self.emit_single_codelet(cdlt, output_type))
+
+        # Emit codelet end
+        if output_type not in ['operations', 'operations_idx']:
+            cdlt_end = self.cdlt_flex_templates['end']
+            assert isinstance(cdlt_end, list)
+            assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end])
+            for ft in cdlt_end:
+                program_strings += ft.emit(output_type)
+
+        # Emit program end
+        end_instrs = self.program_flex_templates['end']
+        for ft in end_instrs:
+            program_strings += ft.emit(output_type)
+
+        if output_type not in ["json", "json_no_ops"]:
+            return "\n".join(program_strings)
+        else:
+            res = {"mode": self.program_mode, "program": program_strings}
+            res = json.loads(json.dumps(res, cls=CodeletJSONEncoder))
+            return res
+
+    def instantiate_instructions_templates(self, node, cdlt, verbose=False):
         self.set_instruction_templates(cdlt)
+
         self.relocatables.add_data_relocation(node, cdlt)
-        self.instantiate_instructions(cdlt)
+
+        self.instantiate_instructions(cdlt, verbose=verbose)
 
         if self.hag.has_op_template("codelet", "start"):
-            cdlt_start = self.hag.get_cdlt_op_template("start")
+            cdlt_start = self.hag.get_cdlt_op_template_copy("start")
             args = (self, self.hag, -1, cdlt.instance_id)
-            for ft in cdlt_start.instructions:
+            for ft in cdlt_start:
+                assert ft.template_type == "codelet"
                 ft.evaluate(*args)
+            self._cdlt_flex_templates['start'] = cdlt_start
 
         if self.hag.has_op_template("codelet", "end"):
-            cdlt_end = self.hag.get_cdlt_op_template("end")
+            cdlt_end = self.hag.get_cdlt_op_template_copy("end")
             args = (self, self.hag, -1, cdlt.instance_id)
-            for ft in cdlt_end.instructions:
+            for ft in cdlt_end:
+                assert ft.template_type == "codelet"
                 ft.evaluate(*args)
+            self._cdlt_flex_templates['end'] = cdlt_end
+
 
     def evaluate_lazy_instruction_templates(self, cdlt):
         for o in cdlt.ops:
@@ -663,6 +802,7 @@ class CodeletProgram(object):
                         continue
                     if verbose:
                         print(f"Preprocessing with {fn.name} on codelet {cdlt.op_name}{cdlt.instance_id}")
+
                     cdlt = fn.run(self, n, cdlt)
 
                 assert n.name in codelets and codelets[n.name].instance_id == cdlt.instance_id
@@ -751,28 +891,37 @@ class CodeletProgram(object):
             locs = defaultdict(int)
             loc_sizes = defaultdict(int)
             for o in (cdlt.operands + cdlt.temps):
+
                 for ml in o.unset_mem_locations:
+
                     mem_node = self.hag.get_subgraph_node(ml)
+
                     if ml not in o.tiling or mem_node.node_type != "storage":
                         continue
                     assert ml not in o.mem_locations
                     o.mem_locations[ml] = {"index": locs[ml], "offset": loc_sizes[ml]}
                     locs[ml] += 1
                     loc_sizes[ml] += o.dtype.bits()*np.prod(list(o.tiling[ml].values()))
+
                     if loc_sizes[ml] > mem_node.size:
                         raise RuntimeError(f"Invalid storage capacity for codelet\n"
-                                           f"Codelet: {cdlt.op_name}{cdlt.cdlt_uid} --> {ml}\n"
-                                           f"Input size: {cdlt.inputs[1].shape}")
+                                           f"Codelet: {cdlt.op_name} - {cdlt.cdlt_uid} --> {ml}\n"
+                                           f"Operand: {o.name}\n"
+                                           f"Tiling: {o.tiling[ml]}\n")
+
 
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
         if verbose:
             print(f"\nFinalizing instruction templates")
 
         if self.hag.has_op_template("program", "start"):
-            start_instrs = self.hag.get_program_template("start")
+            start_instrs = self.hag.get_program_template_copy("start")
             args = (self, self.hag, -1, -1)
-            for ft in start_instrs.instructions:
+            for ft in start_instrs:
+                assert ft.template_type == "program"
                 ft.evaluate(*args)
+            self._program_flex_templates['start'] = start_instrs
+
 
         for n in node_sequence:
             cdlt = codelets[n.name]
@@ -782,14 +931,16 @@ class CodeletProgram(object):
                 continue
             if verbose:
                 print(f"Instantiating template for {cdlt.op_name}{cdlt.instance_id}")
-            self.instantiate_instructions_templates(n, codelets[n.name])
+            self.instantiate_instructions_templates(n, codelets[n.name], verbose=verbose)
 
         # Generate program end, if it exists
         if self.hag.has_op_template("program", "end"):
-            end_instrs = self.hag.get_program_template("end")
+            end_instrs = self.hag.get_program_template_copy("end")
             args = (self, self.hag, -1, -1)
-            for ft in end_instrs.instructions:
+            for ft in end_instrs:
+                assert ft.template_type == "program"
                 ft.evaluate(*args)
+            self._program_flex_templates['end'] = end_instrs
 
     def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
         if verbose:
@@ -851,32 +1002,127 @@ class CodeletProgram(object):
         self.finalize_flex_params(node_sequence, codelets, verbose=verbose)
 
 
-    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
-                finalize=True,
+
+    def filtered_compile(self, cdlt_uids=None, verbose=False, sequence_algorithm="default", tiling_path=None,
+                finalize=True, force_recompile=False,
+                         filter_op_types=None,
+                         skip_op_types=None,
                 **compile_kwargs):
         # This function performs breadth-first compilation, with coarsest abstractions first:
         # 1. Generate codelets from nodes
         # 2. Generate operands/operations within codelets
         # 3. Generate instruction templates within operations
+        if force_recompile:
+            self.reset_compilation_state()
         start = time()
 
-        node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+        unfiltered_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+        if cdlt_uids is not None:
+            node_sequence = [unfiltered_sequence[i] for i in cdlt_uids]
+        else:
+            node_sequence = unfiltered_sequence
 
+        if filter_op_types is not None:
+            assert isinstance(filter_op_types, list)
+            node_sequence = [n for n in node_sequence if n.op_name in filter_op_types]
+        elif skip_op_types is not None:
+            node_sequence = [n for n in node_sequence if n.op_name not in skip_op_types]
+
+
+        self.update_compilation_state('sequenced_nodes')
+
+
+        assert len(node_sequence) > 0
         self.run_template_stages(node_sequence, verbose=verbose)
+        self.update_compilation_state('template_stages')
 
         codelets = self.instantiate_all_codelets(node_sequence, verbose=verbose)
+        self.update_compilation_state('codelet_instantiation')
 
         if tiling_path is not None:
             if verbose:
                 print(f"\nLoading predefined tiling at {tiling_path}")
             self.load_tiling(tiling_path)
-        codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
-        codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
-        codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
-        if finalize:
-            self.finalize_program(node_sequence, codelets, verbose=verbose)
 
-        self.run_instruction_stages(codelets, verbose=verbose)
+        codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('preprocessed')
+
+        codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('operation_instantiation')
+
+        codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('compilation_stages')
+
+        if finalize and self.hag.meta_cfg['GENERATE_INSTRUCTIONS']:
+            print(f"Finalizing instructions")
+            self.finalize_program(node_sequence, codelets, verbose=verbose)
+            self.update_compilation_state('finalized')
+            self.run_instruction_stages(codelets, verbose=verbose)
+            self.update_compilation_state('instruction_stages')
+
+        if verbose:
+            print(f"\nTotal compilation time was {time() - start} seconds")
+
+    def compile(self, verbose=False, sequence_algorithm="default", tiling_path=None,
+                finalize=True,
+                force_recompile=False,
+                stop_stage=None,
+                **compile_kwargs):
+        # This function performs breadth-first compilation, with coarsest abstractions first:
+        # 1. Generate codelets from nodes
+        # 2. Generate operands/operations within codelets
+        # 3. Generate instruction templates within operations
+        stop_stage = stop_stage or 'instruction_stages'
+        if force_recompile:
+            self.reset_compilation_state()
+        start = time()
+
+        node_sequence = self.sequence_nodes(sequence_algorithm, verbose=verbose, **compile_kwargs)
+        self.update_compilation_state('sequenced_nodes')
+        if stop_stage == 'sequenced_nodes':
+            return
+
+        self.run_template_stages(node_sequence, verbose=verbose)
+        self.update_compilation_state('template_stages')
+        if stop_stage == 'template_stages':
+            return
+
+        codelets = self.instantiate_all_codelets(node_sequence, verbose=verbose)
+        self.update_compilation_state('codelet_instantiation')
+        if stop_stage == 'codelet_instantiation':
+            return
+
+
+        if tiling_path is not None:
+            if verbose:
+                print(f"\nLoading predefined tiling at {tiling_path}")
+            self.load_tiling(tiling_path)
+
+        codelets = self.run_preprocessing_stages(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('preprocessed')
+        if stop_stage == 'preprocessed':
+            return
+        codelets = self.instantiate_all_operations(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('operation_instantiation')
+        if stop_stage == 'operation_instantiation':
+            return
+
+        codelets = self.run_compilation_stages(node_sequence, codelets, verbose=verbose)
+        self.update_compilation_state('compilation_stages')
+        if stop_stage == 'compilation_stages':
+            return
+        print(f"Finalizing instructions")
+
+        if finalize and self.hag.meta_cfg['GENERATE_INSTRUCTIONS']:
+            self.finalize_program(node_sequence, codelets, verbose=verbose)
+            self.update_compilation_state('finalized')
+
+            if stop_stage == 'finalize':
+                return
+
+            self.run_instruction_stages(codelets, verbose=verbose)
+            self.update_compilation_state('instruction_stages')
+
 
         if verbose:
             print(f"\nTotal compilation time was {time() - start} seconds")

@@ -46,18 +46,7 @@ class Field(object):
         self.param_fn_type: str = param_fn_type
         self.lazy_eval: bool = lazy_eval
         self.required: bool = required
-# @dataclass
-# class Field:
-#     field_name: str
-#     bitwidth: int
-#     field_id: int = field(default_factory=lambda: next(field_cnt))
-#     value: int = field(default=None)
-#     value_names: Dict[str, int] = field(default_factory=dict)
-#     value_str: str = field(default=None)
-#     param_fn: FlexParam = field(default=None, init=False)
-#     param_fn_type: str = field(default="int")
-#     lazy_eval: bool = field(default=False)
-#     required: bool = field(default=False)
+
     @property
     def isset(self) -> bool:
         return self.value is not None
@@ -77,7 +66,8 @@ class Field(object):
             raise RuntimeError(f"Field {self.field_name} with name {self.param_fn.name} has too many bits:\n"
                                f"Value: {val}\n"
                                f"Required bits: {len(bin_rep)}\n"
-                               f"Field bits: {self.bitwidth}")
+                               f"Field bits: {self.bitwidth}\n"
+                               f"Function: {self.param_fn.fn_body_str}")
         self._value = val
 
     def set_param_fn(self, fn: FlexParam, eval_type="int"):
@@ -122,14 +112,23 @@ class Field(object):
         if isinstance(result, str) and result in self.value_names:
             self.value = self.value_names[result]
             self.value_str = result
-        elif not isinstance(result, Integral) and self.param_fn_type == "int":
-            raise RuntimeError(f"Non-integer result value which is not found in value names:\n"
-                               f"Value: {result}, Type: {type(result)}\n"
-                               f"Possible string values: {list(self.value_names.keys())}"
-                  f"Arg name: {self.field_name}")
-        else:
-
+        elif isinstance(result, Integral):
+            assert result >= 0, "Integer result for instruction field must be positive:\n" \
+                                f"Field name: {self.field_name}\n" \
+                                f"Param fn: {self.param_fn.fn_body_str}\n" \
+                                f"Value: {result}"
             self.value = result
+        elif self.param_fn_type == "int":
+            err_msg = f"Non-integer result value which is not found in value names:\n" \
+                      f"Value: {result}, Type: {type(result)}\n" \
+                      f"Possible string values: {list(self.value_names.keys())}" \
+                      f"Arg name: {self.field_name}"
+            return err_msg
+
+        else:
+            self.value = result
+
+        return None
 
     def template_header(self):
         return FIELD_HEADER.format(field_name=self.field_name)
@@ -157,15 +156,9 @@ class Field(object):
         field = Field(self.field_name, self.bitwidth, field_id=self.field_id, value=self.value, value_names=self.value_names.copy(),
                      value_str=self.value_str, param_fn_type=self.param_fn_type, lazy_eval=self.lazy_eval, param_fn=flex_param)
 
-        # flex_param = None if not self.param_fn else self.param_fn.copy()
-        # field.param_fn = flex_param
-        # field.param_fn_type = self.param_fn_type
-        # field.lazy_eval = self.lazy_eval
-        # field = Field(self.field_name, self.bitwidth, self.field_id, self.value, self.value_names.copy(),
-        #              self.value_str)
-        #
-        # flex_param = None if not self.param_fn else self.param_fn.copy()
-        # field.param_fn = flex_param
-        # field.param_fn_type = self.param_fn_type
-        # field.lazy_eval = self.lazy_eval
+
         return field
+
+    def update_fn_arg_names(self, old_args, new_args):
+        if self.param_fn is not None:
+            self.param_fn.reset_base_fn_args(old_args, new_args)

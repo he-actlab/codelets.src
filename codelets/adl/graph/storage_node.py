@@ -181,6 +181,10 @@ class StorageNode(ArchitectureNode):
         return self._depth * self._width * self._banks
 
     @property
+    def data_size(self):
+        return self._width * self._banks
+
+    @property
     def num_elements(self):
         return self._depth * self._banks
 

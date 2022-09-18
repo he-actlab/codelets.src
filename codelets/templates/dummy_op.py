@@ -124,6 +124,39 @@ class DummyOp:
     def __rmod__(self, other):
         return dummy_op(other, self, '%', reflected=True)
 
+    def __lt__(self, other):
+        return dummy_op(other, self, '<')
+
+    def __le__(self, other):
+        return dummy_op(other, self, '<=')
+
+    def __gt__(self, other):
+        return dummy_op(other, self, '>')
+
+    def __ge__(self, other):
+        return dummy_op(other, self, '>=')
+
+    def max(self, other):
+        if isinstance(other, int):
+            template_type_str = self.template_types
+            arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
+            lhs = self.flex_param.fn_body_str
+            rhs = other
+            fp_name = f"max({lhs}, {rhs})"
+            fn_str = f"max({lhs}, {rhs})"
+            fp = FlexParam(fp_name, arg_str, fn_str)
+            return DummyOp(template_type_str, fp)
+        else:
+            assert isinstance(other, DummyOp)
+            template_type_str = list(set(self.template_types + other.template_types))
+            arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
+
+            fp_name = f"max({self.name},{other.name})"
+            fn_str = f"max({self.flex_param.fn_body_str}, {other.flex_param.fn_body_str})"
+            fp = FlexParam(fp_name, arg_str, fn_str)
+            return DummyOp(template_type_str, fp)
+
+
 @dataclass
 class DummyParam:
     # This is a placeholder for templates. Each time a node method is called on this,
@@ -179,15 +212,31 @@ def _(op1: DummyOp, op2: DummyOp, op_str: str, reflected=False):
     fp = FlexParam(fp_name, arg_str, fn_str)
     return DummyOp(template_type_str, fp)
 
+
 @dummy_op.register(int)
 def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
+    template_type_str = op2.template_types
+    arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
     if reflected:
         lhs = op1
         rhs = op2.flex_param.fn_body_str
     else:
         lhs = op2.flex_param.fn_body_str
         rhs = op1
-    new_code = f"({lhs}{op_str}{rhs})"
-    op2.flex_param.update_fn_code(new_code)
-    return op2
+    fp_name = f"({lhs}{op_str}{rhs})"
+    fn_str = f"({lhs}{op_str}{rhs})"
+    fp = FlexParam(fp_name, arg_str, fn_str)
+    return DummyOp(template_type_str, fp)
+
+# @dummy_op.register(int)
+# def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
+#     if reflected:
+#         lhs = op1
+#         rhs = op2.flex_param.fn_body_str
+#     else:
+#         lhs = op2.flex_param.fn_body_str
+#         rhs = op1
+#     new_code = f"({lhs}{op_str}{rhs})"
+#     op2.flex_param.update_fn_code(new_code)
+#     return op2
 

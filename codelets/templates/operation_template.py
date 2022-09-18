@@ -157,6 +157,7 @@ class OperationTemplate(object):
                 kwargs[key] = self.evaluate_args(value, instance_args, False)
 
         kwargs['add_codelet'] = False
+
         instance = INITIALIZER_FN_MAP[self.op_type](*args, **kwargs)
         return instance
 
@@ -231,12 +232,23 @@ class ComputeTemplate(OperationTemplate):
         param_map = {}
         param_map['op_name'] = op_name
         param_map['target'] = target
-        assert all([isinstance(s, (OperandTemplate)) for s in sources])
-        assert all([isinstance(d, (OperandTemplate)) for d in dests])
+        assert all([isinstance(s, (OperandTemplate, IndexOperandTemplate)) for s in sources])
+        assert all([isinstance(d, (OperandTemplate, IndexOperandTemplate)) for d in dests])
         param_map['sources'] = sources
         param_map['dests'] = dests
         param_map['target'] = target
         super(ComputeTemplate, self).__init__("compute", {**param_map, **kwargs}, add_codelet=add_codelet)
+
+    @property
+    def operands(self):
+        operands = []
+        for o in (self.param_map['sources'] + self.param_map['dests']):
+            if isinstance(o, IndexOperandTemplate):
+                operands.append(o.operand)
+            else:
+                assert isinstance(o, OperandTemplate)
+                operands.append(o)
+        return operands
 
     @property
     def positional_args(self):
@@ -255,7 +267,9 @@ class TransferTemplate(OperationTemplate):
                  add_codelet=True,
                  **kwargs
                  ):
-        assert isinstance(operand, (OperandTemplate, IndexOperandTemplate))
+        assert isinstance(operand, (OperandTemplate)), f"Invalid type for operand {operand.name}.\n" \
+                                                       f"Transferred operands cannot use index offsets.\n" \
+                                                       f"Operand type: {type(operand)}"
         assert isinstance(path, (tuple, list)) and len(path) >= 2
 
         param_map = {}
@@ -263,6 +277,10 @@ class TransferTemplate(OperationTemplate):
         param_map['operand'] = operand
 
         super(TransferTemplate, self).__init__("transfer", {**param_map, **kwargs}, add_codelet=add_codelet)
+
+    @property
+    def operand(self):
+        return self.param_map['operand']
 
     @property
     def positional_args(self):

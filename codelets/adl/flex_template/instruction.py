@@ -261,7 +261,12 @@ class Instruction(object):
 
             if not f.isset and not f.lazy_eval:
                 assert f.param_fn is not None
-                f.set_value_from_param_fn(*fn_args, **iter_args)
+                res = f.set_value_from_param_fn(*fn_args, **iter_args)
+                if res is not None:
+                    assert isinstance(res, str)
+                    raise RuntimeError(f"Unable to evaluate instruction {self.opname}\n"
+                                       f"Function: {f.param_fn.fn_body_str}\n"
+                                       f"Field error: {res}")
 
     def evaluate_lazy_fields(self, fn_args: tuple, iter_args: dict):
         fn_args = fn_args + (self,)
@@ -286,3 +291,7 @@ class Instruction(object):
             assert self.str_output_supported
             assert self.tabs is not None
             return self.format_str_fn(self.opname, self.fields, self.tabs)
+
+    def update_instr_args_from_type(self, old_args, new_args):
+        for f in self.fields:
+            f.update_fn_arg_names(old_args, new_args)

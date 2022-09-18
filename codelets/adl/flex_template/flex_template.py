@@ -3,8 +3,11 @@ from dataclasses import dataclass, field
 from .instruction import Instruction
 from codelets.adl.flex_param import FlexParam
 from .compiler_side_effect import SideEffect
+from time import time
+
 DEFAULT_TEMPLATE_ARGS = Instruction.DEFAULT_FN_ARGS + ["template"]
 NUM_OP_FN_ARGS = 6
+
 @dataclass
 class FlexTemplate:
     base_instructions: List[Instruction]
@@ -280,7 +283,6 @@ class FlexTemplate:
                 else:
                     cond_args = fn_args
                 condition = self.evaluate_conditional(cond_args, iter_args)
-
                 if condition:
                     field_args = dict(list(iter_args.items()) + list(self.current_sideeffects().items()))
                     instruction.evaluate_fields(fn_args, field_args)
@@ -288,7 +290,6 @@ class FlexTemplate:
                     instruction.set_tabs(num_tabs)
                     instructions.append(instruction)
                     self.evaluate_side_effects(fn_args, iter_args)
-
         else:
             iter_arg_name = self.iter_args[iter_idx]
             iterable_fnc = self.iterables[iter_idx]
@@ -340,7 +341,7 @@ class FlexTemplate:
                             )
 
     def create_fn_args(self, program, hag, cdlt_id, op_id):
-        # program, hag, cdlt_id, op_idx
+
         args = [program, hag, program.relocatables]
         if cdlt_id >= 0:
             cdlt = program.get_codelet(cdlt_id)
@@ -365,3 +366,14 @@ class FlexTemplate:
             instr_strings.append(instr)
 
         return instr_strings
+
+    def update_template_type(self, tmplt_type):
+        if tmplt_type != self.template_type:
+            prev_template = Instruction.INSTR_TYPE_ARGS[self.template_type]
+            assert prev_template == self.arg_names[:len(prev_template)], "Invalid default args"
+            new_args = Instruction.INSTR_TYPE_ARGS[tmplt_type].copy() + self.arg_names[len(prev_template):]
+            assert len(self.instructions) == 0
+            self.template_type = tmplt_type
+            for bi in self.base_instructions:
+                bi.update_instr_args_from_type(self.arg_names, new_args)
+            self.arg_names = new_args

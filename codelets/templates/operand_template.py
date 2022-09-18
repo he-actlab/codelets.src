@@ -42,6 +42,18 @@ class OperandTemplate:
                 slist.append(s)
         return slist
 
+    @property
+    def operand_shape_list_names(self):
+        return self.shape_list_names
+
+    @property
+    def operand_shape_list(self):
+        return self.shape_list
+
+    @property
+    def shape_symbols(self):
+        return self.shape_list_names
+
     def set_write_destination(self, write_destination: Union[str, DummyParam, DummyParam]):
         self.write_destination = write_destination
 
@@ -108,6 +120,14 @@ class IndexOperandTemplate:
     @property
     def name(self):
         return self.operand.name
+
+    @property
+    def operand_shape_list_names(self):
+        return self.operand.shape_list_names
+
+    @property
+    def operand_shape_list(self):
+        return self.operand.shape_list
 
 def evaluate_args(args, instance_args, preserve_types):
 

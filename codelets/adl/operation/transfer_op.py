@@ -120,7 +120,7 @@ class Transfer(Operation):
                 break
         return rsize
 
-    def strides_iters(self, divisor = 1, max_bits = 64, contiguous=False):
+    def strides_iters(self, data_width, divisor = 1, max_bits = 64, contiguous=False):
         assert len(self.sizes) == 2
         if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
@@ -143,23 +143,30 @@ class Transfer(Operation):
             iters.append(np.prod(xfer_sizes[p:c], dtype=np.int32))
             strides.append(np.prod(ref_sizes[c:], dtype=np.int32))
         iters.append(1)
+
         strides.append(np.prod(xfer_sizes[idx[-1]:], dtype=np.int32))
 
-        strides = [self.operand.dtype.bytes()*s for s in strides]
-
-        total_req_size = strides[-1]
-
+        # dtype_strides = [self.operand.dtype.bytes()*s for s in strides]
+        dtype_strides = [(self.operand.dtype.bits()//data_width)*s for s in strides]
+        assert all([v != 0 and (self.operand.dtype.bits()*strides[i]) % data_width == 0 for i, v
+                    in enumerate(dtype_strides)]), f"Invalid strides: " \
+                                                   f"{dtype_strides} \n" \
+                                                   f"{strides}\n" \
+                                                   f"Datatype: {self.operand.dtype.bits()}\n" \
+                                                   f"Width: {data_width}"
+        total_req_size = dtype_strides[-1]
         if np.ceil(np.log2(total_req_size)) > max_bits:
+
             total_iters = (1+np.ceil(np.ceil(np.log2(total_req_size))/max_bits))
 
             while total_req_size % total_iters != 0 or total_req_size//total_iters % divisor == 0:
                 total_iters += 1
-            strides[-1] /= total_iters
+            dtype_strides[-1] /= total_iters
             iters[-1] = total_iters
-        strides = [np.int32(s) for s in strides]
+        final_strides = [np.int32(s) for s in dtype_strides]
         iters = [np.int32(i) for i in iters]
 
-        return strides, iters
+        return final_strides, iters
 
     def test_contig_strides(self):
         assert len(self.sizes) == 2

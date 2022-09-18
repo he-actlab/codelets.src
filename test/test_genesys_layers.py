@@ -59,7 +59,7 @@ def test_extracted_layer(source_model, layer_name):
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_gemm",
     # "custom_matmul_matmul",
-    # "resnet18_train_batchnormalization",
+    "resnet18_train_batchnormalization",
     # "resnet18_relu",
     # "resnet18_add",
     # "resnet18_conv",
@@ -67,7 +67,7 @@ def test_extracted_layer(source_model, layer_name):
     # "lenet_averagepool",
     # "lenet_gemm",
     # "lenet_bn_conv",
-    "custom_conv_conv",
+    # "custom_conv_conv",
     # "custom_gemm_gemm",
 ])
 def test_genesys_layers(layer_name):
@@ -108,7 +108,7 @@ def test_genesys_layers(layer_name):
 
 @pytest.mark.parametrize('layer_name',[
     # "resnet18_gemm",
-    "resnet18_maxpool",
+    # "resnet18_maxpool",
     # "cc1_conv",
     # "cc2_conv",
     # "cc3_conv",
@@ -121,7 +121,7 @@ def test_genesys_layers(layer_name):
     # "resnet18_globalaveragepool",
     # "lenet_averagepool",
     # "lenet_gemm",
-    # "lenet_bn_batchnormalization",
+    "lenet_bn_batchnormalization",
     # "lenet_bn_conv",
     # "custom_conv_conv",
     # "custom_gemm_gemm",
@@ -150,6 +150,7 @@ def test_genesys_layers_min_tiles_search(layer_name):
                             print_config=False,
                             tiling_search_algorithm='min_tiles'
                               )
+    print(program.emit("operations_idx"))
 
 
 

@@ -143,6 +143,7 @@ test/test_template_ssa.py
 TODO*
 # Numpy serialized files
 *.npz
+*.srdfg
 
 # Ignore .dill files generated from hag serialization
 *.dill

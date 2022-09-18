@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision import models
+from collections import OrderedDict
 import io
 from pathlib import Path
 from onnxsim import simplify
@@ -14,7 +15,13 @@ from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionPro
 import sys
 import onnx
 from onnx.tools import update_model_dims
+from onnx.utils import Extractor
+from onnx import version_converter, helper
+import numpy as np
 import csv
+
+import onnxruntime as ort
+
 CWD = Path(f"{__file__}").parent
 
 Targets = namedtuple('Targets', ['boxes', 'masks', 'labels'])
@@ -60,15 +67,35 @@ LAYER_UTILS = {
              "fn_params": [],
              "input_gen_params": (["N", "C", "H", "W"], {"min": "minval", "max": "maxval"})
              },
-    "elem_add": {"fn": lambda params: torch.add, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_mul": {"fn": lambda params: torch.mul, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_sub": {"fn": lambda params: torch.sub, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_div": {"fn": lambda params: torch.div, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_less": {"fn": lambda params: torch.lt, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
-    "elem_equal": {"fn": lambda params: torch.eq, "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W'])), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "elem_add": {"fn": lambda params: torch.add,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_mul": {"fn": lambda params: torch.mul,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_sub": {"fn": lambda params: torch.sub,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_div": {"fn": lambda params: torch.div,
+                 "input_gen": lambda params: ((torch.randn(params['N'],params['C'], params['H'], params['W']), torch.randn(params['N'],params['C'], params['H'], params['W'])), {}),
+                 "input_gen_params": ["N", "C", "H", "W"],
+                 "fn_params": []},
+    "elem_less": {"fn": lambda params: torch.lt,
+                  "input_gen": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                                torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+                  "input_gen_params": ["N", "C", "H", "W"],
+                  "fn_params": []},
+    "elem_equal": {"fn": lambda params: torch.eq,
+                   "input_gen": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
+                                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
+                   "input_gen_params": ["N", "C", "H", "W"],
+                   "fn_params": []},
     "elem_exp": {"fn": lambda params: torch.exp, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "reduce_sum": {"fn": lambda params: torch.sum, "input_gen": lambda params: (torch.randn(params['N'], params['C']), {}), "input_gen_params": ["N", "C"], "fn_params": []},
-    "relu": {"fn": lambda params: torch.relu, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
+    "relu": {"fn": lambda params: torch.nn.ReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "leaky_relu": {"fn": lambda params: torch.nn.LeakyReLU(), "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
         "sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
     "elem_sigmoid": {"fn": lambda params: torch.sigmoid, "input_gen": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}), "input_gen_params": ["N", "C", "H", "W"], "fn_params": []},
@@ -98,94 +125,6 @@ LAYER_UTILS = {
                     "input_gen_params": ['N', 'IC', 'IH', 'IW']},
 }
 
-# LAYER_FNS = {
-#
-#     "gemm": lambda params: nn.Linear(params['N'],  params['P'], bias=True),
-#     "gemm_no_bias": lambda params: nn.Linear(params['N'],  params['P'], bias=False),
-#     "conv": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
-#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], bias=False),
-#     "conv_bias": lambda params: nn.Conv2d(in_channels=params['IC'], out_channels=params['OC'],
-#                                      kernel_size=params['KH'], stride=params['stride'], padding=params['pad'],
-#                                      bias=True),
-#     "clip": lambda params: torch.clamp,
-#     "elem_clip": lambda params: torch.clamp,
-#     "elem_add": lambda params: torch.add,
-#     "elem_mul": lambda params: torch.mul,
-#     "elem_sub": lambda params: torch.sub,
-#     "elem_div": lambda params: torch.div,
-#     "elem_less": lambda params: torch.lt,
-#     "elem_equal": lambda params: torch.eq,
-#     "elem_exp": lambda params: torch.exp,
-#     "batch_norm": lambda params: nn.BatchNorm2d(params['C']),
-#     "reduce_sum": lambda params: torch.sum,
-#     "relu": lambda params: torch.relu,
-#     "relu2d": lambda params: torch.relu,
-#     "leaky_relu": lambda params: torch.nn.LeakyReLU(),
-#     "sigmoid": lambda params: torch.sigmoid,
-#     "elem_sigmoid": lambda params: torch.sigmoid,
-#     "elem_tanh": lambda params: torch.tanh,
-#     "elem_tanh2d": lambda params: torch.tanh,
-#     "elem_ceil2d": lambda params: torch.ceil,
-#     "transpose2d": lambda params: torch.transpose,
-#     "tensor_transpose2d": lambda params: torch.transpose,
-#     "elem_pow2d": lambda params: torch.pow,
-#     "reduce_mean2d": lambda params: torch.mean,
-#     "reduce_min2d": lambda params: torch.min,
-#     "max_pool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "maxpool": lambda params: nn.MaxPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "avg_pool": lambda params: nn.AvgPool2d(params['KH'], stride=params['stride'], padding=params['pad']),
-#     "global_avg_pool": lambda params: nn.AdaptiveAvgPool2d((1, 1)),
-#     "depthwise_conv": lambda params: nn.Conv2d(in_channels=params['C'], out_channels=params['C'],
-#                                    kernel_size=params['KH'], stride=params['stride'], padding=params['pad'], groups=params['C'], bias=False),
-# }
-#
-# LAYER_INPUT_GEN = {
-#     "gemm": lambda params: (torch.randn(params['M'], params['N']), {}),
-#     "clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                             {"min": params['minval'], "max": params['maxval']}),
-#     "elem_clip": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                             {"min": params['minval'], "max": params['maxval']}),
-#     "gemm_no_bias": lambda params: (torch.randn(params['M'], params['N']), {}),
-#     "conv": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-#     "depthwise_conv": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "conv_bias": lambda params: (torch.randn(params['N'], params['IC'], params['IH'], params['IW']), {}),
-#     "elem_add": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_mul": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_sub": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                 torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_div": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_equal": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "elem_less": lambda params: ((torch.randn(params['N'], params['C'], params['H'], params['W']),
-#                                  torch.randn(params['N'], params['C'], params['H'], params['W'])), {}),
-#     "batch_norm": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "reduce_sum": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "leaky_relu": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_exp": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_sigmoid": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "elem_tanh": lambda params: (torch.randn(params['N'], params['C'], params['H'], params['W']), {}),
-#     "relu2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_ceil2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_tanh2d": lambda params: (torch.randn(params['N'], params['C']), {}),
-#     "elem_pow2d": lambda params: ((torch.randn(params['N'], params['C'], dtype=torch.float64)), {"opset": 12, "const_inputs": (torch.tensor(params['exp'], dtype=torch.float64),)}),
-#     "reduce_mean2d": lambda params: (torch.randn(params['N'], params['C']), {"keepdim": params["keepdim"], "const_inputs": (params['axis'],)}),
-#     "reduce_min2d": lambda params: (torch.randn(params['N'], params['C']),  {"keepdim": params["keepdim"],
-#                                                                              "const_inputs": (params['axis'],),
-#                                                                              "extraction_args": {"input_names": ["input"],
-#                                                                                                  "output_names": ["output"]
-#                                                                                                  }}),
-#     "tensor_transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-#     "transpose2d": lambda params: (torch.randn(params['N'], params['C']), {"const_inputs": params['axis']}),
-#     "max_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "maxpool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-#     "global_avg_pool": lambda params: (torch.randn(params['N'], params['C'], params['IH'], params['IW']), {}),
-# }
 
 def get_image_from_url(url, size=None):
     import requests
@@ -395,6 +334,60 @@ def create_custom_conv(optimize_model, training_mode, convert_data_format, to_po
     convert_torch_model(input_var, model, name, optimize_model, training_mode, to_polymath,
                         convert_data_format=convert_data_format)
 
+def create_roots_of_unity(shape):
+    # N = shape[0]
+    # i, j = np.meshgrid(np.arange(N), np.arange(N))
+    # omega = np.exp(- 2 * np.pi * 1J / N)
+    # m = np.power(omega, i * j) / np.sqrt(N)
+
+    n = np.arange(0, shape[0])
+    m = np.exp(-2j * np.pi * (n * n.reshape(-1, 1) / shape[0]))
+    return m.real, m.imag
+
+def custom_fft(inpt):
+    m_real, m_imag = create_roots_of_unity(inpt.shape)
+
+    out_real = inpt.dot(m_real)**2
+    out_imag = inpt.dot(m_imag)**2
+    out = np.sqrt(out_imag + out_real)
+    return out
+
+def create_custom_fft(optimize_model, convert_data_format, to_polymath, input_shape, name=None):
+    class CustomFFT(nn.Module):
+        def __init__(self, shape):
+            assert len(shape) == 2
+            self.shape = shape
+            self.m_real, self.m_imag = self.create_constants()
+            super(CustomFFT, self).__init__()
+
+        def create_constants(self):
+            n = np.arange(0, self.shape[1])
+            m = np.exp(-2j * np.pi * (n * n.reshape(-1, 1) / self.shape[1]))
+            return torch.from_numpy(m.real).type(torch.FloatTensor), torch.from_numpy(m.imag).type(torch.FloatTensor)
+
+        def forward(self, x):
+
+            # x_real = torch.matmul(self.m_real, x)**2
+            # x_imag = torch.matmul(self.m_imag, x)**2
+            x_real = torch.matmul(x, self.m_real)**2
+            x_imag = torch.matmul(x, self.m_imag)**2
+            x = torch.sqrt(x_real + x_imag)
+            return x
+
+    input_var = torch.randn(*input_shape)
+    model = CustomFFT(input_shape)
+    #
+    output = model(input_var)
+    test_out = torch.abs(torch.fft.fft(input_var))
+    print(f"Torch out: {test_out}")
+    print(f"Test out: {output}")
+    torch.testing.assert_allclose(output, test_out)
+    model.eval()
+    if name is None:
+        name = "custom_fft"
+    convert_torch_model(input_var, model, name, optimize_model, False, to_polymath,
+                        convert_data_format=convert_data_format)
+
 
 def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_polymath, M, N, P, include_bias=False):
     class CustomMatmul(nn.Module):
@@ -413,6 +406,7 @@ def create_custom_matmul(optimize_model, training_mode, convert_data_format, to_
     convert_torch_model(input_var, model, "custom_matmul", optimize_model, training_mode, to_polymath, convert_data_format=convert_data_format)
 
 def create_custom_layer(layer_name, params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
+
     class CustomLayer(nn.Module):
         def __init__(self, kwargs):
             if "const_inputs" in kwargs:
@@ -423,12 +417,13 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
             self.kwargs = kwargs
 
             super(CustomLayer, self).__init__()
-            self.layer = LAYER_UTILS['fn'][layer_name](params)
+            self.layer = LAYER_UTILS[layer_name]['fn'](params)
 
         def forward(self, *args):
             x = self.layer(*(args + self.const_inputs), **self.kwargs)
             return x
-    input_var, kwargs = LAYER_UTILS['input_gen'][layer_name](params)
+    input_var, kwargs = LAYER_UTILS[layer_name]['input_gen'](params)
+
     if "opset" in kwargs:
         opset = kwargs.pop("opset")
     else:
@@ -455,38 +450,49 @@ def create_custom_layer(layer_name, params, optimize_model, convert_data_format,
 
 
 def create_custom_multi_layer(layer_sequence, all_params, optimize_model, convert_data_format, training_mode, to_polymath, fname=None):
-    assert isinstance(all_params, dict) and len(all_params) == len(layer_sequence)
+    from collections import defaultdict
+    assert isinstance(all_params, dict)
     class CustomLayerSeq(nn.Module):
         def __init__(self, kwargs):
-            if "const_inputs" in kwargs:
-                assert isinstance(kwargs['const_inputs'], tuple)
-                self.const_inputs = kwargs.pop('const_inputs')
-            else:
-                self.const_inputs = tuple([])
+            self.const_inputs = {}
+            layer_nums = defaultdict(int)
+            for lname in layer_sequence:
+                l = f"{lname}{layer_nums[lname]}"
+                layer_nums[lname] += 1
+                if "const_inputs" in kwargs[l]:
+                    assert isinstance(kwargs[l]['const_inputs'], tuple)
+                    self.const_inputs[l] = kwargs[l].pop('const_inputs')
+                else:
+                    self.const_inputs[l] = tuple([])
             self.kwargs = kwargs
 
             super(CustomLayerSeq, self).__init__()
-
-            self.layers = {l: LAYER_UTILS['fn'][l](all_params[l]) for l in layer_sequence}
-            assert len(self.layers) > 0
+            self.seq = torch.nn.Sequential()
+            layer_nums = defaultdict(int)
+            for lname in layer_sequence:
+                l = f"{lname}{layer_nums[lname]}"
+                layer_nums[lname] += 1
+                if l == "gemm":
+                    self.seq.add_module("flatten", nn.Flatten())
+                self.seq.add_module(l, LAYER_UTILS[lname]['fn'](all_params[l]))
 
         def forward(self, *args):
-            x = args
-            # x = self.layers.values()[0](*(args + self.const_inputs), **self.kwargs)
-            for name, l in self.layers.items():
-                x = l(*(args + self.const_inputs[name]), **self.kwargs[name])
-            return x
+            return self.seq(*args)
 
     # Only need the first layer args
     input_var = None
     all_kwargs = {}
     opset = _onnx_opset_version
     extraction_args = None
-    for l in layer_sequence:
+
+    layer_nums = defaultdict(int)
+    for lname in layer_sequence:
+        l = f"{lname}{layer_nums[lname]}"
+        layer_nums[lname] += 1
         if input_var is None:
-            input_var, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+            input_var, all_kwargs[l] = LAYER_UTILS[lname]['input_gen'](all_params[l])
         else:
-            _, all_kwargs[l] = LAYER_UTILS['input_gen'][l](all_params[l])
+            _, all_kwargs[l] = LAYER_UTILS[lname]['input_gen'](all_params[l])
         if "opset" in all_kwargs[l]:
             opset = all_kwargs[l].pop("opset")
 
@@ -497,11 +503,11 @@ def create_custom_multi_layer(layer_sequence, all_params, optimize_model, conver
 
     model = CustomLayerSeq(all_kwargs)
 
-
     if not isinstance(input_var, tuple):
         input_var = (input_var,)
-    output = model(*input_var)
+    output = model.seq(*input_var)
     model.eval()
+
     if fname is None:
         layer_seq_name = "_".join(layer_sequence)
         fname = f"custom_{layer_seq_name}"
@@ -631,6 +637,7 @@ def create_inception(optimize_model, training_mode, convert_data_format, to_poly
 
 def create_mobilenet(optimize_model, training_mode, convert_data_format, to_polymath, batch_size=1):
     model = models.mobilenet_v2(pretrained=not training_mode)
+    # model = torch.hub.load('pytorch/vision:v0.10.0', 'mobilenet_v2', pretrained=True)
     input_var = torch.randn(batch_size, 3, 224, 224)
     model_name = "mobilenetv2"
     if batch_size != 1:
@@ -887,7 +894,6 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
     f = io.BytesIO()
     mode = torch.onnx.TrainingMode.TRAINING if training_mode else torch.onnx.TrainingMode.EVAL
     filepath = f"{CWD}/models/{model_name}.onnx"
-
     if 'mask_rcnn' not in model_name:
         torch.onnx.export(model,  # model being run
                           input_var,  # model input (or a tuple for multiple inputs)
@@ -896,9 +902,10 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
                           do_constant_folding=True,  # whether to execute constant folding for optimization
                           keep_initializers_as_inputs=True,
                           training=mode,
+                          verbose=False,
                           input_names=['input'],  # the model's input names
                           output_names=['output'],
-                          opset_version=opset)
+                          )
     else:
         model.eval()
         # input_var = [(input_var,)]
@@ -951,56 +958,252 @@ def convert_torch_model(input_var, model, model_name, optimize_model, training_m
 
     if to_polymath:
         graph = pm.from_onnx(filepath)
-        pm.pb_store(graph, f"{CWD}/full_dnns/")
+        pm.pb_store(graph, f"{CWD}/models/srdfg")
 
 
 
 def optimize_bert_onnx(to_polymath, batch_size=1):
+    from collections import defaultdict
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    load_path = f"{MODEL_DIR}/bertsquad-12.onnx"
-    store_path = f"{MODEL_DIR}/bertsquad-12-opt.onnx"
-    inpt_shapes = {"unique_ids_raw_output___9:0": (batch_size,),
-              "segment_ids:0": (batch_size,256),
-              "input_mask:0": (batch_size,256),
-              "input_ids:0": (batch_size,256)
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed-xposed.onnx"
+    model_init = onnx.load(load_path)
+    added_xpose = 0
+    for i in range(len(model_init.graph.node)):
+        n = model_init.graph.node[i]
+        if n.op_type == "ReduceMean":
+            axes_val = get_attribute(n, 'axes')
+            print(f"Here: {axes_val}")
+            # xpose_node = helper.make_node(
+            #     'Transpose',
+            #     inputs=[n.input[0]],
+            #     outputs=[f'added_expose{added_xpose}_'],
+            #     perm =
+            # )
+            # added_xpose += 1
+
+    # with open(store_path, "wb") as f:
+    #     f.write(model_init.SerializeToString())
+    # providers = ['CPUExecutionProvider']
+    # inputs = {}
+    # inputs['bert/embeddings/Reshape_1:0'] = torch.randn(1, 256, 768).numpy()
+    # inputs['bert/embeddings/one_hot:0'] = torch.randn(256, 2).numpy()
+    # inputs['bert/encoder/layer_0/attention/self/mul_1:0'] = torch.randn(1, 1, 256, 256).numpy()
+    # sess = ort.InferenceSession(load_path, providers=ort.get_available_providers())
+    # result = sess.run(None, inputs)[0]
+    #
+    # new_sess = ort.InferenceSession(load_path, providers=ort.get_available_providers())
+    # new_result = new_sess.run(None, inputs)[0]
+    # np.testing.assert_allclose(new_result, result)
+
+
+    # inpt_shapes = {"unique_ids_raw_output___9:0": (batch_size,),
+    #           "segment_ids:0": (batch_size,256),
+    #           "input_mask:0": (batch_size,256),
+    #           "input_ids:0": (batch_size,256)
+    #           }
+    # out_shapes = {"unstack:1": (batch_size,256),
+    #               "unstack:0": (batch_size,256),
+    #               "unique_ids:0": (batch_size,)
+    #               }
+    # optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+
+def set_bert_shapes(batch_size=1):
+    bert_name = f"bert-base-case"
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{bert_name}.onnx"
+    store_path = f"{MODEL_DIR}/{bert_name}-opt.onnx"
+    inpt_shapes = {"bert/embeddings/Reshape_1:0": (batch_size, 256, 768),
+              "bert/embeddings/one_hot:0": (256, 2),
+              "bert/encoder/layer_0/attention/self/mul_1:0": (batch_size,1, 256, 256),
               }
-    out_shapes = {"unstack:1": (batch_size,256),
-                  "unstack:0": (batch_size,256),
-                  "unique_ids:0": (batch_size,)
+    out_shapes = {"BiasAdd:0": (256, 2),
                   }
-    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
+    optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, False)
 
 
 
 def optimize_yolo_onnx(to_polymath, batch_size=1):
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_path = f"{MODEL_DIR}/yolov3.onnx"
-    store_path = f"{MODEL_DIR}/yolov3-opt.onnx"
-    n_candidates = 80
-    n_box = 40
+    store_path = f"{MODEL_DIR}/yolov3-opt2.onnx"
+    # n_candidates = 80
+    # n_box = 40
+    n_candidates = 'n_candidates'
+    n_box = 'n_box'
     inpt_shapes = {"input_1": (batch_size, 3, 416, 416),
               "image_shape": (batch_size, 2),
               }
-    out_shapes = {"yolonms_layer_1/ExpandDims_1:0": (batch_size, n_candidates, 4),
+    out_shapes = {
+                "yolonms_layer_1/ExpandDims_1:0": (batch_size, n_candidates, 4),
                   "yolonms_layer_1/ExpandDims_3:0": (batch_size, 80, n_candidates),
                   "yolonms_layer_1/concat_2:0": (n_box, 3)
                   }
     optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath)
 
-def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath):
+def extract_static_yolo():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
+    store_path = f"{MODEL_DIR}/yolov3-opt-static1.onnx"
+
+
+    input_names = ["input_1"]
+    output_names = ["convolution_output_", "convolution_output1_", "convolution_output2_"]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+def extract_bert_layer():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt-trimmed-fuse-tester.onnx"
+
+
+    input_names = ["bert/encoder/layer_0/intermediate/dense/mul_3:0",
+                   "bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0",
+                   ]
+    output_names = ["bert/encoder/layer_0/output/LayerNorm/batchnorm/add_1:0"]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+def extract_lenet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/lenet-opt.onnx"
+    store_path = f"{MODEL_DIR}/lenet-opt-trimmed.onnx"
+    input_names = ["import/Placeholder:0"]
+    output_names = ["import/conv3/Relu:0"]
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names, check_model=False)
+
+def rename_yolo_ops():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/yolov3-opt-static.onnx"
+    store_path = f"{MODEL_DIR}/yolov3-opt-static1.onnx"
     model = onnx.load(load_path)
-    # for o in model.graph.output:
-    #     print(o)
-    #
-    # for o in model.graph.input:
-    #     print(o)
-    model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
+    model = rename_out_edges(model, 'convolution_output')
+    with open(store_path, "wb") as f:
+        f.write(model.SerializeToString())
+
+
+def remove_softmax_efficientnet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
+    store_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt-no-softmax.onnx"
+    input_names = ['efficientnet-lite4/model/stem/conv2d/Conv2D__5:0']
+
+    output_names = ['efficientnet-lite4/model/head/dense/BiasAdd:0']
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+
+def trim_gpt2():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/gpt2-opt.onnx"
+    store_path = f'{MODEL_DIR}/gpt2-trimmed-opt.onnx'
+    input_names = [
+        'onnx::Add_204'
+    ]
+    model_proto = onnx.load(load_path)
+    output_names = [o.name for o in model_proto.graph.output]
+
+    onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+
+
+
+def trim_bert():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/bertsquad-12-opt1.onnx"
+    store_path = f"{MODEL_DIR}/bertsquad-12-opt2.onnx"
+    store_path2 = f"{MODEL_DIR}/bertsquad-12-opt3.onnx"
+
+    input_names = [
+        # Result from reshape x2, gather, reshape
+        'bert/embeddings/Reshape_1:0',
+        # one-hot encoded segment ids
+        'bert/embeddings/one_hot:0',
+        # All of these are the same value, but redundant computation is removed
+        'bert/encoder/layer_0/attention/self/mul_1:0',
+        'bert/encoder/layer_1/attention/self/mul_1:0',
+        'bert/encoder/layer_2/attention/self/mul_1:0',
+        'bert/encoder/layer_3/attention/self/mul_1:0',
+        'bert/encoder/layer_4/attention/self/mul_1:0',
+        'bert/encoder/layer_5/attention/self/mul_1:0',
+        'bert/encoder/layer_6/attention/self/mul_1:0',
+        'bert/encoder/layer_7/attention/self/mul_1:0',
+        'bert/encoder/layer_8/attention/self/mul_1:0',
+        'bert/encoder/layer_9/attention/self/mul_1:0',
+        'bert/encoder/layer_10/attention/self/mul_1:0',
+        'bert/encoder/layer_11/attention/self/mul_1:0',
+        #
+    ]
+    output_names = ['BiasAdd:0']
+    # onnx.utils.extract_model(load_path, store_path, input_names, output_names)
+    replacements = input_names[3:]
+    model = onnx.load(store_path)
+    for n in model.graph.node:
+        for i in range(len(n.input)):
+            inpt = n.input[i]
+            if inpt in replacements:
+                n.input[i] = input_names[2]
+
+    onnx.checker.check_model(model)
+    with open(store_path2, "wb") as f:
+        f.write(model.SerializeToString())
+    input_names = [
+        # Result from reshape x2, gather, reshape
+        'bert/embeddings/Reshape_1:0',
+        # one-hot encoded segment ids
+        'bert/embeddings/one_hot:0',
+        # All of these are the same value, but redundant computation is removed
+        'bert/encoder/layer_0/attention/self/mul_1:0',
+    ]
+    onnx.utils.extract_model(store_path2, store_path2, input_names, output_names)
+
+
+
+def collect_unset_dims(model):
+    dim_param_set = set()
+    def init_dim_param_set(dim_param_set, value_infos) -> None:
+        for info in value_infos:
+            shape = info.type.tensor_type.shape
+            for dim in shape.dim:
+                if dim.HasField('dim_param'):
+                    dim_param_set.add(dim.dim_param)  # type: ignore
+
+    init_dim_param_set(dim_param_set, model.graph.input)  # type: ignore
+    init_dim_param_set(dim_param_set, model.graph.output)  # type: ignore
+    init_dim_param_set(dim_param_set, model.graph.value_info)  # type: ignore
+    return list(dim_param_set)
+
+def optimize_onnx(load_path, store_path, inpt_shapes, out_shapes, to_polymath, single_params=None):
+    model = onnx.load(load_path)
+
+    unset_params = collect_unset_dims(model)
+
+    if len(unset_params) > 0 and inpt_shapes is None and out_shapes is None:
+        assert single_params is not None and set(single_params.keys()) == set(unset_params)
+        for i in model.graph.input:
+            for dim in i.type.tensor_type.shape.dim:
+                if dim.HasField('dim_param') and dim.dim_param in single_params:
+                    if dim.HasField('dim_value') and dim.dim_value != single_params[dim.dim_param]:
+                        raise RuntimeError(f"Invalid dim value")
+                    dim.dim_value = single_params[dim.dim_param]
+
+        for o in model.graph.output:
+            for dim in o.type.tensor_type.shape.dim:
+                if dim.HasField('dim_param') and dim.dim_param in single_params:
+                    if dim.HasField('dim_value') and dim.dim_value != single_params[dim.dim_param]:
+                        raise RuntimeError(f"Invalid dim value")
+                    dim.dim_value = single_params[dim.dim_param]
+
+    # print
+    if inpt_shapes is not None and out_shapes is not None:
+        model = update_model_dims.update_inputs_outputs_dims(model, inpt_shapes,
                                                          out_shapes)
+
+
     model = onnx.shape_inference.infer_shapes(model)
 
-
     model, check = simplify(model)
-    assert check
+
+    # assert check
     # model = update_node_names(model)
     # model = update_edge_names(model)
     with open(store_path, "wb") as f:
@@ -1155,6 +1358,49 @@ def update_edge_names(model_proto):
 
     return model_proto
 
+def rename_out_edges(model_proto, base_string):
+    node_name_map = {}
+
+    for n in model_proto.graph.node:
+        for idx, i in enumerate(n.input):
+            if i not in node_name_map and base_string in i:
+                new_name = f"{i}_"
+                node_name_map[i] = new_name
+
+        for idx, o in enumerate(n.output):
+            if o not in node_name_map and base_string in o:
+                new_name = f"{o}_"
+
+                node_name_map[o] = new_name
+
+    for v in model_proto.graph.value_info:
+        if v.name in node_name_map:
+            assert v.name in node_name_map
+            v.name = node_name_map[v.name]
+
+    for i in model_proto.graph.initializer:
+        if i.name in node_name_map:
+            i.name = node_name_map[i.name]
+
+    for n in model_proto.graph.node:
+        for idx in range(len(n.input)):
+            if n.input[idx] in node_name_map:
+                n.input[idx] = node_name_map[n.input[idx]]
+
+        for idx in range(len(n.output)):
+            if n.output[idx] in node_name_map:
+                n.output[idx] = node_name_map[n.output[idx]]
+
+    for i in model_proto.graph.input:
+        if i.name in node_name_map:
+            i.name = node_name_map[i.name]
+
+    for o in model_proto.graph.output:
+        if o.name in node_name_map:
+            o.name = node_name_map[o.name]
+
+    return model_proto
+
 def simplify_mrcnn_zoo(batch_size=1):
     from pathlib import Path
     CWD = Path(f"{__file__}").parent
@@ -1203,6 +1449,7 @@ def parse_array(tensor_proto):
 
 def collect_value_info(graph):
     node_info = {}
+
     for vi in graph.value_info:
         name, shape, shape_name = get_info(vi)
         node_info[name] = shape
@@ -1345,6 +1592,225 @@ def main():
     # # split_mrcnn(benchmark, split_part)
     # create_maskrcnn_part(split_part, optimize_model, training_mode, data_format_convert, to_polymath)
 
+def get_attribute(node, attr_name):
+    for a in node.attribute:
+        if a.name == attr_name:
+            return onnx.helper.get_attribute_value(a)
+    return None
+
+
+def print_unique_model_layers(model_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+
+    model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    model = onnx.load_model(model_path)
+    layer_info = collect_value_info(model.graph)
+    layers = {}
+
+    def is_dw_conv(node):
+        inpt_name = node.input[0]
+        assert inpt_name in layer_info
+        inpt_shape = layer_info[inpt_name]
+        ic = inpt_shape[1]
+        groups = get_attribute(node, "group")
+        if groups is not None and groups == ic:
+            return True
+        return False
+    dw_nodes = []
+    for n in model.graph.node:
+        if n.op_type.lower() == "conv" and is_dw_conv(n):
+            lname = "DepthwiseConv"
+            dw_nodes.append(n)
+        else:
+            lname = n.op_type
+
+        if lname not in layers:
+            layers[lname] = 1
+        else:
+            layers[lname] += 1
+    csv_res = "\n".join(
+        f"{op}, {num}" for op, num in layers.items()
+    )
+    print(f"Operation, Count")
+    print(f"{csv_res}")
+
+
+def optimize_graph(model_name, single_params=None):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_path = f"{MODEL_DIR}/{model_name}-opt.onnx"
+    optimize_onnx(load_path, store_path, None, None, False, single_params=single_params)
+    model = onnx.load(store_path)
+    model = version_converter.convert_version(model,_onnx_opset_version)
+    with open(store_path, "wb") as f:
+        f.write(model.SerializeToString())
+    return f"{model_name}-opt"
+
+def is_dw_conv(node, layer_info):
+    inpt_name = node.input[0]
+    assert inpt_name in layer_info
+    inpt_shape = layer_info[inpt_name]
+    ic = inpt_shape[1]
+    groups = get_attribute(node, "group")
+    if groups is not None and groups == ic:
+        return True
+    return False
+
+def get_layer_name(node, layer_info):
+    if node.op_type.lower() == "conv" and is_dw_conv(node, layer_info):
+        lname = "DepthwiseConv"
+    else:
+        lname = node.op_type
+    return lname
+
+def get_fusable_layer(graph, layer_name, input_node, layer_info):
+    if isinstance(layer_name, list):
+        out_layers = []
+        outputs = []
+        for l in layer_name:
+            for n in graph.node:
+                lname = get_layer_name(n, layer_info)
+                if lname == l and input_node in n.input and n.output[0] not in outputs:
+                    assert hasattr(n, "output") and len(n.output) == 1
+                    out_layers.append({'output': n.output[0], 'layer': n})
+                    outputs.append(n.output[0])
+        if len(out_layers) == len(layer_name):
+            return out_layers
+    else:
+        for n in graph.node:
+            lname = get_layer_name(n, layer_info)
+            if lname == layer_name and input_node in n.input:
+                assert hasattr(n, "output") and len(n.output) == 1
+                return [{'output': n.output[0], 'layer': n}]
+    return None
+
+def get_fused_nodes(graph, sequence, initial_layer, layer_info):
+    # TODO: Make sure the output isnt used in multiple places
+    assert len(initial_layer.output) == 1
+    tgt_input = initial_layer.output[0]
+    fdescriptors = []
+    fdescriptors.append([{
+        'layer': initial_layer,
+        'output': tgt_input
+    }])
+    for l in sequence[1:]:
+        fl = get_fusable_layer(graph, l, tgt_input, layer_info)
+        if fl is None:
+            return None
+        else:
+            assert isinstance(fl, list)
+            tgt_input = fl[0]['output']
+            fdescriptors.append(fl)
+    return fdescriptors
+
+def fuse_layers(model_name,
+                all_fused_nodes,
+                fusion_instances,
+                layers,
+                fusion_ops,
+                layer_info, test_run=False):
+    intermediate_nodes = []
+    for layer_list in layers[:-1]:
+        for l in layer_list:
+            intermediate_nodes.append(l['output'])
+
+    # intermediate_nodes = [l['output'] for l in layers[:-1]]
+    fused_templates = []
+    for layer_list in layers:
+        for l in layer_list:
+            fused_templates.append(l['layer'])
+    # fused_templates = [l['layer'] for l in layers]
+    layer_inputs = []
+    for layer_list in layers:
+        for l in layer_list:
+            for i in l['layer'].input:
+                if i not in intermediate_nodes:
+                    layer_inputs.append(i)
+
+    result = layers[-1][0]['output']
+    all_fused_nodes['intermediate'] += intermediate_nodes
+    all_fused_nodes['layers'] += fused_templates
+    all_fused_nodes['fusion_inputs'] += layer_inputs
+    all_fused_nodes['fusion_outputs'].append(result)
+    flattened_ops = flatten_seq(fusion_ops)
+    fusion_name = "_".join(flattened_ops)
+    instance_name = f"{fusion_name}{fusion_instances[fusion_name]}"
+    fusion_instances[fusion_name] += 1
+    if not test_run:
+        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        src_path = f"{MODEL_DIR}/{model_name}.onnx"
+        model = onnx.load(src_path)
+        dst_path = f"{MODEL_DIR}/{model_name}_{instance_name}.onnx"
+        layer_inputs = [l for l in layer_inputs if l not in layer_info['initializer_names']]
+        onnx.utils.extract_model(src_path, dst_path, layer_inputs, [result])
+
+    return all_fused_nodes, fusion_instances
+
+def flatten_seq(list_of_lists):
+    if len(list_of_lists) == 0:
+        return list_of_lists
+    if isinstance(list_of_lists[0], list):
+        return flatten_seq(list_of_lists[0]) + flatten_seq(list_of_lists[1:])
+    return list_of_lists[:1] + flatten_seq(list_of_lists[1:])
+
+def fusion_generator(src_model, fusion_sequences, test_run=False):
+    from collections import defaultdict
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    model_path = f"{MODEL_DIR}/{src_model}.onnx"
+    model = onnx.load_model(model_path)
+
+    node_list = list(model.graph.node)
+    nidx = 0
+    all_fused_nodes = {'layers': [],
+                       'fusion_inputs': [],
+                       'fusion_outputs': [],
+                       'intermediate': []
+                       }
+
+    fusion_sequences = sorted(fusion_sequences, key=lambda x: len(x), reverse=True)
+    fusion_starts = [s[0] for s in fusion_sequences]
+    fusion_instances = defaultdict(int)
+
+    layer_info = collect_value_info(model.graph)
+    layer_info['initializer_names'] = [init.name for init in model.graph.initializer]
+
+
+    while nidx < len(model.graph.node):
+        n = node_list[nidx]
+
+        if n in all_fused_nodes['layers'] or any([o in all_fused_nodes['fusion_inputs'] for o in n.output]):
+            nidx += 1
+            continue
+
+        lname = get_layer_name(n, layer_info)
+        if lname in fusion_starts:
+
+            possible_fusions = [s for s in fusion_sequences if s[0] == lname]
+            for pf in possible_fusions:
+                fused_nodes = get_fused_nodes(model.graph, pf, n, layer_info)
+                if fused_nodes is not None:
+                    all_fused_nodes, fusion_instances = fuse_layers(src_model,
+                                                                    all_fused_nodes,
+                                                                    fusion_instances,
+                                                                    fused_nodes,
+                                                                    pf,
+                                                                    layer_info, test_run=test_run)
+                    break
+        nidx += 1
+    print(f"Fusion summary:")
+    for k, v in fusion_instances.items():
+        print(f"{k} - {v}")
+
+def quantize_model(model_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_path = f"{MODEL_DIR}/{model_name}-int8.onnx"
+
+def optimize_mobilenet():
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_path = f"{MODEL_DIR}/mobilenetv2-12.onnx"
+    store_path = f"{MODEL_DIR}/mobilenetv2-12-opt.onnx"
+
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
 
@@ -1404,8 +1870,77 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        optimize_yolo_onnx(False)
-
-        # create_resnet50(True, False, False, False,
-        #                 batch_size=1)
+        create_vgg16(True, False, False, False)
+        # MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        # load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
+        # optimize_bert_onnx(False)
+        # model = onnx.load(load_path)
+        # print(dir(model))
+        # print(model.producer_version)
+        # remove_softmax_efficientnet()
+        # extract_bert_layer()
+        #
+        # sequences = [['Conv', 'Relu'],
+        #              ['Conv', 'Relu', 'MaxPool'],
+        #              ['Conv', 'Add', 'Relu', 'GlobalAveragePool'],
+        #              ['Conv', 'Add', 'Relu']]
+        # # sequences = [['Conv', 'Relu', 'MaxPool'], ]
+        # # sequences = [['Conv', 'Add'],
+        # #              ['Conv', 'Clip', 'AveragePool'],
+        # #              ['Conv', 'Clip', 'DepthwiseConv',],
+        # #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        # optimize_graph('efficientnet-lite4-new')
+        # create_mobilenet(True, False, False, False,
+        #                  batch_size=1)
+        # optimize_graph('mobilenetv2-12', single_params={'batch_size': 1})
+        # quantize_model('bertsquad-12-opt-trimmed')
+        # optimize_bert_onnx(False)
+        # set_bert_shapes()
+        # name = "bertsquad-12-opt-trimmed"
+        # # name = "bertsquad-12-opt-trimmed-fuse-tester"
+        # sequences = [
+        #                 ["MatMul", "Reshape", "Add", "Add",
+        #                  "ReduceMean",
+        #                  "Sub",
+        #                  "Mul",
+        #                  "ReduceMean",
+        #                  "Add",
+        #                  "Sqrt",
+        #                  "Reciprocal",
+        #                  "Mul", ["Mul", "Mul"], "Sub", "Add"],
+        #              ["Gemm", "Add", "ReduceMean", "Sub", "Mul", "ReduceMean",
+        #                                                    "Add", "Sqrt", "Reciprocal", "Mul", ["Mul", "Mul"],
+        #                                                    "Sub", "Add"],
+        #              ["MatMul", "Mul", "Add", "Softmax"],
+        #              ["Gemm", "Reshape", "Transpose"], ["MatMul", "Transpose"],
+        #              ["Gemm","Pow","Mul","Add", "Mul", "Tanh", "Add", "Mul", "Mul",]
+        # ]
+        # seq = [
+        #         ["Gemm",
+        #          "Add",
+        #          "ReduceMean",
+        #          "Sub",
+        #          "Mul",
+        #          "ReduceMean",
+        #          "Add",
+        #          "Sqrt",
+        #          "Reciprocal",
+        #          "Mul",
+        #          ["Mul", "Mul",],
+        #           "Sub",
+        #          "Add"]
+        # ]
+        # model = "lenet"
+        # optimize_graph(model)
+        # extract_lenet()
+        # name = "mobilenetv2-opt"
+        # sequences = [['Conv', 'Add'],
+        #              # ['Conv', 'Clip', 'AveragePool'],
+        #              ['Conv', 'Clip', 'DepthwiseConv',],
+        #              ['Conv', 'Clip', 'DepthwiseConv', 'Clip',], ]
+        # fusion_generator(name, sequences, test_run=True)
+        # create_custom_fft(True, False, False, (1, 2048))
+        # trim_gpt2()
+        # model = "gpt2-opt"
+        # create_custom_gemm(True, False, False, False, 8, 128, 128)
 #

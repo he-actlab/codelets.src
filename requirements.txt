@@ -11,3 +11,5 @@ indexed
 onnx
 tqdm
 fxpmath
+torchvision
+onnx-simplifier

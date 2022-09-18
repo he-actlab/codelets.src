@@ -3,6 +3,7 @@ from pathlib import Path
 from examples.genesys import compile_genesys, get_arch, FXP_CONFIGS
 from examples.genesys.datagen_functions import OperandData, save_array
 from examples.genesys.genesys_qmodels import generate_random_values
+from examples.genesys.config_loader import load_config
 from tools.compile_layer import store_compilation_output
 from codelets.compiler.program import CodeletProgram
 from pprint import pprint
@@ -38,7 +39,6 @@ def quantize_initializer(data, cdlt_operand, pm_node, idx):
         swapped_idx = [data.shape.index(i) for i in pm_node.shape]
         data = data.transpose(*swapped_idx)
         assert pm_node.shape == data.shape
-
     if data.shape != cdlt_operand.shape:
         pad_width = [(0, j-i) for i, j in zip(data.shape, cdlt_operand.shape)]
         data = np.pad(data, pad_width)
@@ -62,7 +62,10 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
     data_path = f"{base_path}/data"
     if not Path(data_path).exists():
         os.makedirs(data_path)
-
+    if model_data is None:
+        model_data = {}
+        # model_data = generate_inputs_from_program(program)
+        # exit()
     for c in program.codelets:
         inouts = {"inputs": [], "outputs": []}
         for i, op in enumerate(c.inputs):
@@ -77,20 +80,26 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
 
             elif op.node_name in value_dict['outputs']:
                 operand = value_dict['outputs'].pop(op.node_name)
-                assert operand.data.shape == op.shape
+                assert operand.data.shape == op.shape, f"Invalid shape for {operand.node_name} in {c.op_name}:\n" \
+                                                       f"Codelet shape: {op.shape}\n" \
+                                                       f"Value dict shape: {operand.data.shape}"
                 inouts['inputs'].append(operand)
                 value_dict['intermediate'][op.node_name] = operand
             elif op.node_name in value_dict['intermediate']:
                 operand = value_dict['intermediate'][op.node_name]
                 assert operand.data.shape == op.shape
                 inouts['inputs'].append(operand)
+
         inouts = generate_random_values(c, inouts=inouts)
 
         for i in inouts['inputs']:
 
             if i.fmt is None and i.node_name not in value_dict['inputs'] and i.node_name not in value_dict['intermediate']:
                 value_dict['inputs'][i.node_name] = i
-                storage_info[i.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+                storage_info[i.node_name] = {"cdlt": c.cdlt_uid,
+                                             "path": None,
+                                             'cdlt_name': i.idx.name,
+                                             'operand_type': 'input'}
 
             elif i.fmt is not None:
                 formatted.append(i)
@@ -98,7 +107,10 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
         for o in inouts['outputs']:
             if o.fmt is None:
                 value_dict['outputs'][o.node_name] = o
-                storage_info[o.node_name] = {"cdlt": c.cdlt_uid, "path": None}
+                storage_info[o.node_name] = {"cdlt": c.cdlt_uid,
+                                             "path": None,
+                                             'cdlt_name': o.idx.name,
+                                             'operand_type': 'output'}
 
     for f in formatted:
         if f.node_name in value_dict['inputs']:
@@ -136,14 +148,16 @@ def store_model_values(program: CodeletProgram, base_path, model_data=None):
 
 
 def store_model_outputs(model_name,
-                  training_mode,
-                  batch_size=1,
-                  verbose=False,
-                  emit_to_stdout=None,
-                  load_path=None,
-                  dir_ext=None,
-                  program=None, added_constr=None,
-                        model_data=None
+                        training_mode,
+                        batch_size=1,
+                        verbose=False,
+                        emit_to_stdout=None,
+                        load_path=None,
+                        dir_ext=None,
+                        program=None,
+                        added_constr=None,
+                        model_data=None,
+                        generate_data=True
                         ):
     name = model_name
     tile_method = "min_tiles"
@@ -203,7 +217,10 @@ def store_model_outputs(model_name,
 
     if added_constr:
         program = update_tile_constraints(program, added_constr, model_name)
+
+    print(f"Compiling")
     program.compile(verbose=False, finalize=True)
+
 
     arch_cfg = get_arch(None, None, update_cfg_dtypes)
     print(f"Configuration for program:")
@@ -216,10 +233,14 @@ def store_model_outputs(model_name,
     base_path = store_compilation_output(program, "arch_cfg", extension="json", arch_cfg=arch_cfg, dir_ext=dir_ext)
     store_compilation_output(program, "operations_idx", extension="txt", dir_ext=dir_ext)
     store_compilation_output(program, "json", extension="json", dir_ext=dir_ext)
+
     store_compilation_output(program, "string_final", extension="txt", dir_ext=dir_ext)
+
     store_compilation_output(program, "decimal", extension="txt", dir_ext=dir_ext)
+
     store_compilation_output(program, "binary", extension="txt", dir_ext=dir_ext)
-    store_model_values(program, base_path, model_data=model_data)
+    if generate_data:
+        store_model_values(program, base_path, model_data=model_data)
     return program
 
 def update_tile_constraints(program, layer_constraints, orig_constraint=None):
@@ -234,27 +255,76 @@ def update_tile_constraints(program, layer_constraints, orig_constraint=None):
 
     return program
 
-def compile_full_model(model_name, store_compile=False, dir_ext=None,partials=False, added_constr=None, train_mode=False,
-                       verbose=False, model_data=None):
+def generate_inputs_from_program(program):
+    model_data = {}
+    value_dict: Dict[str, Dict[str, OperandData]] = {"inputs": {},
+                  "intermediate": {},
+                  "outputs": {}}
+    init_input = None
+    for c in program.codelets:
+        inouts = {"inputs": [], "outputs": []}
+        for i, op in enumerate(c.inputs):
+            assert op.node_name in program.operand_mapping
+            if op.node_name in model_data:
+                assert op.node_name not in value_dict['outputs']
+                assert op.node_name not in value_dict['intermediate']
+                assert op.node_name in program.graph.nodes
+                pm_node = program.graph.nodes[op.node_name]
+                operand = quantize_initializer(model_data[op.node_name], op, pm_node, i)
+                inouts['inputs'].append(operand)
+
+            elif op.node_name in value_dict['outputs']:
+                operand = value_dict['outputs'].pop(op.node_name)
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+                value_dict['intermediate'][op.node_name] = operand
+            elif op.node_name in value_dict['intermediate']:
+                operand = value_dict['intermediate'][op.node_name]
+                assert operand.data.shape == op.shape
+                inouts['inputs'].append(operand)
+        inouts = generate_random_values(c, program.metadata['FUSION_OP_INFO'], inouts=inouts)
+
+        for i in inouts['inputs']:
+
+            if i.fmt is None and i.node_name not in value_dict['inputs'] and i.node_name not in value_dict['intermediate']:
+                value_dict['inputs'][i.node_name] = i
+
+        for o in inouts['outputs']:
+            if o.fmt is None:
+                value_dict['outputs'][o.node_name] = o
+    return model_data
+
+def compile_full_model(model_name,
+                       cfg_file,
+                       store_compile=False,
+                       dir_ext=None,
+                       added_constr=None,
+                       verbose=False,
+                       model_data=None,
+                       fuse_layers=False,
+                       generate_data=True,
+                       tile_method=None,
+                       batch_size=1,
+                       graph=None
+                       ):
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
-    batch_size = 1
-    tile_method = "min_tiles"
+    tile_method = tile_method or "min_tiles"
 
     update_cfg_dtypes = False
     tiling_path = None
     store_tiling = False
     store_json_output = False
     json_output_filename = None
-
+    arch_cfg = load_config(f"{CWD}/configs/{cfg_file}")
     # This function returns
     program = compile_genesys(model_name,
+                              arch_cfg,
                               update_cfg_dtypes=update_cfg_dtypes,
                               tiling_path=tiling_path,
                               store_tiling=store_tiling,
                               store_checkpoint=False,
-                              train=train_mode,
                               store_json_output=store_json_output,
                               json_output_filename=json_output_filename,
                               verbose=verbose,
@@ -265,23 +335,28 @@ def compile_full_model(model_name, store_compile=False, dir_ext=None,partials=Fa
                             do_tile_stage=True,
                             print_config=False,
                             tiling_search_algorithm=tile_method,
-                                    do_compile=False
+                                    do_compile=False,
+                              fuse_layers=fuse_layers,
+                              graph=graph
                               )
     if store_compile:
+
         if added_constr:
             program = update_tile_constraints(program, added_constr)
 
         dir_ext = dir_ext or ''
-        print(f"Codelet length: {len(program.codelets)}")
 
-        store_model_outputs(model_name, False,
-                      batch_size=1,
-                      verbose=verbose,
-                      emit_to_stdout=None,
-                      dir_ext=f"{dir_ext}",
-                            program=program, model_data=model_data)
+        store_model_outputs(model_name,
+                            arch_cfg['TRAINING'],
+                            batch_size=1,
+                            verbose=verbose,
+                            emit_to_stdout=None,
+                            dir_ext=f"{dir_ext}",
+                            program=program,
+                            model_data=model_data,
+                            generate_data=generate_data)
 
-    return program
+    return program, arch_cfg
 
 
 

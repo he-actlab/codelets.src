@@ -1,16 +1,16 @@
 import numpy as np
-from . import GENESYS_CFG
+# from examples.genesys import GENESYS_CFG
 
 # Shuffles weights within a tile for correct mapping to systolic array
-def shuffle_weights(w_orig, layer_type="conv"):
+def shuffle_weights(w_orig, arch_config, layer_type="conv"):
 
     # Layout of weights is in (KH, KW, IC, OC) format
     weights = w_orig.copy()
 
     w_dim = weights.shape
     result = np.zeros(w_dim, dtype=weights.dtype)
-    tile_m = GENESYS_CFG['ARRAY_M']
-    tile_n = GENESYS_CFG['ARRAY_N']
+    tile_m = arch_config['ARRAY_M']
+    tile_n = arch_config['ARRAY_N']
     coord_map = {}
 
     if "conv" in layer_type:
@@ -39,7 +39,7 @@ def shuffle_weights(w_orig, layer_type="conv"):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert  "linear" in layer_type or  "gemm" in layer_type, f"Invalid layer type: {layer_type}"
+        assert  "linear" in layer_type or  "gemm" in layer_type or "matmul" in layer_type, f"Invalid layer type: {layer_type}"
        # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
         for ic in range(0, w_dim[0], tile_n):
             for oc in range(0, w_dim[1], tile_m):
@@ -67,7 +67,7 @@ def shuffle_weights(w_orig, layer_type="conv"):
 # Sequentially write out tiles of weights which will be written in DRAM
 # A tile is written out in column-major order.
 # Column major order to enable a tile-size sequential read from DRAM to go to column of systolic array
-def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
+def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
 
     if isinstance(weights, tuple):
         weights, coord_map = weights
@@ -76,25 +76,21 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
         rev_coords = {}
     final_coords = {}
     result = list()
-    tile_m = GENESYS_CFG['ARRAY_M']
-    tile_n = GENESYS_CFG['ARRAY_N']
+    tile_m = arch_config['ARRAY_M']
+    tile_n = arch_config['ARRAY_N']
     weight_symbols = list(cdlt.inputs[1].shape_symbols.keys())
     w_dim = weights.shape
     loop_order = [i for i in cdlt.get_loop_order() if i in weight_symbols]
-    bw = GENESYS_CFG['PARAM_BUF_CHANNEL_BW'] // 8
+    bw = arch_config['PARAM_BUF_CHANNEL_BW'] // 8
     systolic_array_row_size = weights.dtype.itemsize * tile_m
     systolic_array_column_size = weights.dtype.itemsize * tile_n
+    # interleave_factor = bw // tile_n
     interleave_factor = bw // tile_n
     assert interleave_factor >= 1, f"Invalid interleave factor:\n" \
                                    f"Bandwidth: {bw}\n" \
                                    f"Sys array col size: {systolic_array_column_size}"
     assert tile_n == tile_m
-    if layer_type == 'gemm':
-
-        # big_tile_size_oc = dram_tiling['P']
-        # big_tile_size_ic = dram_tiling['N']
-
-        # w_dim_outer =
+    if layer_type == 'gemm' or 'matmul' in layer_type:
 
         big_tile_size_oc = dram_tiling[loop_order[0]]
         w_dim_outer = weight_symbols.index(loop_order[0])
@@ -117,13 +113,16 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
                                     src_coord = tuple(src_coord)
                                     dst_coord = np.unravel_index([len(result)], weights.shape)
                                     final_coords[rev_coords[src_coord]] = dst_coord
-                                    # result.append(weights[big_tile_ic + ic + m][big_tile_oc + oc + n])
                                     result.append(weights[src_coord[0]][src_coord[1]])
     else:
         assert 'conv'  in layer_type
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
-        assert tile_n * interleave_factor <= big_tile_size_oc
+        assert tile_n * interleave_factor <= big_tile_size_oc, f"Invalid size with interleave factor:\n" \
+                                                               f"Tile: {tile_n}\n" \
+                                                               f"Interleave: {interleave_factor}\n" \
+                                                               f"Big tile oc: {big_tile_size_oc}\n" \
+                                                               f"Big tile ic: {big_tile_size_ic}"
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
                 for kh in range(w_dim[0]):
@@ -133,11 +132,15 @@ def tiled_flatten(weights, dram_tiling, cdlt, layer_type = 'gemm'):
                                 for n in range(tile_n):  # Rows
                                     for m in range(tile_m):  # Columns
                                         for k in range(interleave_factor):
+                                            # max_coord = max(max_coord, big_tile_oc + oc + n + (k*tile_n))
                                             src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n + (k*tile_n))
+
                                             dst_coord = np.unravel_index([len(result)], weights.shape)
+
                                             final_coords[rev_coords[src_coord]] = dst_coord
                                             result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)])
-    absolute_coords = {np.ravel_multi_index(k, weights.shape): np.ravel_multi_index(v, weights.shape) for k,v in final_coords.items()}
+        # print(f"Max coord is: {max_coord}")
+        # exit()
     return np.array(result, weights.dtype)
 
 def dram_layout(weights, print_debug=False):
@@ -147,7 +150,6 @@ def dram_layout(weights, print_debug=False):
     n = flat_weights.shape[0]
     assert n >= 4
     i = 0
-    nums = [i]
     while i < (n-4):
         concat_weights = (flat_weights[i]) + \
                          (flat_weights[i + 1] << 8) + \
@@ -156,8 +158,6 @@ def dram_layout(weights, print_debug=False):
         dram_weights.append(concat_weights)
 
         i += 4
-        nums.append(i)
-
     concat_weights = flat_weights[i]
     if i + 1 < n:
         concat_weights += flat_weights[i + 1] << 8
@@ -169,7 +169,7 @@ def dram_layout(weights, print_debug=False):
     # dram_weights = [str(x) for x in dram_weights]
     return np.asarray(dram_weights)
 
-def transform_data(data, operand_type, transformation, cdlt):
+def transform_data(data, operand_type, transformation, cdlt, hag):
     if operand_type == "input":
         if transformation == "shuffled":
             return dram_layout(data)
@@ -183,13 +183,13 @@ def transform_data(data, operand_type, transformation, cdlt):
         # DRAM tiling is in level 1.
         dram_tiling = tiling_parameters[1]
         if transformation == "shuffled":
-            shuffled_data = shuffle_weights(data, layer_type=cdlt.op_name)
-            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, layer_type=cdlt.op_name)
+            shuffled_data = shuffle_weights(data, hag.meta_cfg, layer_type=cdlt.op_name)
+            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, hag.meta_cfg, layer_type=cdlt.op_name)
             dram_data = dram_layout(tiled_data)
             return dram_data
         elif transformation == "shuffled_raw":
-            shuffled_data = shuffle_weights(data, layer_type=cdlt.op_name)
-            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, layer_type=cdlt.op_name)
+            shuffled_data = shuffle_weights(data, hag.meta_cfg, layer_type=cdlt.op_name)
+            tiled_data = tiled_flatten(shuffled_data, dram_tiling, cdlt, hag.meta_cfg, layer_type=cdlt.op_name)
             # raw_data = [str(i) for i in tiled_data]
             return tiled_data
         elif transformation == "raw":

@@ -172,6 +172,12 @@ class Operation(object):
     def unique_param_name(self, local_param_name):
         return f"{self.op_str}{local_param_name}"
 
+    def update_dependencies(self, new_deps):
+        for d in new_deps:
+            if d not in self.dependencies:
+                self._dependencies.append(d)
+
+
     def __str__(self):
         op_str = f"{self.op_type}{self.op_id} -> {self.target}, PARAMS: {list(self.required_params)}, " \
                  f"{self.op_type.upper()}PARAMS: {self.op_type_params()}"
