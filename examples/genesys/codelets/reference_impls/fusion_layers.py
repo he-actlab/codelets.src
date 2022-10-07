@@ -355,6 +355,20 @@ def load_fusion_op_info_impl(cfg):
                 'dfg': DFG('mul', [DFG('sub', [0, "sub_rhs"]), "mul_rhs"]),
                 'seq': ["Sub", "Mul"]
             },
+        'pow_mul_add_tanh_mul': {
+            'cdlt': partial(FusionOp, 'pow_mul_add_tanh_mul'),
+            'dfg': DFG('mul', ['mul_lhs2',
+                               DFG('tanh', [
+                                   DFG('add', [
+                                       'add_lhs',
+                                       DFG('mul', ['mul_lhs1',
+                                                   DFG('square', [0])]
+                                           )]
+                                       )]
+                                   )]),
+
+            'seq': ["Pow", "Mul", "Add", "Tanh", "Mul"],
+        },
             'sub_pow': {
                 'cdlt': partial(FusionOp, 'sub_pow'),
                 'dfg': DFG('square', [DFG('sub', [0, 1])]),
@@ -403,6 +417,11 @@ def load_fusion_op_info_impl(cfg):
                 'dfg': DFG('clip', [DFG('depthwise_conv', [0, 1, 2, 'stride', 'pad']), 'min', 'max']),
                 'seq': ['DepthwiseConv', 'Clip'],
             },
+        'mul_add3d': {
+            'cdlt': partial(FusionOp, 'mul_add3d'),
+            'dfg': DFG('add', [DFG('mul', [0, 1]), 2]),
+            'seq': ["Mul", "Add"]
+        },
 
         }
 

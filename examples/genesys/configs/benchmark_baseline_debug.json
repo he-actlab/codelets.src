@@ -11,7 +11,7 @@
 	"USE_QUANTIZATION": false,
 	"ALL_QUANT_OFF": true,
 	"FUSION_CONSTRAINTS": true,
-	"FUSE_LAYERS": false,
+	"FUSE_LAYERS": true,
 	"SA_TILE_CONSTR": true,
 	"SHARED_DATAGEN": true
 }

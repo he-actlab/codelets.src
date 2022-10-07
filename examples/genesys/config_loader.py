@@ -129,6 +129,9 @@ def set_defaults(cfg):
     if 'SHARED_DATAGEN' not in cfg:
         cfg['SHARED_DATAGEN'] = False
 
+    if 'LOOP_OVERHEAD' not in cfg:
+        cfg['LOOP_OVERHEAD'] = False
+
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
 

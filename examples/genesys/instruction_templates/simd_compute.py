@@ -332,6 +332,90 @@ def insert_dtype_cfg_from_cast(op_name, hag):
     instructions.append(instr)
     return instructions
 
+def loop_overhead(op_name, hag):
+    instructions = []
+
+    ## First, need to do BASE/SIGN_EXT
+
+    loop_idx_offset = 0 if op_name != "POW" else 1
+
+    ## Now, create the loop
+    ## First loop
+    all_loop_list = LOOP_ITER[1]
+    other_constr = " and ".join(LOOP_CONDS + ["loop_op.op_str in op.dependencies"])
+    # ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID})"
+    ns_idx = "0"
+    tgt_loop_list = f"[loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]] for loop_op in {all_loop_list} if {other_constr}]"
+
+    # iters = f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]"
+    # filtered_loops = f"[loop_op for loop_op in {tgt_loop_list}]"
+    # filtered_loop_iters = f"[({iters}) for loop_op in ({filtered_loops})]"
+    total_iters = f"np.sum([np.prod(({tgt_loop_list})[:i+1])*3 for i in range(len({tgt_loop_list}))])"
+
+    filterd_operand_locs = "([op.get_operand_location(o.name) for o in op.operands if op.get_operand_location(o.name) != 'IMM'])"
+
+    # multiplier = f"(3)"
+    # multiplier_val = f"({multiplier} if loop_op.loop_id == {filtered_loops}[0].loop_id else 1)"
+    # multiplier_val = f"(3)"
+    filtered_loops = f"[l for l in cdlt.get_ops_by_type('loop') if {other_constr}]"
+    multiplier_val = f""
+
+    lconds = " and ".join(LOOP_CONDS)
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    # macro_instr.add_iterable(*LOOP_ITER)
+    # macro_instr.add_condition(lconds)
+    macro_instr.set_field_by_name('NS_ID', "VMEM1")
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    macro_instr.set_field_value('IMM', 0)
+    #
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    # sub_instr.add_iterable(*LOOP_ITER)
+    # sub_instr.add_condition(lconds)
+    sub_instr.set_field_by_name('NS_ID', "VMEM1")
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    sub_instr.set_field_flex_param('IMM', 0)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    ## Now generate loops
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    # macro_instr.add_iterable(*LOOP_ITER)
+    # macro_instr.add_condition(other_constr)
+    macro_instr.set_field_flex_param("LOOP_ID", f"0")
+    macro_instr.set_field_flex_param("NUM_ITER",
+                                     f"{total_iters}")
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    # sub_instr.add_iterable(*LOOP_ITER)
+    # sub_instr.add_condition(other_constr)
+    sub_instr.set_field_by_name("DST_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("DST_INDEX_ID", ns_idx)
+    sub_instr.set_field_by_name("SRC1_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", ns_idx)
+    sub_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", ns_idx)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    # Compute instruction
+    instr = hag.get_primitive_template("SET_INST")
+    instr.add_condition("cdlt.op_id_counters['compute'] - 1 > op.op_id")
+    instr.set_field_flex_param("SINGLE_NESTED", "1")
+    instr.set_field_flex_param("NUM_INSTR", "1")
+    instructions.append(instr)
+
+    noop_instr = hag.get_primitive_template("NOP")
+    instructions.append(noop_instr)
+
+    return instructions
+
 def sw_addr_nops(op_name, hag):
     instructions = []
 
@@ -642,6 +726,8 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
 
     if hag.meta_cfg['ADDR_GEN_TEST']:
         instructions += sw_addr_nops_nested(op_name, hag)
+    elif hag.meta_cfg['LOOP_OVERHEAD']:
+        instructions += loop_overhead(op_name, hag)
 
     return instructions
 

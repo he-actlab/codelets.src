@@ -107,6 +107,7 @@ class Unary(ReferenceOp):
         for _ in range(exp - 1):
             temp = out*data
             out = quantize_np(temp, self.dtype)
+
         return out
 
     def meanfn(self, data, axis):
