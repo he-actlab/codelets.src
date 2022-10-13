@@ -197,7 +197,12 @@ def update_genesys_cfg_from_dtypes(inp_cfg, dtypes=None):
     return inp_cfg
 
 
-def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False):
+def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False, simd_only_fusions=False):
+    filtered_ops = []
+    if simd_only_fusions:
+        assert fuse_layers
+        filtered_ops += ["Conv", "Matmul"]
+
     FUSION_OP_INFO = load_fusion_op_info(cfg)
     if batch_size > 1:
         batch_size_pass = pm.UpdateBatchSize(batch_size, graph.op_name)
@@ -213,8 +218,11 @@ def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False)
     if fuse_layers:
         fusions = []
         for opname, info in FUSION_OP_INFO.items():
+
             if opname != "single_layer_info":
                 assert 'seq' in info
+                if any([f in info['seq'] for f in filtered_ops]):
+                    continue
                 fusions.append(info['seq'])
         fusion_pass = pm.FuseOps(fusions, pad_conv_constraint=True)
         graph = fusion_pass(graph)
@@ -298,7 +306,10 @@ def compile_genesys(model_name,
     if graph is None:
         graph = pm.pb_load(f"{MODEL_DIR}/{model_name}.srdfg")
     if do_srdfg_passes:
-        graph = run_srdfg_passes(graph, def_cfg, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+        graph = run_srdfg_passes(graph, def_cfg, batch_size=batch_size,
+                                 verbose=verbose,
+                                 fuse_layers=fuse_layers,
+                                 simd_only_fusions=def_cfg['SIMD_ONLY_FUSIONS'])
 
     genesys = define_genesys(def_cfg)
     if print_config:
@@ -456,7 +467,11 @@ def compile_genesys_layer(layer_file,
         def_cfg = genesys_cfg
 
     graph = pm.pb_load(f"{LAYER_DIR}/{layer_file}.srdfg")
-    graph = run_srdfg_passes(graph, def_cfg, train=False, batch_size=batch_size, verbose=verbose, fuse_layers=fuse_layers)
+    graph = run_srdfg_passes(graph, def_cfg, train=False,
+                             batch_size=batch_size,
+                             verbose=verbose,
+                             fuse_layers=fuse_layers,
+                             simd_only_fusions=def_cfg['SIMD_ONLY_FUSIONS'])
     if load_genesys_filename is None:
         genesys = define_genesys(def_cfg)
     else:

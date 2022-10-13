@@ -141,6 +141,11 @@ def set_defaults(cfg):
         assert 'COORD' in cfg['DEBUG_MMUL_COORDS'] and isinstance(cfg['DEBUG_MMUL_COORDS']['COORD'], list)
         assert cfg['DATAGEN']
 
+    if 'SIMD_ONLY_FUSIONS' not in cfg:
+        cfg['SIMD_ONLY_FUSIONS'] = False
+
+    if cfg['SIMD_ONLY_FUSIONS']:
+        assert cfg['FUSE_LAYERS']
 
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
