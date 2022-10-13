@@ -191,6 +191,7 @@ class DataGen(object):
                                              'operand_type': 'output'}
 
 
+
         for o in inouts['outputs']:
 
             node_name = o.node_name
@@ -204,6 +205,16 @@ class DataGen(object):
             else:
                 save_array(f'{base_path}/{node_name}.txt', o.data)
                 self.storage_info[node_name]['path'] = f'{base_path}/{node_name}.txt'
+
+        if 'csv_data' in inouts:
+            partials = inouts.pop('csv_data')
+            with open(f"{base_path}/debug_coords.csv", 'w') as f:
+                f.write(f'N, (m/n/p), O_idx, I_idx, W_idx, I_val, W_val, partial\n')
+
+                for k, v in partials.items():
+                    for l in v:
+                        f.write(f"N={k}, " + "," + l + "\n")
+
 
     def generate_cdlt_data(self, cdlt: Codelet, base_path):
         inouts = self.initialize_value_dict(cdlt)

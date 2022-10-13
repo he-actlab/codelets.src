@@ -41,6 +41,7 @@ def shuffle_weights(w_orig, arch_config, layer_type="conv"):
     else:
         assert  "linear" in layer_type or  "gemm" in layer_type or "matmul" in layer_type, f"Invalid layer type: {layer_type}"
        # result = np.zeros((w_dim[1], w_dim[0]), dtype=weights.dtype)
+
         for ic in range(0, w_dim[0], tile_n):
             for oc in range(0, w_dim[1], tile_m):
                 for n in range(tile_n):
@@ -72,6 +73,7 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
     if isinstance(weights, tuple):
         weights, coord_map = weights
         rev_coords = {v: k for k,v in coord_map.items()}
+
     else:
         rev_coords = {}
     final_coords = {}
@@ -91,13 +93,12 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                    f"Sys array col size: {systolic_array_column_size}"
     assert tile_n == tile_m
     if layer_type == 'gemm' or 'matmul' in layer_type:
-
+        # print(f"here")
         big_tile_size_oc = dram_tiling[loop_order[0]]
         w_dim_outer = weight_symbols.index(loop_order[0])
-
         w_dim_inner = weight_symbols.index(loop_order[1])
         big_tile_size_ic = dram_tiling[loop_order[1]]
-
+        all_coords = []
         assert tile_n * interleave_factor <= big_tile_size_oc
         for big_tile_oc in range(0, w_dim[w_dim_outer], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[w_dim_inner], big_tile_size_ic):  # Tile over IC
@@ -112,10 +113,28 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                     src_coord[w_dim_inner] = big_tile_ic + ic + m
                                     src_coord = tuple(src_coord)
                                     dst_coord = np.unravel_index([len(result)], weights.shape)
-                                    final_coords[rev_coords[src_coord]] = dst_coord
+                                    shuff_coord = rev_coords[src_coord]
+                                    final_coords[shuff_coord] = dst_coord
                                     result.append(weights[src_coord[0]][src_coord[1]])
+
+                                    ### Coord translations
+                                    src_addr = np.ravel_multi_index(src_coord, weights.shape)
+                                    shuff_addr = np.ravel_multi_index(shuff_coord, weights.shape)
+
+                                    coord = [src_coord[0], src_coord[1], src_addr]
+
+                                    coord += [shuff_coord[0], shuff_coord[1], shuff_addr]
+                                    coord += [dst_coord[0][0], dst_coord[1][0], len(result) - 1]
+                                    all_coords.append(coord)
+        all_coords.sort(key=lambda x: x[-1])
+        # with open("mmul_coords16x16_final.csv", "w") as f:
+        #
+        #     f.write("ic, oc, oc_addr, shuffle_ic, shuffle_oc, shuffle_addr, tile_ic, tile_oc, tile_addr\n")
+        #     for coord in all_coords:
+        #         c = [str(i) for i in coord]
+        #         f.write(", ".join(c) + "\n")
     else:
-        assert 'conv'  in layer_type
+        assert 'conv' in layer_type
         big_tile_size_oc = dram_tiling['OC']
         big_tile_size_ic = dram_tiling['IC']
         assert tile_n * interleave_factor <= big_tile_size_oc, f"Invalid size with interleave factor:\n" \

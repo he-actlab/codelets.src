@@ -2,6 +2,8 @@ from typing import List
 from functools import partial
 import numpy as np
 from . import ReferenceOp, quantize_np, create_operand_data, transform_data
+from codelets.codelet_impl import Codelet
+from codelets.compiler.program import CodeletProgram
 WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
 WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
 ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
@@ -44,7 +46,7 @@ def im2col_indices(x, field_height, field_width, padding=1, stride=1):
 
 class Conv(ReferenceOp):
 
-    def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt: Codelet, program: CodeletProgram, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
         operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
@@ -158,13 +160,20 @@ class Conv(ReferenceOp):
 
 class Gemm(ReferenceOp):
 
-    def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
+    def __init__(self, cdlt: Codelet, program: CodeletProgram, use_bias=True, use_quantization=True):
         self.use_bias = use_bias
         self.use_quantization = use_quantization
         if self.use_bias:
             operands = [cdlt.inputs[0], cdlt.inputs[1], cdlt.inputs[2]]
         else:
             operands = [cdlt.inputs[0], cdlt.inputs[1]]
+        if program.hag.meta_cfg['DEBUG_MMUL_COORDS'] is not None:
+            self.generate_debug_coords = True
+            self.debug_coord = tuple(program.hag.meta_cfg['DEBUG_MMUL_COORDS']['COORD'])
+        else:
+            self.generate_debug_coords = False
+            self.debug_coord = None
+
         outputs = [cdlt.outputs[0]]
         super().__init__(cdlt, operands, outputs, program, scale=1)
 
@@ -197,12 +206,47 @@ class Gemm(ReferenceOp):
         inouts["inputs"].append(
             create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt, self.hag), self.weight, fmt='raw'))
 
-        output = np.dot(np.int32(data), np.int32(wgt))
-        if self.use_bias:
-            output = output + inouts['inputs'][2].data
+        if self.generate_debug_coords:
+            tout = np.dot(np.int32(data), np.int32(wgt))
+            if self.use_bias:
+                bias = inouts['inputs'][2].data
+                tout = tout + bias
+            else:
+                bias = None
+            output, debug_info = self.debug_mmul(data, wgt, bias=bias)
+            inouts['csv_data'] = debug_info
+            np.testing.assert_almost_equal(output, tout)
+        else:
+            output = np.dot(np.int32(data), np.int32(wgt))
+            if self.use_bias:
+                output = output + inouts['inputs'][2].data
         inouts['outputs'] = [output]
         return inouts
 
+    def debug_mmul(self, data, weights, bias):
+        M = data.shape[0]
+        N = data.shape[1]
+        P = weights.shape[1]
+        outputs = np.zeros((M, P), dtype=np.int32)
+        compilation_info = {i: [] for i in range(N)}
+        for p in range(P):
+            for n in range(N):
+                for m in range(M):
+                    partial_sum = data[m, n] * weights[n, p]
+                    outputs[m, p] += partial_sum
+                    if (m, p) == self.debug_coord:
+                        all_coords = (m, n, p)
+                        icoord = (m, n)
+                        icoord_idx = np.ravel_multi_index([m, n], data.shape)
+                        wcoord = (n, p)
+                        wcoord_idx = np.ravel_multi_index([n, p], weights.shape)
+                        ocoord = (m, p)
+                        ocoord_idx = np.ravel_multi_index([m, p], outputs.shape)
+                        compilation_info[n].append(
+                            f'"{all_coords}", {ocoord_idx}, {icoord_idx}, {wcoord_idx}, {data[icoord]}, {weights[wcoord]}, {partial_sum}')
+            if self.use_bias:
+                outputs[m,p] += bias[p]
+        return outputs, compilation_info
 
 def load_sa_impls(cfg):
 

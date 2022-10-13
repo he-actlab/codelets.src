@@ -28,7 +28,7 @@ from .reduction import load_reduce_cdlts
 def load_impls_cdlts(cfg):
 
 
-    if cfg['ALL_QUANT_OFF']:
+    if not cfg['USE_QUANTIZATION']:
         unquant_num = len(load_unquant_fusion_impl(cfg))
         print(f"Number fusion layers: {unquant_num}")
         GENESYS_IMPLS = {

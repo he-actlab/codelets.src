@@ -113,7 +113,6 @@ def set_defaults(cfg):
 
     assert 'SW_PIPELINE_TEST' in cfg
     assert 'USE_QUANTIZATION' in cfg
-    assert 'ALL_QUANT_OFF' in cfg
     assert 'ADDR_GEN_TEST' in cfg
     assert 'FUSE_LAYERS' in cfg
 
@@ -131,6 +130,17 @@ def set_defaults(cfg):
 
     if 'LOOP_OVERHEAD' not in cfg:
         cfg['LOOP_OVERHEAD'] = False
+
+    if 'DATAGEN' not in cfg:
+        cfg['DATAGEN'] = False
+
+    if 'DEBUG_MMUL_COORDS' not in cfg:
+        cfg['DEBUG_MMUL_COORDS'] = None
+    else:
+        assert isinstance(cfg['DEBUG_MMUL_COORDS'], dict)
+        assert 'COORD' in cfg['DEBUG_MMUL_COORDS'] and isinstance(cfg['DEBUG_MMUL_COORDS']['COORD'], list)
+        assert cfg['DATAGEN']
+
 
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
