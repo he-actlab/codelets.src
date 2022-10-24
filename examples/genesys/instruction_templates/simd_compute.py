@@ -297,8 +297,9 @@ def add_pow_loop(hag):
     sub_instr.set_field_flex_param("SRC1_INDEX_ID",
                                    set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.sources[0]",
                                                         op_loc="op.get_operand_location(op.sources[0].name)"))
+    src2_ns = "'IMM' if op.get_operand_location(op.sources[0].name) != 'IMM' else 'VMEM1'"
     sub_instr.set_field_flex_param("SRC2_NS_ID",
-                                   f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
+                                   f"({src2_ns}) if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
     src2_idx = f"0 if len(op.sources) == 1 else " + set_index_fmt.format(all_loop_id=ALL_LOOP_ID,
                                                                          operand="op.sources[1]",
                                                                          op_loc="op.get_operand_location(op.sources[1].name)")
@@ -671,8 +672,11 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     sub_instr.set_field_flex_param("SRC1_INDEX_ID",
                                    set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand="op.sources[0]",
                                                         op_loc="op.get_operand_location(op.sources[0].name)"))
+    src2_ns = "'IMM' if op.get_operand_location(op.sources[0].name) != 'IMM' else 'VMEM1'"
     sub_instr.set_field_flex_param("SRC2_NS_ID",
-                                   f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
+                                   f"({src2_ns}) if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
+    # sub_instr.set_field_flex_param("SRC2_NS_ID",
+    #                                f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
     src2_idx = f"0 if len(op.sources) == 1 else " + set_index_fmt.format(all_loop_id=ALL_LOOP_ID,
                                                                          operand="op.sources[1]",
                                                                          op_loc="op.get_operand_location(op.sources[1].name)")
@@ -705,7 +709,7 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
         instr.set_field_flex_param("DST_INDEX_ID", f"op.dests[0].get_mem_index(op.get_operand_location(op.dests[0].name))")
         instr.set_field_flex_param("SRC1_NS_ID", "op.get_operand_location(op.sources[0].name)")
         instr.set_field_flex_param("SRC1_INDEX_ID", rd_op_str.format(IDX=0))
-        instr.set_field_flex_param("SRC2_NS_ID", "'IMM'")
+        instr.set_field_flex_param("SRC2_NS_ID", f"{src2_ns}")
         instr.set_field_value("SRC2_INDEX_ID", 0)
         instructions.append(instr)
     else:

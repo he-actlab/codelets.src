@@ -157,7 +157,6 @@ def compile_benchmark(model_name,
                       store_results=True,
                       store_whole_program=False,
                       count_compute=False,
-                      generate_data=False,
                       check_layer_count=False
                       ):
     arch_config = load_config(f"{CWD}/configs/{cfg_name}")
@@ -209,7 +208,6 @@ def compile_benchmark(model_name,
                                  generate_data=False,
                                     graph=graph,
                                     batch_size=arch_config['BATCH_SIZE'])
-
     if only_systolic:
         if verbose:
             print(f"Compiling {model_name} without quantization, only systolic layers.")
@@ -251,7 +249,7 @@ def compile_benchmark(model_name,
                        single_codelets=not arch_config['SHARED_DATAGEN'],
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
                        identifier=identifier,
-                       generate_data=generate_data,
+                       generate_data=arch_config['DATAGEN'],
                        verbose=verbose,
                         store_whole_program=store_whole_program)
         dgen.generate()
@@ -276,8 +274,8 @@ def run_benchmarks(benchmarks,
 
 
 if __name__ == "__main__":
-    # if sys.stdin and sys.stdin.isatty():
-    if False:
+    if sys.stdin and sys.stdin.isatty():
+    # if False:
         argparser = argparse.ArgumentParser(description='ONNX Benchmark Generator')
         argparser.add_argument('-m', '--model', required=True,
                                help='Name of the onnx model to create.')
@@ -288,7 +286,6 @@ if __name__ == "__main__":
         argparser.add_argument('-v', '--verbose', action='store_true', help='Use verbose compilation output')
 
         argparser.add_argument('-e', '--extension', type=str, default="0", help="Apply an extension to the compilation output directory name.")
-        argparser.add_argument('-g', '--generate_data', action='store_true', help='Generate synthetic data for validation testing.')
         args = argparser.parse_args()
 
         fname = args.model
@@ -297,7 +294,6 @@ if __name__ == "__main__":
 
         extension = args.extension
         verbose = args.verbose
-        gen_data = args.generate_data
         arch_config = args.config
 
         compile_benchmark(fname,
@@ -308,7 +304,6 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=verbose,
                           skip_broken_layers=False,
-                          generate_data=gen_data,
                           store_whole_program=True,
                           identifier=extension)
 
@@ -322,8 +317,9 @@ if __name__ == "__main__":
 
         # config = "benchmark_8x8.json"
         # config = "benchmark_train_large_v2.json"
-        config = "benchmark_baseline.json"
-        # config = "benchmark_baseline_debug.json"
+        # config = "benchmark_baseline.json"
+        # config = "benchmark_baseline_loop_overhead.json"
+        config = "fpga16x16.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -341,9 +337,11 @@ if __name__ == "__main__":
                       'conv_lrelu_oc64', # 14
                       'conv_clip_depthwise_v1-opt', # 15
                       'fcn-resnet101-trimmed-opt', # 16
-                      'mel_scale' # # 17
+                      'mel_scale',# # 17,
+                      'yolo_conv_lrelu_OC32_OH15_KH1_S1-opt',
+                      'effnet_conv_clip_dwconv_OH10_KH1_S1-opt'
                       ]
-        compile_benchmark(benchmarks[-1],
+        compile_benchmark(benchmarks[1],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -351,9 +349,7 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          generate_data=False,
-                          # filtered_layers=[3],
-                          # filtered_layers=[501],
-                          # filtered_layers=filtered_layers,
+                          filtered_layers=[45],
+                          # skip_layers=[0],
                           store_whole_program=False,
-                          identifier=2)
+                          identifier=5)

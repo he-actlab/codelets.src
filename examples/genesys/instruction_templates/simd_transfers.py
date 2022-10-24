@@ -6,7 +6,7 @@ VMEM_ID_MAP = {'LD': {'VMEM1': 0, 'VMEM2': 1},
 def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     instructions = []
     all_loop_id = f"(len(cdlt.get_ops_by_type('loop'))//2)"
-
+    other_buff = "VMEM2" if buffer_name == "VMEM1" else "VMEM1"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
     loop_id_str = f"0"
     ld_st_tabs = f"op.loop_level + 1"
@@ -83,7 +83,7 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     idx_instr.set_field_flex_param("DST_INDEX_ID", f"{ns_idx}")
     idx_instr.set_field_by_name("SRC1_NS_ID", "IMM")
     idx_instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
-    idx_instr.set_field_by_name("SRC2_NS_ID", "IMM")
+    idx_instr.set_field_by_name("SRC2_NS_ID", other_buff)
     idx_instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
     instructions.append(idx_instr)
 
@@ -99,7 +99,7 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     instr.set_field_flex_param("DST_INDEX_ID", f"{ns_idx}")
     instr.set_field_by_name("SRC1_NS_ID", f"IMM")
     instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
-    instr.set_field_by_name("SRC2_NS_ID", f"IMM")
+    instr.set_field_by_name("SRC2_NS_ID", other_buff)
     instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
     instr.set_print_tabs(ld_st_tabs)
     instructions.append(instr)

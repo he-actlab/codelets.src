@@ -319,7 +319,7 @@ def load_fusion_op_info_impl(cfg):
                 'seq': ['Add', 'LeakyRelu'],
             },
             'leaky_relu_add': {
-                'cdlt': partial(FusionOp, 'div_add'),
+                'cdlt': partial(FusionOp, 'leaky_relu_add'),
                 'dfg': DFG('add', [DFG('leaky_relu', [0, 'alpha']), 1]),
 
                 'seq': ['LeakyRelu', 'Add'],
@@ -575,7 +575,7 @@ def load_unquant_fusion_op_info_impl(cfg):
                 'seq': ['Add', 'LeakyRelu'],
             },
             'leaky_relu_add': {
-                'cdlt': partial(FusionOp, 'div_add'),
+                'cdlt': partial(FusionOp, 'leaky_relu_add'),
                 'dfg': DFG('add', [DFG('leaky_relu', [0, 'alpha']), 1]),
 
                 'seq': ['LeakyRelu', 'Add'],
