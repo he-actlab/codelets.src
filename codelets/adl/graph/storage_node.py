@@ -178,7 +178,7 @@ class StorageNode(ArchitectureNode):
     # Derived / Other Attributes
     @property
     def size(self):
-        return self._depth * self._width * self._banks
+        return self._depth * self._width * self._banks // self.buffering_scheme
 
     @property
     def data_size(self):
@@ -186,14 +186,8 @@ class StorageNode(ArchitectureNode):
 
     @property
     def num_elements(self):
-        return self._depth * self._banks
+        return self._depth * self._banks // self.buffering_scheme
 
-    @property
-    def addressable_elements(self):
-        if len(self.partitions) == 1:
-            return self.partitions[0]
-        else:
-            return np.prod(self.partitions[:-1])
 
     @property
     def size_bytes(self):
@@ -203,21 +197,6 @@ class StorageNode(ArchitectureNode):
     def node_type(self):
         return 'storage'
 
-    @property
-    def mem_width(self):
-        return np.prod(self.partitions[self.addressable_dim:])
-
-    @property
-    def mem_depth(self):
-        return self.partitions[self.addressable_dim]
-
-    @property
-    def total_capacity(self):
-        return np.prod(self.partitions)
-
-    @property
-    def capacity(self):
-        return self.total_capacity / self.buffering_scheme
 
     def addr_offset_from_bits(self, bit_offset):
         return bit_offset // self.width

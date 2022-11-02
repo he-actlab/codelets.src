@@ -55,8 +55,8 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     # if not is_fusion:
     #     cdlt.update_compilation_param("LOOP_TILE_ORDER", ["KH", "KW", "OC", "IC", "N", "OH", "OW"])
 
-    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
+    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['KH']*sizes['KW']*sizes['IC']*sizes['OC']"
     obuf_index_size = f"sizes['N']*sizes['OH']*sizes['OW']*sizes['OC']"
 
@@ -106,8 +106,8 @@ def add_gemm_constraints(hag, cdlt):
 
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
 
-    wbuf_elements = hag.get_subgraph_node("WBUF").addressable_elements
-    obuf_elements = hag.get_subgraph_node("OBUF").addressable_elements
+    wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
+    obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['N']*sizes['P']"
     obuf_index_size = f"sizes['M']*sizes['P']"
     constraint = f"np.prod(list(splits.values())) > 1"

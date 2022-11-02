@@ -1,8 +1,8 @@
 {
 	"ARRAY_M": 16,
 	"ARRAY_N": 16,
-	"IBUF_DEPTH": 8192,
-	"WBUF_DEPTH": 2048,
+	"IBUF_DEPTH": 2048,
+	"WBUF_DEPTH": 4096,
 	"OBUF_DEPTH": 2048,
 	"BBUF_DEPTH": 1024,
 	"VMEM_DEPTH": 1023,
@@ -11,7 +11,7 @@
 	"USE_QUANTIZATION": false,
 	"FUSE_LAYERS": true,
 	"SA_TILE_CONSTR": true,
-	"SIMD_ONLY_FUSIONS": true,
+	"SIMD_ONLY_FUSIONS": false,
 	"DATAGEN": false,
 	"SIMD_BASE_ADDR": {
 		"LD_VMEM1": 0,

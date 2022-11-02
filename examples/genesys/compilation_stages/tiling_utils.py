@@ -53,10 +53,10 @@ def get_tile_constraints(cdlt: 'Codelet', hag: 'ArchitectureNode', tile_info: Ti
                 # TODO: Need to add something which adds padding function here and uses a function constraint
             elif dst_node.node_type == 'storage':
                 if src_node.node_type == 'compute':
-                    constraint = f"size <= {dst_node.capacity}"
+                    constraint = f"size <= {dst_node.size}"
                 else:
                     assert src_node.node_type == 'storage'
-                    constraint = f"size <= {dst_node.capacity} and size >= 0"
+                    constraint = f"size <= {dst_node.size} and size >= 0"
             else:
                 raise TypeError(f"Unable to handle architecture node type {type(dst_node)}")
             level = cdlt.get_tile_level(access.dst_node)
@@ -253,7 +253,7 @@ def set_codelet_tiling(cdlt: 'Codelet',
             perm_stack.append(new_perms)
             level += 1
 
-    if level == 0:
+    if level == 0 or f"{cdlt.op_name}{cdlt.instance_id}" == "conv_bias_relu46":
         other_hint_str = []
         for k, lh in tile_info.tile_hints.items():
             if isinstance(lh, dict):
@@ -270,7 +270,6 @@ def set_codelet_tiling(cdlt: 'Codelet',
                            f"Level Hints: {hint_str}\n"
                            f"Loop hints: {other_hint_str}"
                            )
-
     # Lastly, update operands
     for o in cdlt.all_operands:
         for idx, a in enumerate(o.data_moves):
