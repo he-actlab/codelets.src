@@ -1,6 +1,7 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, DTYPE_MAP
+from . import add_simd_constraint, add_flex_simd_constraints
 
 
 def tensor_reshape4d2d(hag: ArchitectureNode):
@@ -227,6 +228,46 @@ def where(hag: ArchitectureNode):
 
     return cdlt
 
+# TODO: Emit a warning when encountering this layer, as it is unique to the ViT model
+def elem_gather(hag: ArchitectureNode):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    # # TODO: Add option to create operand
+    # THIS ASSUMES THE AXIS IS THE OUTERMOST AXIS. IN THE FUTURE, NEED TO ADAPT TO DIFFERENT AXES
+    with CodeletTemplate("elem_gather") as cdlt:
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+        ONE = cdlt.dummy_op("ONE", 1)
+
+        data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        indices = cdlt.dummy_op("indices", cdlt.node.indices, dtype=acc_dtype_name)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, H], default_dtype=acc_dtype)
+
+        cdlt.set_inputs([data])
+        cdlt.set_outputs([out])
+        # Change this to be the reciprocal as a FXP value
+
+        # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+
+        cdlt.configure("start", "SIMD")
+
+        with cdlt.loop(H) as h:
+            with cdlt.loop(ONE) as o:
+                with cdlt.loop(N) as n:
+                    cdlt.transfer(data, ["DRAM", "VMEM1"])
+                    out.set_write_destination("VMEM2")
+                    cdlt.compute("MOVE", [data[n, o, h]], [out[n, h]], target="SIMD")
+                    cdlt.transfer(out, ["VMEM2", "DRAM"])
+        cdlt.configure("end", "SIMD")
+
+
+    cdlt = add_simd_constraint(hag, cdlt, "H")
+
+    return cdlt
+
 def load_transform_cdlts(cfg):
 
     TRANSFORM_CDLTS = {
@@ -240,6 +281,7 @@ def load_transform_cdlts(cfg):
         'concat': concat,
         'resize': tensor_resize,
         'elem_where': where,
+        'elem_gather': elem_gather,
         # 'tensor_flip': tensor_flip,
         # 'tensor_pad': tensor_pad,
     }

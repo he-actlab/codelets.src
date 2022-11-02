@@ -11,6 +11,12 @@
 	"USE_QUANTIZATION": false,
 	"FUSE_LAYERS": true,
 	"SA_TILE_CONSTR": true,
-	"SIMD_ONLY_FUSIONS": false,
-	"DATAGEN": false
+	"SIMD_ONLY_FUSIONS": true,
+	"DATAGEN": false,
+	"SIMD_BASE_ADDR": {
+		"LD_VMEM1": 0,
+		"LD_VMEM2": 23068672,
+		"ST_VMEM1": 46137344,
+		"ST_VMEM2": 69206016
+	}
 }

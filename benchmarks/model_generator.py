@@ -1870,7 +1870,7 @@ if __name__ == "__main__":
             raise RuntimeError(f"Invalid benchmark supplied. Options are one of:\n"
                                f"\"lenet\", \"resnet18\".")
     else:
-        create_vgg16(True, False, False, False)
+        # create_vgg16(True, False, False, False)
         # MODEL_DIR = Path(f"{Path(__file__).parent}/models")
         # load_path = f"{MODEL_DIR}/efficientnet-lite4-new-opt.onnx"
         # optimize_bert_onnx(False)
@@ -1930,7 +1930,12 @@ if __name__ == "__main__":
         #           "Sub",
         #          "Add"]
         # ]
-        # model = "lenet"
+        model_name = "yolo_conv_lrelu_OC32_OH15_KH1_S1-opt"
+        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        load_path = f"{MODEL_DIR}/{model_name}.onnx"
+        model = onnx.load(load_path)
+        for n in model.graph.node:
+            print(f"{n.op_type}")
         # optimize_graph(model)
         # extract_lenet()
         # name = "mobilenetv2-opt"

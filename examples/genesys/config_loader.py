@@ -150,6 +150,18 @@ def set_defaults(cfg):
     assert 'ASIC_CONFIG' in cfg
     assert 'SA_TILE_CONSTR' in cfg
 
+    if 'SIMD_BASE_ADDR' in cfg:
+        assert isinstance(cfg['SIMD_BASE_ADDR'], dict)
+        assert 'LD_VMEM1' in cfg['SIMD_BASE_ADDR']
+        assert 'LD_VMEM2' in cfg['SIMD_BASE_ADDR']
+        assert 'ST_VMEM1' in cfg['SIMD_BASE_ADDR']
+        assert 'ST_VMEM2' in cfg['SIMD_BASE_ADDR']
+    else:
+        cfg['SIMD_BASE_ADDR'] = {}
+        cfg['SIMD_BASE_ADDR']['LD_VMEM1'] = 0
+        cfg['SIMD_BASE_ADDR']['LD_VMEM2'] = 1024 << 10
+        cfg['SIMD_BASE_ADDR']['ST_VMEM1'] = 1024 << 11
+        cfg['SIMD_BASE_ADDR']['ST_VMEM2'] = 1024 << 12
     return cfg
 
 def load_config(fpath):

@@ -824,11 +824,9 @@ class CodeletProgram(object):
         for n in node_sequence:
             if verbose:
                 print(f"Instantiating {n.op_name}")
-
             cdlt = self.instantiate_codelet(n)
             assert n.name not in codelets
             codelets[n.name] = cdlt
-
         if verbose:
             print(f"\nInstantiating codelets took {time() - stage_start} seconds")
 

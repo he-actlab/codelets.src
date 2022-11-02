@@ -77,7 +77,7 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
     else:
         rev_coords = {}
     final_coords = {}
-    result = list()
+    result = [None]*np.prod(weights.shape)
     tile_m = arch_config['ARRAY_M']
     tile_n = arch_config['ARRAY_N']
     weight_symbols = list(cdlt.inputs[1].shape_symbols.keys())
@@ -98,8 +98,8 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
         w_dim_outer = weight_symbols.index(loop_order[0])
         w_dim_inner = weight_symbols.index(loop_order[1])
         big_tile_size_ic = dram_tiling[loop_order[1]]
-        all_coords = []
         assert tile_n * interleave_factor <= big_tile_size_oc
+        cnt = 0
         for big_tile_oc in range(0, w_dim[w_dim_outer], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[w_dim_inner], big_tile_size_ic):  # Tile over IC
                 for ic in range(0, big_tile_size_ic, tile_m):  # IC
@@ -112,21 +112,23 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                     src_coord[w_dim_outer] = big_tile_oc + oc + n + (k*tile_n)
                                     src_coord[w_dim_inner] = big_tile_ic + ic + m
                                     src_coord = tuple(src_coord)
-                                    dst_coord = np.unravel_index([len(result)], weights.shape)
-                                    shuff_coord = rev_coords[src_coord]
-                                    final_coords[shuff_coord] = dst_coord
-                                    result.append(weights[src_coord[0]][src_coord[1]])
+                                    # dst_coord = np.unravel_index([len(result)], weights.shape)
+                                    # shuff_coord = rev_coords[src_coord]
+                                    # final_coords[shuff_coord] = dst_coord
+                                    result[cnt] = weights[src_coord[0]][src_coord[1]]
+                                    cnt += 1
+                                    # result.append(weights[src_coord[0]][src_coord[1]])
 
                                     ### Coord translations
-                                    src_addr = np.ravel_multi_index(src_coord, weights.shape)
-                                    shuff_addr = np.ravel_multi_index(shuff_coord, weights.shape)
-
-                                    coord = [src_coord[0], src_coord[1], src_addr]
-
-                                    coord += [shuff_coord[0], shuff_coord[1], shuff_addr]
-                                    coord += [dst_coord[0][0], dst_coord[1][0], len(result) - 1]
-                                    all_coords.append(coord)
-        all_coords.sort(key=lambda x: x[-1])
+                                    # src_addr = np.ravel_multi_index(src_coord, weights.shape)
+                                    # shuff_addr = np.ravel_multi_index(shuff_coord, weights.shape)
+                                    #
+                                    # coord = [src_coord[0], src_coord[1], src_addr]
+                                    #
+                                    # coord += [shuff_coord[0], shuff_coord[1], shuff_addr]
+                                    # coord += [dst_coord[0][0], dst_coord[1][0], len(result) - 1]
+                                    # all_coords.append(coord)
+        # all_coords.sort(key=lambda x: x[-1])
         # with open("mmul_coords16x16_final.csv", "w") as f:
         #
         #     f.write("ic, oc, oc_addr, shuffle_ic, shuffle_oc, shuffle_addr, tile_ic, tile_oc, tile_addr\n")
@@ -142,6 +144,8 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                                                f"Interleave: {interleave_factor}\n" \
                                                                f"Big tile oc: {big_tile_size_oc}\n" \
                                                                f"Big tile ic: {big_tile_size_ic}"
+        cnt = 0
+
         for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
             for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
                 for kh in range(w_dim[0]):
@@ -154,10 +158,12 @@ def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
                                             # max_coord = max(max_coord, big_tile_oc + oc + n + (k*tile_n))
                                             src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n + (k*tile_n))
 
-                                            dst_coord = np.unravel_index([len(result)], weights.shape)
+                                            dst_coord = np.unravel_index([cnt], weights.shape)
 
                                             final_coords[rev_coords[src_coord]] = dst_coord
-                                            result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)])
+                                            # result.append(weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)])
+                                            result[cnt] = weights[kh][kw][big_tile_ic + ic + m][big_tile_oc + oc + n + (k*tile_n)]
+                                            cnt += 1
         # print(f"Max coord is: {max_coord}")
         # exit()
     return np.array(result, weights.dtype)

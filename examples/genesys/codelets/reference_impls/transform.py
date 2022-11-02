@@ -34,6 +34,10 @@ class Transform(ReferenceOp):
             out = data.copy()
         elif self.transform_type == 'split':
             out = data.copy()
+        elif self.transform_type == "elem_gather":
+            axis = self.cdlt.required_params['axis'].value
+            indices = self.cdlt.required_params['indices'].value
+            out = np.take(data, indices, axis=axis)
         else:
             raise RuntimeError("unknown reduction type")
 
@@ -56,6 +60,7 @@ def load_transform_impls(cfg):
         # 'tensor_pad': tensor_pad,
         'concat': partial(Transform, 'concat'),
         'tensor_squeeze' : partial(Transform, 'squeeze'),
-        'resize': partial(Transform, 'resize')
+        'resize': partial(Transform, 'resize'),
+        'elem_gather': partial(Transform, 'elem_gather'),
     }
     return TRANSFORM_IMPLS

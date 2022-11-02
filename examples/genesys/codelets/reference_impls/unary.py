@@ -56,7 +56,8 @@ class Unary(ReferenceOp):
         quantize = False
         if "leaky_relu" in self.op_name:
             quantize = True
-            params = params + (0.01,)
+            alpha = self.cdlt.required_params['alpha'].value
+            params = params + (alpha,)
             output = self.leaky_relu_pw(inpt, *params)
         elif "flatten" in self.op_name:
             output = np.reshape(inpt, (inpt.shape[0], -1))
