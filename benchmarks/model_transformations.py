@@ -10,13 +10,14 @@ import onnxruntime as ort
 from collections import defaultdict
 import pprint
 from benchmarks.transpose_layer_norm import LayerNormTranspose, SoftmaxTranspose
+from onnx import AttributeProto
 
 MODEL_DIR = Path(f"{Path(__file__).parent}/models")
 CWD = Path(f"{__file__}").parent
 DICT_SIZE = 10000
 import numpy as np
 
-from onnx import helper, TensorProto, numpy_helper
+from onnx import helper, TensorProto, numpy_helper, shape_inference
 from onnxruntime.quantization import quantize_static, CalibrationDataReader, QuantFormat, QuantType
 
 def collect_unset_dims(model):
@@ -212,28 +213,40 @@ def validate_transformation(init_model_name, opt_model_name, batch_size=1, seq_l
     print(f"{opt_model_name} op counts: {opt_op_counts}")
 
 
-def transpose_reduction_ops(model_name):
+def get_reduction_axis(node):
+    for attr in node.attribute:
+        if attr.name == "axes":
+            assert attr.type == AttributeProto.AttributeType.INTS, f"Invalid type for attribute: {helper.printable_type(attr.type)}"
+            return attr.ints.pop()
+
+def transpose_reduction_ops(model_name, validate_transpose=False):
     load_path = f"{MODEL_DIR}/{model_name}.onnx"
     store_path = f"{MODEL_DIR}/{model_name}-transpose.onnx"
     model = onnx.load(load_path)
-
-    ln_model_fuser = LayerNormTranspose(model)
+    if "bert" in model_name:
+        model_type = "bert"
+    elif "vit" in model_name:
+        model_type = "vit"
+    else:
+        print(f"Unsupported model for transpose: {model_name}")
+    ln_model_fuser = LayerNormTranspose(model, model_type)
     ln_model_fuser.apply()
-    # ln_model_fuser.model.save_model_to_file(store_path)
 
-    softmax_model_fuser = SoftmaxTranspose(ln_model_fuser.model)
+    softmax_model_fuser = SoftmaxTranspose(ln_model_fuser.model, model_type)
     softmax_model_fuser.apply()
     softmax_model_fuser.model.save_model_to_file(store_path)
-    model = onnx.load(store_path)
+    if validate_transpose:
+        model = softmax_model_fuser.model
+        for n in model.model.graph.node:
+            if n.op_type == "ReduceMean":
+                reduce_axis = get_reduction_axis(n)
+                if reduce_axis == -1 or reduce_axis == 2:
+                    raise RuntimeError("Found invalid reducemean on last axis")
 
 
-
-
-
-
-def use_ort_optimizer(bert_name, set_shapes=True,
-                      apply_transpose=False,
-                      apply_ort_opt=True, trim_gather=False):
+def bert_use_ort_optimizer(bert_name, set_shapes=True,
+                           apply_transpose=False,
+                           apply_ort_opt=True, trim_gather=False):
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
     load_name = store_name = bert_name
     if apply_transpose:
@@ -287,7 +300,47 @@ def use_ort_optimizer(bert_name, set_shapes=True,
         print(f"Storing model to {store_path}")
 
 
+def vit_use_ort_optimizer(vit_name,
+                          apply_transpose=False,
+                          apply_ort_opt=True, trim_gather=False):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+    load_name = store_name = vit_name
+    if apply_transpose:
+        print(f"Loading init model from {store_name}")
 
+        store_name = f"{load_name}-transpose"
+        transpose_reduction_ops(load_name, True)
+        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        model_path = f"{MODEL_DIR}/{store_name}.onnx"
+        optimize_onnx(model_path, model_path, None, None, False)
+
+        print(f"Storing transposed model to {store_name}")
+
+
+    if apply_ort_opt:
+        load_path = f"{MODEL_DIR}/{store_name}.onnx"
+        store_path = f"{MODEL_DIR}/{store_name}-ort.onnx"
+        store_name = f"{store_name}-ort"
+        opt_options = FusionOptions('bert')
+        opt_options.enable_embed_layer_norm = False
+        opt_options.enable_gelu = True
+        opt_options.enable_layer_norm = False
+        opt_options.enable_attention = False
+        opt_options.enable_skip_layer_norm = False
+        opt_options.enable_embed_layer_norm = False
+        opt_options.enable_bias_skip_layer_norm = False
+        opt_options.enable_bias_gelu = False
+        opt_options.enable_gelu_approximation = False
+        opt_model = optimizer.optimize_model(
+            load_path,
+            'bert',
+            num_heads=12,
+            hidden_size=768,
+            optimization_options=opt_options,
+            opt_level=0 if apply_transpose else None
+        )
+        opt_model.save_model_to_file(store_path)
+        print(f"Storing model to {store_path}")
 
 
 
@@ -324,13 +377,14 @@ def layer_norm_gelu(model_name):
 
 
 if __name__ == "__main__":
-    model_name = "bert-base-cased"
-    use_ort_optimizer(model_name, set_shapes=True,
-                      apply_ort_opt=True,
-                      apply_transpose=True, trim_gather=True)
+    # model_name = "bert-base-cased"
+    model_name = "vit"
+    vit_use_ort_optimizer(model_name,
+                           apply_ort_opt=True,
+                           apply_transpose=True, trim_gather=False)
     # transpose_reduce_mean("bert-base-cased1-gelu")
     # set_bert_shapes()
     # layer_norm_gelu('bert-base-cased-opt')
     # validate_transformation('bert-base-cased-opt-ort', 'bert-base-cased-transpose-opt-ort')
-    # use_ort_optimizer(model_name)
+    # bert_use_ort_optimizer(model_name)
     # insert_transposed_reductions(model_name)

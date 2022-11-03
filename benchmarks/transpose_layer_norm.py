@@ -7,8 +7,9 @@ MODEL_DIR = Path(f"{Path(__file__).parent}/models")
 
 
 class LayerNormTranspose(object):
-    def __init__(self, model):
-
+    def __init__(self, model, model_type):
+        assert model_type in ["bert", "vit"]
+        self.model_type = model_type
         fused_op_type = "LayerNormalization"
         search_op_types = "ReduceMean"
         description = None
@@ -55,7 +56,163 @@ class LayerNormTranspose(object):
         self.model.topological_sort()
 
 
+
     def fuse(self, node, input_name_to_nodes: Dict, output_name_to_node: Dict):
+        if self.model_type == "bert":
+            self.fuse_bert(node, input_name_to_nodes, output_name_to_node)
+        else:
+            self.fuse_vit(node, input_name_to_nodes, output_name_to_node)
+
+    def fuse_vit(self, node, input_name_to_nodes: Dict, output_name_to_node: Dict):
+        """
+            Fuse Layer Normalization subgraph into one node LayerNormalization:
+                  +----------------------+
+                  |                      |
+                  |                      v
+              [Root] --> ReduceMean -->  Sub  --> Pow --> ReduceMean --> Add --> Sqrt --> Div --> Mul --> Add
+                         (axis=2 or -1)  |      (Y=2)   (axis=2 or -1)  (E-6 or E-12 or 0)    ^
+                                         |                                               |
+                                         +-----------------------------------------------+
+             It also handles cases of duplicated sub nodes exported from older version of PyTorch:
+                  +----------------------+
+                  |                      v
+                  |           +-------> Sub-----------------------------------------------+
+                  |           |                                                           |
+                  |           |                                                           v
+              [Root] --> ReduceMean -->  Sub  --> Pow --> ReduceMean --> Add --> Sqrt --> Div  --> Mul --> Add
+                  |                      ^
+                  |                      |
+                  +----------------------+
+            """
+        # All target nodes begin with an "Add" node with three children, so if we arent there, skip this
+        children = self.model.get_children(node, input_name_to_nodes)
+
+        if len(children) != 1:
+            return
+        root_input = node.input[0]
+        child = children[0]
+
+        # If the child node's input is not shared with the current node, return
+        if child.op_type != 'Sub' or child.input[0] != root_input:
+            return
+
+
+        div_node = self.model.find_first_child_by_type(child, 'Div', input_name_to_nodes, recursive=False)
+        if div_node is None:
+            return
+
+        path_id, parent_nodes, _ = self.model.match_parent_paths(
+            div_node, [(['Sqrt', 'Add', 'ReduceMean', 'Pow', 'Sub'], [1, 0, 0, 0, 0]),
+                       (['Sqrt', 'Add', 'ReduceMean', 'Pow', 'Cast', 'Sub'], [1, 0, 0, 0, 0, 0])], output_name_to_node)
+        # No match found
+        if path_id < 0:
+            return
+
+        # last node is sub-node and is the same one we found earlier
+        sub_node = parent_nodes[-1]
+        if sub_node != child:
+            return
+
+        second_add_node = parent_nodes[1]
+        i, add_weight = self.model.get_constant_input(second_add_node)
+        if add_weight is None or add_weight <= 0 or add_weight > 1.0E-4:
+            print(f"epsilon value is not expeced: {add_weight}")
+            return
+
+        pow_node = parent_nodes[3]
+        if not self.model.find_constant_input(pow_node, 2.0) == 1:
+            return
+
+        mul_node = input_name_to_nodes[div_node.output[0]][0]
+        if mul_node.op_type != 'Mul':
+            return
+
+        last_add_node = input_name_to_nodes[mul_node.output[0]][0]
+        if last_add_node.op_type != 'Add':
+            return
+
+        subgraph_nodes = [node]
+        subgraph_nodes.extend(children)
+        subgraph_nodes.extend(parent_nodes[:-1])
+
+        subgraph_nodes.extend([last_add_node, mul_node, div_node])
+        if not self.model.is_safe_to_fuse_nodes(subgraph_nodes, last_add_node.output, input_name_to_nodes,
+                                                output_name_to_node):
+            print(f"It is not safe to insert transpose node. Skip")
+            return
+
+        weight_input = mul_node.input[1 - self.model.input_index(div_node.output[0], mul_node)]
+        if not self.model.is_constant_with_specified_dimension(weight_input, 1, "layernorm weight"):
+            return
+
+        bias_input = last_add_node.input[1 - self.model.input_index(mul_node.output[0], last_add_node)]
+        if not self.model.is_constant_with_specified_dimension(bias_input, 1, "layernorm bias"):
+            return
+
+        ## First, insert the transpose which starts the layer normalization
+        transpose_output1 = node.input[0] + '_transposed'
+        inpt_transpose_node = helper.make_node('Transpose',
+                                               inputs=[node.input[0]],
+                                               outputs=[transpose_output1],
+                                               name=self.model.create_node_name("Transpose",
+                                                                                name_prefix="Transpose"))
+        inpt_transpose_node.attribute.extend([helper.make_attribute("perm", [0, 2, 1])])
+        self.nodes_to_add.append(inpt_transpose_node)
+        self.node_name_to_graph_name[inpt_transpose_node.name] = self.this_graph_name
+
+        # First, we need to get the "ReduceMean" parent, which should be an "Add" node, and then get the child "Add" node
+
+        # This is where VIT differs from BERT: We only want to replace two uses with the transposed values
+        self.model.replace_input_of_all_nodes(node.input[0], transpose_output1)
+        transpose_children = self.model.get_children(inpt_transpose_node)
+        if len(transpose_children) == 3:
+            transpose_parent = self.model.get_parent(inpt_transpose_node, 0)
+            add_child = None
+            for c in transpose_children:
+                if c.op_type == "Add":
+                    add_child = c
+                    break
+            if add_child is None:
+                raise RuntimeError(f"Unable to find correct child for transpose operation for node {node.name}")
+            elif transpose_output1 not in add_child.input:
+                raise RuntimeError(f"Transpose operation is not found in the parent of the add node for {node.name}")
+            self.model.replace_node_input(add_child, transpose_output1, transpose_parent.output[0])
+
+        for attr in node.attribute:
+            if attr.name == "axes":
+                assert attr.type == AttributeProto.AttributeType.INTS, f"Invalid type for attribute: {helper.printable_type(attr.type)}"
+                attr.ints.pop()
+                attr.ints.extend(int(i) for i in [1])
+
+        ## Next, we need to update the axis for any reducemean operations
+        last_reduce_mean = None
+        for n in subgraph_nodes:
+            if n.op_type == "ReduceMean" and n.name != node.name:
+                last_reduce_mean = n
+                break
+        assert last_reduce_mean is not None
+
+        for attr in last_reduce_mean.attribute:
+            if attr.name == "axes":
+                assert attr.type == AttributeProto.AttributeType.INTS, f"Invalid type for attribute: {helper.printable_type(attr.type)}"
+                attr.ints.pop()
+                attr.ints.extend(int(i) for i in [1])
+
+        ## Lastly, convert the tensor back to the correct shape with an addition transpose after the
+        ## last addition operation
+        last_node = div_node
+        transpose_output2 = last_node.output[0] + '_transposed'
+        out_transpose_node = helper.make_node('Transpose',
+                                              inputs=[last_node.output[0]],
+                                              outputs=[transpose_output2],
+                                              name=self.model.create_node_name("Transpose",
+                                                                               name_prefix="Transpose"))
+        out_transpose_node.attribute.extend([helper.make_attribute("perm", [0, 2, 1])])
+        self.nodes_to_add.append(out_transpose_node)
+        self.node_name_to_graph_name[out_transpose_node.name] = self.this_graph_name
+        self.model.replace_input_of_all_nodes(last_node.output[0], transpose_output2)
+
+    def fuse_bert(self, node, input_name_to_nodes: Dict, output_name_to_node: Dict):
         """
         Fuse Layer Normalization subgraph into one node LayerNormalization:
               +----------------------+
@@ -76,14 +233,19 @@ class LayerNormTranspose(object):
               |                      |
               +----------------------+
         """
+        # If we are at the end of the graph (e.g., no children) or the current node's output is used multiple places
+        # (e.g., more than one child), then return as we don't want to fuse this node
         children = self.model.get_children(node, input_name_to_nodes)
         if len(children) == 0 or len(children) > 2:
             return
 
         root_input = node.input[0]
 
+        # If the current node does not split and reuse its output for children, continue
         if children[0].op_type != 'Sub' or children[0].input[0] != root_input:
             return
+
+
 
         if len(children) == 2:
             if children[1].op_type != 'Sub' or children[1].input[0] != root_input:
@@ -192,7 +354,9 @@ class LayerNormTranspose(object):
 
 
 class SoftmaxTranspose(object):
-    def __init__(self, model):
+    def __init__(self, model, model_type):
+        assert model_type in ["bert", "vit"]
+        self.model_type = model_type
 
         fused_op_type = "LayerNormalization"
         search_op_types = "Softmax"
@@ -254,7 +418,7 @@ class SoftmaxTranspose(object):
             return self.get_dimensions_from_tensor_proto(graph_input)
 
         if not self.shape_infer_done:
-            self.shape_infer = self.model.infer_runtime_shape({}, update=True)
+            self.shape_infer = self.model.infer_runtime_shape({}, update=False)
             self.shape_infer_done = True
 
         if self.shape_infer is not None:
@@ -284,7 +448,7 @@ class SoftmaxTranspose(object):
               +----------------------+
         """
 
-        input_shape = self.get_dimensions(node.input[0])
+        # input_shape = self.get_dimensions(node.input[0])
         ## First, insert the transpose which starts the layer normalization
         transpose_output1 = node.input[0] + '_transposed'
         inpt_transpose_node = helper.make_node('Transpose',

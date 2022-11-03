@@ -78,10 +78,10 @@ def define_genesys(cfg):
             wbuf = StorageNode("WBUF", access_type='RAM', banks=cfg['ARRAY_N'] * cfg['ARRAY_M'], addressable_dim=1,
                                buffering_scheme="double", width=cfg['DATA_WIDTH'], depth=cfg['WBUF_DEPTH'],
                                partitions=WBUF_PARTITIONS, latency=1, input_ports=2, output_ports=2)
-            bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="double",
+            bbuf = StorageNode("BBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="single",
                                width=cfg['ACC_WIDTH'], depth=cfg['BBUF_DEPTH'], partitions=BBUF_PARTITIONS,
                                latency=1, input_ports=2, output_ports=2)
-            obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="double",
+            obuf = StorageNode("OBUF", access_type='RAM', banks=cfg['ARRAY_M'], buffering_scheme="single",
                                width=cfg['ACC_WIDTH'], depth=cfg['OBUF_DEPTH'], partitions=OBUF_PARTITIONS,
                                latency=1, input_ports=2, output_ports=2)
             # TODO: BW for DRAM is 64bits/cycle

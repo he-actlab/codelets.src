@@ -208,6 +208,7 @@ def compile_benchmark(model_name,
                                  generate_data=False,
                                     graph=graph,
                                     batch_size=arch_config['BATCH_SIZE'])
+
     if only_systolic:
         if verbose:
             print(f"Compiling {model_name} without quantization, only systolic layers.")
@@ -327,7 +328,7 @@ if __name__ == "__main__":
                       'bert-base-cased-transpose-opt-trimmed-ort', # 5
                       "vgg16", # 6
                       'gpt2-trimmed-opt', # 7
-                      "vit-opt-erf-removed", # 8
+                      "vit_name-opt-erf-removed", # 8
                       "custom_fft", # 9
                       "custom_small_fft", # 10
                       "resnet50_train", # 11
@@ -341,7 +342,7 @@ if __name__ == "__main__":
                       'yolo_conv_lrelu_OC32_OH15_KH1_S1-opt',
                       'effnet_conv_clip_dwconv_OH10_KH1_S1-opt'
                       ]
-        compile_benchmark(benchmarks[8],
+        compile_benchmark(benchmarks[1],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -349,7 +350,7 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          filtered_layers=[382],
+                          filtered_layers=[45],
                           # skip_layers=[0],
                           store_whole_program=False,
-                          identifier=0)
+                          identifier=5)
