@@ -59,6 +59,7 @@ def load_transform_impls(cfg):
         'elem_where': partial(Transform, 'where'),
         # 'tensor_pad': tensor_pad,
         'concat': partial(Transform, 'concat'),
+        'concat3d': partial(Transform, 'concat'),
         'tensor_squeeze' : partial(Transform, 'squeeze'),
         'resize': partial(Transform, 'resize'),
         'elem_gather': partial(Transform, 'elem_gather'),

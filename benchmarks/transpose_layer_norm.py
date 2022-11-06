@@ -8,6 +8,7 @@ MODEL_DIR = Path(f"{Path(__file__).parent}/models")
 
 class LayerNormTranspose(object):
     def __init__(self, model, model_type):
+
         assert model_type in ["bert", "vit"]
         self.model_type = model_type
         fused_op_type = "LayerNormalization"
@@ -357,7 +358,6 @@ class SoftmaxTranspose(object):
     def __init__(self, model, model_type):
         assert model_type in ["bert", "vit"]
         self.model_type = model_type
-
         fused_op_type = "LayerNormalization"
         search_op_types = "Softmax"
         description = None
@@ -464,7 +464,7 @@ class SoftmaxTranspose(object):
         for attr in node.attribute:
             if attr.name == "axis":
                 assert attr.type == AttributeProto.AttributeType.INT, f"Invalid type for attribute"
-                assert attr.i == 3
+                assert attr.i == 3, f"Softmax layer {node.name} has axis {attr.i}, expected 3"
                 attr.i = 2
 
         ## Lastly, convert the tensor back to the correct shape with an addition transpose after the

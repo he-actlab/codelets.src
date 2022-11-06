@@ -34,7 +34,7 @@ FLIP_SHAPES = [['OC', 'IC', 'KH', 'KW'],
                ["C", "ONE", "KH", "KW"],
                ["OC", "ONE", "KH1", "KW1"]]
 
-LANGUAGE_MODELS = ['bert-base-cased-transpose-opt-trimmed-ort', 'gpt2-trimmed-opt']
+TRANSFORMER_MODELS = ['bert-base-cased-transpose-opt-trimmed-ort', 'gpt2-trimmed-opt', 'vit-transpose-ort']
 
 
 def quantize_codelet(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codelet') -> 'Codelet':
@@ -144,7 +144,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         updated_dims.append(out_dim.name)
 
     # Need to figure out if this works for DW Conv
-    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name not in LANGUAGE_MODELS:
+    if any([o.param_map['target'] == 'SIMD' for o in compute_ops]) and program.name not in TRANSFORMER_MODELS:
         simd_pad_dims = ["IC", "OC", "C"]
         constr = template.hag.all_subgraph_nodes['SIMD'].dimensions[0]
         # updated_dims = []
@@ -204,7 +204,7 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
 
 def template_layout_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
 
-    if program.name == 'bert-base-cased-transpose-opt-trimmed-ort':
+    if program.name in TRANSFORMER_MODELS and "conv" not in template.op_name:
         return template
 
     reordered_operands = {}

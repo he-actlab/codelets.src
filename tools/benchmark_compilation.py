@@ -319,7 +319,7 @@ if __name__ == "__main__":
         # config = "benchmark_train_large_v2.json"
         # config = "benchmark_baseline.json"
         # config = "benchmark_baseline_loop_overhead.json"
-        config = "fpga16x16.json"
+        config = "paper_fpga16x16.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -328,7 +328,7 @@ if __name__ == "__main__":
                       'bert-base-cased-transpose-opt-trimmed-ort', # 5
                       "vgg16", # 6
                       'gpt2-trimmed-opt', # 7
-                      "vit_name-opt-erf-removed", # 8
+                      "vit-pad256-transpose-ort", # 8
                       "custom_fft", # 9
                       "custom_small_fft", # 10
                       "resnet50_train", # 11
@@ -342,7 +342,7 @@ if __name__ == "__main__":
                       'yolo_conv_lrelu_OC32_OH15_KH1_S1-opt',
                       'effnet_conv_clip_dwconv_OH10_KH1_S1-opt'
                       ]
-        compile_benchmark(benchmarks[1],
+        compile_benchmark(benchmarks[8],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -350,7 +350,7 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          filtered_layers=[45],
+                          # filtered_layers=[0],
                           # skip_layers=[0],
                           store_whole_program=False,
-                          identifier=5)
+                          identifier=0)

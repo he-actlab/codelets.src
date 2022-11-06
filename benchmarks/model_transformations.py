@@ -9,8 +9,9 @@ from onnxruntime.transformers.fusion_options import FusionOptions
 import onnxruntime as ort
 from collections import defaultdict
 import pprint
+from onnxruntime.transformers.onnx_model import OnnxModel
 from benchmarks.transpose_layer_norm import LayerNormTranspose, SoftmaxTranspose
-from onnx import AttributeProto
+from onnx import AttributeProto, mapping
 
 MODEL_DIR = Path(f"{Path(__file__).parent}/models")
 CWD = Path(f"{__file__}").parent
@@ -231,10 +232,13 @@ def transpose_reduction_ops(model_name, validate_transpose=False):
         print(f"Unsupported model for transpose: {model_name}")
     ln_model_fuser = LayerNormTranspose(model, model_type)
     ln_model_fuser.apply()
+    ln_model_fuser.model.save_model_to_file(store_path)
 
     softmax_model_fuser = SoftmaxTranspose(ln_model_fuser.model, model_type)
     softmax_model_fuser.apply()
     softmax_model_fuser.model.save_model_to_file(store_path)
+    onnx.checker.check_model(softmax_model_fuser.model.model)
+
     if validate_transpose:
         model = softmax_model_fuser.model
         for n in model.model.graph.node:
@@ -242,6 +246,87 @@ def transpose_reduction_ops(model_name, validate_transpose=False):
                 reduce_axis = get_reduction_axis(n)
                 if reduce_axis == -1 or reduce_axis == 2:
                     raise RuntimeError("Found invalid reducemean on last axis")
+            elif n.op_type == "Softmax":
+                reduce_axis = get_reduction_axis(n)
+                if reduce_axis == -1 or reduce_axis == 3:
+                    raise RuntimeError("Found invalid reducemean on last axis")
+
+def apply_pad256(model_name, pad_amt=256):
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_name = f"{model_name}-pad{pad_amt}"
+    store_path = f"{MODEL_DIR}/{store_name}.onnx"
+    model_proto = onnx.load(load_path)
+
+    model = OnnxModel(model_proto)
+
+
+    # In order to apply padding, we need to:
+    ## Create a padding initializer of zeros with the correct shape and add it to the graph
+    ## Set the initializer as the input to the padding operation
+    ## Replace all uses of the previous initializer with the output of the padding node
+
+    def pad_tensor(tensor, np_dtype, new_size):
+        if not isinstance(tensor, onnx.TensorProto):
+            raise ValueError("Expected input type is an ONNX TensorProto but got %s" % type(tensor))
+
+        if len(tensor.dims) != 3:
+            raise ValueError("Only 3-D tensors can be transposed")
+
+        if tensor.raw_data:
+            float32_data = np.reshape(np.frombuffer(tensor.raw_data, dtype=np_dtype), tensor.dims)
+            pad_val = new_size - float32_data.shape[1]
+            assert pad_val > 0
+            float32_padded_data = np.pad(float32_data, ((0,0), (0, pad_val), (0, 0)), 'constant')
+            new_tensor = numpy_helper.from_array(float32_padded_data, tensor.name)
+            return new_tensor
+        else:
+            raise ValueError("only raw buffer supported")
+
+    # There are only three changes necessary:
+    ## First, `vit.embeddings.position_embeddings` needs to be updatd from [1, 197, 768] to [1, 256, 768]
+
+    pos_embeddings = model.get_initializer('vit.embeddings.position_embeddings')
+    pe_dtype = mapping.TENSOR_TYPE_TO_NP_TYPE[pos_embeddings.data_type]
+    pe_idx = list(model.model.graph.initializer).index(pos_embeddings)
+    new_pos_embeddings = pad_tensor(pos_embeddings, pe_dtype, 256)
+    model.model.graph.initializer[pe_idx].CopyFrom(new_pos_embeddings)
+
+    ## Second, `vit.embeddings.cls_token` needs to be updaetd from [1, 1, 768] to [1, 60, 768]
+
+    cls_token = model.get_initializer('vit.embeddings.cls_token')
+    ct_idx = list(model.model.graph.initializer).index(cls_token)
+    ct_dtype = mapping.TENSOR_TYPE_TO_NP_TYPE[cls_token.data_type]
+    new_cls_token = pad_tensor(cls_token, ct_dtype, 60)
+    model.model.graph.initializer[ct_idx].CopyFrom(new_cls_token)
+
+
+    # Third, we need to make sure that all "Reshape" operations are changing accordingly
+    reshapes = model.get_nodes_by_op_type("Reshape")
+
+    for n in reshapes:
+        idx, shape_arg = model.get_constant_input(n)
+        if idx is not None and 197 in shape_arg:
+            shape_name = n.input[idx]
+            shape_init = model.get_initializer(shape_name)
+            assert shape_init is not None
+            new_np_shape = shape_arg.copy()
+            for i in range(shape_arg.shape[0]):
+                if shape_arg[i] == 197:
+                    new_np_shape[i] = 256
+            new_shape = numpy_helper.from_array(new_np_shape, shape_name)
+            shape_idx = list(model.model.graph.initializer).index(shape_init)
+            model.model.graph.initializer[shape_idx].CopyFrom(new_shape)
+
+
+    model.save_model_to_file(store_path)
+    # Now that these are updated, should be good to go?
+
+
+
+
+
+    return store_name
+
 
 
 def bert_use_ort_optimizer(bert_name, set_shapes=True,
@@ -302,25 +387,37 @@ def bert_use_ort_optimizer(bert_name, set_shapes=True,
 
 def vit_use_ort_optimizer(vit_name,
                           apply_transpose=False,
-                          apply_ort_opt=True, trim_gather=False):
+                          apply_ort_opt=True, pad256=False):
     MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-    load_name = store_name = vit_name
-    if apply_transpose:
-        print(f"Loading init model from {store_name}")
+    name = vit_name
 
-        store_name = f"{load_name}-transpose"
-        transpose_reduction_ops(load_name, True)
+    if pad256:
+        print(f"Padding {name}")
+        name = apply_pad256(name)
         MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-        model_path = f"{MODEL_DIR}/{store_name}.onnx"
+        model_path = f"{MODEL_DIR}/{name}.onnx"
+
         optimize_onnx(model_path, model_path, None, None, False)
 
-        print(f"Storing transposed model to {store_name}")
+    if apply_transpose:
+        print(f"Transposing {name}")
+
+        transpose_reduction_ops(name, True)
+        name = f"{name}-transpose"
+
+        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+        model_path = f"{MODEL_DIR}/{name}.onnx"
+
+        # if not pad256:
+        # optimize_onnx(model_path, model_path, None, None, False)
 
 
     if apply_ort_opt:
-        load_path = f"{MODEL_DIR}/{store_name}.onnx"
-        store_path = f"{MODEL_DIR}/{store_name}-ort.onnx"
-        store_name = f"{store_name}-ort"
+        print(f"Applying ORT optimization to {name}")
+
+        load_path = f"{MODEL_DIR}/{name}.onnx"
+        name = f"{name}-ort"
+        store_path = f"{MODEL_DIR}/{name}.onnx"
         opt_options = FusionOptions('bert')
         opt_options.enable_embed_layer_norm = False
         opt_options.enable_gelu = True
@@ -341,6 +438,7 @@ def vit_use_ort_optimizer(vit_name,
         )
         opt_model.save_model_to_file(store_path)
         print(f"Storing model to {store_path}")
+
 
 
 
@@ -381,7 +479,7 @@ if __name__ == "__main__":
     model_name = "vit"
     vit_use_ort_optimizer(model_name,
                            apply_ort_opt=True,
-                           apply_transpose=True, trim_gather=False)
+                           apply_transpose=True, pad256=True)
     # transpose_reduce_mean("bert-base-cased1-gelu")
     # set_bert_shapes()
     # layer_norm_gelu('bert-base-cased-opt')

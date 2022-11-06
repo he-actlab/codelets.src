@@ -186,6 +186,25 @@ def concat(hag: ArchitectureNode):
 
     return cdlt
 
+def concat3d(hag: ArchitectureNode):
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
+    with CodeletTemplate("concat3d") as cdlt:
+
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        IC1 = cdlt.dummy_op("IC1", cdlt.node.inputs[0].shape[1])
+        IC2 = cdlt.dummy_op("IC2", cdlt.node.inputs[1].shape[1])
+        OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+
+        op1 = cdlt.create_operand_template("op1", OP_DTYPES, [N, IC1, H], default_dtype=acc_dtype)
+        op2 = cdlt.create_operand_template("op2", OP_DTYPES, [N, IC2, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N, OC, H], default_dtype=acc_dtype)
+        cdlt.set_inputs([op1, op2])
+        cdlt.set_outputs([out])
+
+    return cdlt
+
 def split(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
@@ -279,6 +298,7 @@ def load_transform_cdlts(cfg):
         'split': split,
         'tensor_squeeze': tensor_squeeze,
         'concat': concat,
+        'concat3d': concat3d,
         'resize': tensor_resize,
         'elem_where': where,
         'elem_gather': elem_gather,
