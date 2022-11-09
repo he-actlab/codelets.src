@@ -202,7 +202,6 @@ class FusionOp(ReferenceOp):
 
     def leaky_relu(self, xval, alpha):
         dtype = "FXP32"
-        alpha = 0.01
         if not isinstance(xval, Iterable):
             xval = np.asarray([xval])
 
