@@ -2,7 +2,8 @@ from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, FXP_CONFIGS
 from functools import partial
 from fxpmath import Fxp
 import numpy as np
-from . import ReferenceOp, quantize_np, create_operand_data, transform_data, im2col_indices
+from . import ReferenceOp, quantize_np, create_operand_data, transform_data, im2col_indices, pad_tensor, get_slice
+import itertools
 WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
 WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
 ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
@@ -24,18 +25,15 @@ class Pool(ReferenceOp):
         stride = self.cdlt.required_params['sx'].value
 
         data = data.transpose(0, 3, 1, 2)
-        if self.pool_type == "avg":
-            output = self.avg_pool(data, k, stride, 0)
-        else:
-            assert self.pool_type == "max"
-            output = self.max_pool(data, k, stride, 0)
+        output = self.pool2(data, k, stride, 0, self.pool_type)
+
         output = output.transpose(*tuple(ACT_CF_TO_CL))
         inouts['outputs'] = [output]
 
         return inouts
 
 
-    def max_pool(self, x, k, stride, pad):
+    def max_pool_(self, x, k, stride, pad):
         x_padded = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode='constant')
         N, C, H, W = x_padded.shape
 
@@ -56,7 +54,7 @@ class Pool(ReferenceOp):
         return out
 
 
-    def avg_pool(self, x, k, stride, pad):
+    def avg_pool_(self, x, k, stride, pad):
         x_padded = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode='constant')
         N, C, H, W = x_padded.shape
 
@@ -81,6 +79,132 @@ class Pool(ReferenceOp):
 
         return out
 
+    def pool2(self, np_data, k, stride, pad, pool_type, dilation=(1, 1), ceil_mode=False, count_include_pad=True):
+        dtype = np_data.dtype
+        kernel = (k, k)
+        padding_before = [0, 0, pad, pad]
+        padding_after = [0, 0, pad, pad]
+        strides = (stride, stride)
+        out_shape = [np_data.shape[0], np_data.shape[1]]
+        for dim in range(2, len(np_data.shape)):
+            i = dim - 2
+            val = (
+                    float(
+                        np_data.shape[dim]
+                        - (kernel[i] - 1) * dilation[i]
+                        - 1
+                        + padding_before[i]
+                        + padding_after[i]
+                    )
+                    / strides[i]
+            )
+
+            if ceil_mode:
+                out_shape.append(int(np.ceil(val) + 1))
+            else:
+                out_shape.append(int(np.floor(val) + 1))
+
+        out_shape = tuple(out_shape)
+
+        pad_value = 0
+        if pool_type == "max" and not count_include_pad:
+            pad_value = -float('inf')
+        pad_data = pad_tensor(np_data, pad_value, padding_before, padding_after, dtype)
+        pad_map = pad_tensor(np.ones_like(np_data), 0, padding_before, padding_after, "bool")
+
+        dim_iterators = []
+        for spatial_dimension in range(2, len(np_data.shape)):
+            dim_iterators.append(range(out_shape[spatial_dimension]))
+        coord_iterator = itertools.product(*dim_iterators)
+
+        ret_np = np.zeros(shape=out_shape).astype(dtype)
+
+
+
+        for coordinate in coord_iterator:
+            # Get index into the values that any pool operation will use for given coordinate
+            np_index = get_slice(
+                spatial_dimensions=len(out_shape) - 2,
+                pad_np=pad_data,
+                dim_coord=coordinate,
+                kernel=kernel,
+                strides=strides,
+                dilation=dilation,
+            )
+
+            output_slice = tuple([slice(None), slice(None)] + list(coordinate))
+            reduction_axis = tuple(range(2, len(np_data.shape)))
+            if pool_type == "avg":
+                count_non_padded = (
+                    pad_data[np_index].size if count_include_pad else np.sum(pad_map[np_index])
+                )
+                # We summed over the non-spatial dimensions too so divide by them
+                count_non_padded /= out_shape[0] * out_shape[1]
+                denom = Fxp(1.0 / (count_non_padded), **FXP_CONFIGS[self.dtype]).val.item()
+                if count_non_padded == 0:
+                    ret_np[output_slice] = 0
+                else:
+                    # ret_np[output_slice] = (
+                    #         np.sum(pad_data[np_index], axis=reduction_axis)
+                    # ) / count_non_padded
+
+                    ret_np[output_slice] = (
+                        np.sum(pad_data[np_index], axis=reduction_axis)
+                    )
+                    ret_np[output_slice] = quantize_np(ret_np[output_slice] * denom, self.dtype)
+
+
+            elif pool_type == "max":
+                count_non_padded = np.sum(pad_map[np_index])
+                # All padded values, default to 0
+                ret_np[output_slice] = np.max(pad_data[np_index], axis=reduction_axis)
+            else:
+                raise ValueError("Pool type {} is not supported".format(pool_type))
+
+
+        return ret_np
+
+
+    def pool1(self, x, k, stride, pad):
+        method = 'avg'
+
+
+        m, n = x.shape[:2]
+        ky, kx = k, k
+        if stride is None:
+            stride = (ky, kx)
+        sy, sx = stride, stride
+
+        _ceil = lambda x, y: int(np.ceil(x / float(y)))
+
+        if pad:
+            ny = _ceil(m, sy)
+            nx = _ceil(n, sx)
+            size = ((ny - 1) * sy + ky, (nx - 1) * sx + kx) + x.shape[2:]
+            mat_pad = np.full(size, np.nan)
+            mat_pad[:m, :n, ...] = x
+        else:
+            mat_pad = x[:(m - ky) // sy * sy + ky, :(n - kx) // sx * sx + kx, ...]
+
+        view = self.as_stride(mat_pad, (ky, kx), (sy, sx))
+
+        if method == 'max':
+            result = np.nanmax(view, axis=(2, 3))
+        else:
+            result = np.nanmean(view, axis=(2, 3))
+        return result
+
+    def as_stride(self, arr, sub_shape, stride):
+        '''Get a strided sub-matrices view of an ndarray.
+        See also skimage.util.shape.view_as_windows()
+        '''
+        s0, s1 = arr.strides[:2]
+        m1, n1 = arr.shape[:2]
+        m2, n2 = sub_shape
+        view_shape = (1 + (m1 - m2) // stride[0], 1 + (n1 - n2) // stride[1], m2, n2) + arr.shape[2:]
+        strides = (stride[0] * s0, stride[1] * s1, s0, s1) + arr.strides[2:]
+        subs = np.lib.stride_tricks.as_strided(arr, view_shape, strides=strides)
+        return subs
 
 class Softmax(ReferenceOp):
 
@@ -223,6 +347,7 @@ def load_dnn_impls(cfg):
     DNN_IMPLS = {
         "avg_pool": partial(Pool, "avg"),
         "softmax4d": Softmax,
+        "softmax": Softmax,
         "bias_add": BiasAdd,
         "batch_norm": UnImplementedOp,
         "cross_entropy_loss": UnImplementedOp,

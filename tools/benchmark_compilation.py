@@ -308,18 +308,9 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        # config = "unquantized_fused_custom128x128.json"
-        # config = "unquantized_unfused_custom32x32_train.json"
-        # config = "unquantized_fused_custom32x32_dtype.json"
-        # config = "unquantized_fused_custom32x32_batch_size.json"
-        # config = "unquantized_fused_custom32x32.json"
-        # config = "broken_config.json"
-
-        # config = "benchmark_8x8.json"
-        # config = "benchmark_train_large_v2.json"
-        # config = "benchmark_baseline.json"
-        # config = "benchmark_baseline_loop_overhead.json"
+        # config = "simd_paper32x32.json"
         config = "paper_fpga16x16.json"
+        # config = "fpga16x16.json"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -339,10 +330,11 @@ if __name__ == "__main__":
                       'conv_clip_depthwise_v1-opt', # 16
                       'fcn-resnet101-trimmed-opt', # 17
                       'mel_scale',# # 18,
-                      'yolo_conv_lrelu_OC32_OH15_KH1_S1-opt',
-                      'effnet_conv_clip_dwconv_OH10_KH1_S1-opt'
+                      'normalize-200-opt', # 19
+                      'linear_reg-opt', # 20
+                      'logistic_reg-opt', # 21
                       ]
-        compile_benchmark(benchmarks[8],
+        compile_benchmark(benchmarks[21],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -350,7 +342,5 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          # filtered_layers=[0],
-                          # skip_layers=[0],
                           store_whole_program=False,
                           identifier=0)

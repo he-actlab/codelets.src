@@ -644,6 +644,7 @@ def load_unary_cdlts(cfg):
         "elem_tanh2d": elem_tanh2d,
         # TODO: Check if this needs to be 'sigmoid'
         "elem_sigmoid": partial(elem_unary_nd, "elem_sigmoid", "SIGMOID", 4, 16),
+        "elem_sigmoid2d": partial(elem_unary_nd, "elem_sigmoid2d", "SIGMOID", 2, 16),
         "leaky_relu": partial(elem_unary_nd, "leaky_relu", "LEAKY_RELU", 4, 'alpha'),
         "elem_clip": clip,
         "elem_ceil2d": elem_ceil2d,

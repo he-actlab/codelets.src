@@ -260,6 +260,7 @@ def load_unary_impls(cfg):
         "elem_tanh3d": Unary,
         # TODO: Check if this needs to be 'sigmoid'
         "elem_sigmoid": Unary,
+        "elem_sigmoid2d": Unary,
         "leaky_relu": Unary,
         "elem_clip": Unary,
         "elem_ceil2d": Unary,

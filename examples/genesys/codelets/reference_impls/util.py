@@ -1,6 +1,7 @@
 import numpy as np
 from fxpmath import Fxp
 from examples.genesys import FXP_CONFIGS
+from typing import List, Tuple, Optional
 
 def save_array(path, data):
     with open(path, 'w') as f:
@@ -77,3 +78,59 @@ def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
     k = np.repeat(np.arange(C), field_height * field_width).reshape(-1, 1)
 
     return (k, i, j)
+
+
+def pad_tensor(
+    np_arr: np.array,
+    pad_value: float,
+    padding_before: List[int],
+    padding_after: List[int],
+    dtype: str,
+) -> np.array:
+    """Pad the spatial dimensions of the given array."""
+    orig_shape = list(np_arr.shape)
+    padded_shape = list(np_arr.shape)
+    n = len(orig_shape)
+    for dim in range(2, n):
+        i = dim - 2
+        padded_shape[dim] += padding_after[i] + padding_before[i]
+
+    pad_np = (np.zeros(shape=padded_shape) + pad_value).astype(dtype)
+    ranges_it = [range(padded_shape[0]), range(padded_shape[1])]
+    for dim in range(2, n):
+        i = dim - 2
+        ranges_it.append(range(padding_before[i], padding_before[i] + orig_shape[dim]))
+    pad_np[np.ix_(*ranges_it)] = np_arr
+    return pad_np
+
+def get_slice(
+    spatial_dimensions: int,
+    pad_np: np.array,
+    dim_coord: Tuple[int],
+    kernel: Tuple[int],
+    strides: Tuple[int],
+    dilation: Tuple[int],
+) -> List[slice]:
+    """
+    Programmatically create a slice object of the right dimensions for pad_np.
+    We assume pad_np's first two dimensions are not spatial and are not touched by the pad.
+    pad_np[slice] should give the elements of the data that a pool operation will use for the
+    step given in dim_coord.
+    """
+    assert isinstance(dim_coord, tuple)
+    assert isinstance(kernel, tuple)
+    assert isinstance(strides, tuple)
+    assert isinstance(dilation, tuple)
+    slices = [slice(None)] * spatial_dimensions
+
+    for nd in range(spatial_dimensions):
+        slices[nd] = slice(
+            dim_coord[nd] * strides[nd],
+            dim_coord[nd] * strides[nd] + (kernel[nd] - 1) * dilation[nd] + 1,
+            dilation[nd],
+        )
+
+    # Add back batch and channel dimensions
+    slices = [slice(None), slice(None)] + slices
+
+    return tuple(slices)
