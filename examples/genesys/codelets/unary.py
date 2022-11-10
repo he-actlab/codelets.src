@@ -583,7 +583,8 @@ def tensor_transpose4d(hag: ArchitectureNode):
     # cdlt = add_simd_constraint(hag, cdlt, "W")
 
     cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['W'] == 1 or splits['C'] == 1")
-    cdlt = add_flex_simd_constraints(hag, cdlt, ["C", "W", "H"])
+    # cdlt.add_compilation_param("LEVEL1_hint", f"splits['C'] != 1 and splits['W'] == 1 and splits['H'] == 1 and splits['N'] == 32")
+    cdlt = add_flex_simd_constraints(hag, cdlt, ["H", "W", "C"])
 
     #### End changes for benchmarking
 

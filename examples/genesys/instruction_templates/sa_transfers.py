@@ -29,14 +29,14 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         ld_st_tabs = f"op.loop_level + len(op.sizes_for_node('{buffer_name}'))"
 
         loop_iter_str = f"dim_info[1][1] - 1"
-        req_size_str = f"op.strides_iters({data_width}, divisor={n_banks}, max_bits={max_bits})[0][-1]"
+        req_size_str = f"op.strides_iters({data_width}, {hag.meta_cfg['MERGE_LDST_LOOPS']}, divisor={n_banks}, max_bits={max_bits})[0][-1]"
 
         if hag.meta_cfg['ASIC_CONFIG']:
             denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
             stride_size_str = f"(dim_info[1][0]//({denom_str}))"
         else:
             stride_size_str = f"dim_info[1][0]"
-        iterable_str = f"enumerate(zip(*op.strides_iters({data_width}, divisor={n_banks}, max_bits={max_bits})))"
+        iterable_str = f"enumerate(zip(*op.strides_iters({data_width}, {hag.meta_cfg['MERGE_LDST_LOOPS']}, divisor={n_banks}, max_bits={max_bits})))"
         # END CHANGES
 
         stride_size_low = f"program.extract_bits({stride_size_str}, 16, 0)"
@@ -72,8 +72,8 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         instructions.append(macro_instr)
     else:
         ld_st_tabs = f"op.loop_level + 1"
-        req_size_str = f"op.strides_iters({data_width}, divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
-        ld_str_size = f"op.strides_iters({data_width}, divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
+        req_size_str = f"op.strides_iters({data_width}, {hag.meta_cfg['MERGE_LDST_LOOPS']}, divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
+        ld_str_size = f"op.strides_iters({data_width}, {hag.meta_cfg['MERGE_LDST_LOOPS']}, divisor={n_banks}, max_bits={max_bits}, contiguous=True)[0][-1]"
 
         if hag.meta_cfg['ASIC_CONFIG']:
             denom_str = f"hag.get_subgraph_edge('DRAM', '{buffer_name}').bandwidth//8"
@@ -85,7 +85,7 @@ def off_chip_transfer(ld_st, buffer_name, hag: ArchitectureNode):
         stride_size_high = f"program.extract_bits({stride_size_str}, 16, 16)"
         instr = hag.get_primitive_template("SA_LOOP_CFG")
         instr.set_field_flex_param("LOOP_ID", ld_st_loop_str)
-        instr.set_field_flex_param("NUM_ITERATIONS", f"op.strides_iters({data_width}, divisor={n_banks}, "
+        instr.set_field_flex_param("NUM_ITERATIONS", f"op.strides_iters({data_width}, {hag.meta_cfg['MERGE_LDST_LOOPS']}, divisor={n_banks}, "
                                                      f"max_bits={max_bits},"
                                                      f"contiguous=True)[1][-1] - 1")
         instructions.append(instr)

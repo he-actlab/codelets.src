@@ -120,7 +120,7 @@ class Transfer(Operation):
                 break
         return rsize
 
-    def strides_iters(self, data_width, divisor = 1, max_bits = 64, contiguous=False):
+    def strides_iters(self, data_width, merge_loops, divisor = 1, max_bits = 64, contiguous=False):
         assert len(self.sizes) == 2
         if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
@@ -131,8 +131,10 @@ class Transfer(Operation):
         if contiguous:
         # TODO: include array size for req size divisibility
             idx = [0]
-        else:
+        elif merge_loops:
             idx = [i for i in range(len(xfer_sizes)) if xfer_sizes[i] != ref_sizes[i]]
+        else:
+            idx = [i for i in range(len(xfer_sizes))]
         if 0 not in idx:
             idx.insert(0, 0)
 

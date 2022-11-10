@@ -24,7 +24,6 @@ GENESYS_DTYPES['SYSTOLIC_ARRAY']['bias_out'] = 'FXP32'
 def set_defaults(cfg):
     def set_default(name, default_val):
         if name not in cfg:
-            print(f"{name} not set in config. Defaulting to {default_val}")
             cfg[name] = default_val
 
     if 'DATA_WIDTH' not in cfg:
@@ -162,6 +161,11 @@ def set_defaults(cfg):
         cfg['SIMD_BASE_ADDR']['LD_VMEM2'] = 1024 << 10
         cfg['SIMD_BASE_ADDR']['ST_VMEM1'] = 1024 << 11
         cfg['SIMD_BASE_ADDR']['ST_VMEM2'] = 1024 << 12
+
+    if 'MERGE_LDST_LOOPS' not in cfg:
+        cfg['MERGE_LDST_LOOPS'] = True
+    else:
+        assert isinstance(cfg['MERGE_LDST_LOOPS'], bool)
     return cfg
 
 def load_config(fpath):

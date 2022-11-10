@@ -905,7 +905,8 @@ class CodeletProgram(object):
                         raise RuntimeError(f"Invalid storage capacity for codelet\n"
                                            f"Codelet: {cdlt.op_name} - {cdlt.cdlt_uid} --> {ml}\n"
                                            f"Operand: {o.name}\n"
-                                           f"Tiling: {o.tiling[ml]}\n")
+                                           f"Tiling: {o.tiling[ml]}\n"
+                                           f"Mem node size: {mem_node.size_bytes}")
 
 
     def finalize_instructions(self, node_sequence, codelets, verbose=False):
