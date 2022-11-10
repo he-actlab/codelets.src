@@ -1295,7 +1295,7 @@ def add_sqrt_div(hag):
 
                     cdlt.compute("MUL", [out[n, c, h], op3[n, c, h]], [out[n, c, h]], target="SIMD")
 
-                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+                    cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
     cdlt = add_simd_constraint(hag, cdlt, "H")
