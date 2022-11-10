@@ -7,6 +7,7 @@ from codelets.codelet_impl import Codelet
 from codelets.codelet_impl.codelet import USE_LOOP_END
 from codelets.compiler.program import CodeletProgram
 
+import numpy as np
 from examples.genesys.compilation_stages.tiling_utils import set_codelet_tiling
 from examples.genesys.compilation_stages.stage_utils import default_tile_heuristic, \
     store_tile_checkpoint, \
@@ -114,31 +115,27 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         # Static padding
         sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]*program.hag.meta_cfg['DATA_WIDTH'] // 8
         bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
-        size_constr = max(sys_dims, bandwidth)
-        mod_constr = bandwidth
-        pad_fn = lambda shape, sh_constr, mod_constr: (shape + (sh_constr - shape).max(0)) + (mod_constr - (shape + (sh_constr - shape).max(0))) % mod_constr
+
+        constr = np.lcm(bandwidth, sys_dims)
+
+        pad_fn = lambda shape, v: -1*(shape // (-1*v))*v
+
         inp_dim = compute_op.param_map['sources'][0].operand_shape_list[-1]
         dummy_inp_dim = template.node.inputs[0].shape[1]
-        if template.op_name in CUSTOM_PAD_OPS:
-            new_inp_dim = pad_fn(dummy_inp_dim, size_constr, size_constr)
-        else:
-            new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
-        # new_inp_dim = pad_fn(dummy_inp_dim, size_constr, mod_constr)
+
+        new_inp_dim = pad_fn(dummy_inp_dim, constr)
+
         template.update_dummy_op(inp_dim.name, new_inp_dim)
         updated_dims.append(inp_dim.name)
 
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
-        # TODO: Need to validate
         if inp_dim.name == "N":
             idx = 1
         else:
             assert inp_dim.name == "IC"
             idx = 0
         dummy_out_dim = template.node.inputs[1].shape[idx]
-        if template.op_name in CUSTOM_PAD_OPS:
-            new_out_dim = pad_fn(dummy_out_dim, size_constr, size_constr)
-        else:
-            new_out_dim = pad_fn(dummy_out_dim, size_constr, mod_constr)
+        new_out_dim = pad_fn(dummy_out_dim, constr)
 
         template.update_dummy_op(out_dim.name, new_out_dim)
         updated_dims.append(out_dim.name)
@@ -420,7 +417,7 @@ def propagate_offsets(cdlt: 'Codelet', hag: 'ArchitectureNode') -> 'Codelet':
                     single_elem_size = snode.data_size
                     assert single_elem_size == o.data_size, "Single element size does not match data size:\n" \
                                                             f"Elem size: {single_elem_size}\n" \
-                                                            f"Data size: {o.data_size}"
+                                                            f"Data size: {op.data_size}"
                     assert len(o.data_path) == 2
                     assert list(dm.offset_map.keys()) == list(o.shape_symbols.keys())
                     dm.reinit_offset_map(o.shape_symbols.copy())

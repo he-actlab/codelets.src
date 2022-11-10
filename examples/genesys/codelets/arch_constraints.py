@@ -103,7 +103,8 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     return cdlt
 
 def add_gemm_constraints(hag, cdlt):
-
+    inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
+    acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     sys_array_dims = hag.get_subgraph_node("pe_array").dimensions
 
     wbuf_elements = hag.get_subgraph_node("WBUF").num_elements
@@ -111,16 +112,24 @@ def add_gemm_constraints(hag, cdlt):
     wbuf_index_size = f"sizes['N']*sizes['P']"
     obuf_index_size = f"sizes['M']*sizes['P']"
     constraint = f"np.prod(list(splits.values())) > 1"
+    n_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
+    p_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
 
     if not hag.meta_cfg['ASIC_CONFIG']:
-        inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
-        acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
-        sg_edge = hag.get_subgraph_edge('DRAM', 'IBUF')
-        bandwidth = sg_edge.bandwidth
-        fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
-                      f"{obuf_index_size} <= {obuf_elements} and " \
-                      f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} % {bandwidth} == 0"
-        constraint = f"{constraint} and {fpga_constr}"
+        n_hint0 = f"sizes['N']*{DTYPE_MAP[acc_dtype].bits()} % {n_bandwidth} == 0"
+        p_hint0 = f"sizes['P']*{DTYPE_MAP[acc_dtype].bits()} % {p_bandwidth} == 0"
+
+        n_hint1 = f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} % {n_bandwidth} == 0"
+        p_hint1 = f"sizes['P']*{DTYPE_MAP[inpt_dtype].bits()} % {p_bandwidth} == 0"
+
+        n_hint = f"{n_hint0} and {n_hint1}"
+        p_hint = f"{p_hint0} and {p_hint1}"
+
+        # fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
+        #               f"{obuf_index_size} <= {obuf_elements} and " \
+        #               f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} % {n_bandwidth} == 0"
+        # constraint = f"{constraint} and {fpga_constr}"
+        constraint = f"{constraint} and {n_hint} and {p_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 
     ## DRAM to buffers

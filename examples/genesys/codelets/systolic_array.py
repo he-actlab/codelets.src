@@ -73,7 +73,6 @@ def add_matmul3d_quant(cdlt, gemm_out, out, B, M, P):
 def gemm(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
-
     with CodeletTemplate("gemm") as cdlt:
 
         P = cdlt.dummy_op("P", cdlt.node.inputs[2].shape[0])
@@ -105,7 +104,7 @@ def gemm(hag: ArchitectureNode):
                     cdlt.transfer(bias, ["DRAM", "BBUF"])
                     cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
                     gemm_out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], gemm_out[m,p]], [gemm_out[m,p]], target="pe_array")
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], gemm_out[m, p]], [gemm_out[m, p]], target="pe_array")
 
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
@@ -125,9 +124,11 @@ def gemm_no_bias(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm_no_bias") as cdlt:
+
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+
         data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
         out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
@@ -679,7 +680,6 @@ def conv2d_bias(hag: ArchitectureNode):
 
 ## Unquantized versions
 def gemm_unquantized(hag: ArchitectureNode):
-
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm") as cdlt:
@@ -710,7 +710,7 @@ def gemm_unquantized(hag: ArchitectureNode):
                     cdlt.transfer(bias, ["DRAM", "BBUF"])
                     cdlt.transfer(out, ["DRAM", "OBUF"])
                     out.set_write_destination("OBUF")
-                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], out[m,p]], [out[m,p]], target="pe_array")
+                    cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], out[m, p]], [out[m, p]], target="pe_array")
                     cdlt.transfer(out, ["OBUF", "DRAM"])
 
         # TODO: Add store off chip
@@ -730,9 +730,11 @@ def gemm_no_bias_unquantized(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm_no_bias") as cdlt:
+
         P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
         N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
         M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+
         data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
         out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=acc_dtype)

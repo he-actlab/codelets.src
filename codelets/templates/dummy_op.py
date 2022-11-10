@@ -1,4 +1,6 @@
 from typing import Dict, Any, Tuple, List, TYPE_CHECKING, Union
+from numbers import Integral
+import numpy as np
 from dataclasses import dataclass, field
 from functools import singledispatch
 from . import TEMPLATE_CLASS_ARG_MAP
@@ -213,8 +215,8 @@ def _(op1: DummyOp, op2: DummyOp, op_str: str, reflected=False):
     return DummyOp(template_type_str, fp)
 
 
-@dummy_op.register(int)
-def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
+@dummy_op.register(Integral)
+def _(op1: Integral, op2: DummyOp, op_str: str, reflected=False):
     template_type_str = op2.template_types
     arg_str = [TEMPLATE_CLASS_ARG_MAP[t][0] for t in template_type_str]
     if reflected:
@@ -227,6 +229,8 @@ def _(op1: int, op2: DummyOp, op_str: str, reflected=False):
     fn_str = f"({lhs}{op_str}{rhs})"
     fp = FlexParam(fp_name, arg_str, fn_str)
     return DummyOp(template_type_str, fp)
+
+
 
 # @dummy_op.register(int)
 # def _(op1: int, op2: DummyOp, op_str: str, reflected=False):

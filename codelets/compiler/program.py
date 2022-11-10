@@ -889,13 +889,13 @@ class CodeletProgram(object):
             locs = defaultdict(int)
             loc_sizes = defaultdict(int)
             for o in (cdlt.operands + cdlt.temps):
-
                 for ml in o.unset_mem_locations:
 
                     mem_node = self.hag.get_subgraph_node(ml)
 
                     if ml not in o.tiling or mem_node.node_type != "storage":
                         continue
+
                     assert ml not in o.mem_locations
                     o.mem_locations[ml] = {"index": locs[ml], "offset": loc_sizes[ml]}
                     locs[ml] += 1
