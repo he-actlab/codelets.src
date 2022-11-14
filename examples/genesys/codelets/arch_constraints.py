@@ -125,10 +125,6 @@ def add_gemm_constraints(hag, cdlt):
         n_hint = f"{n_hint0} and {n_hint1}"
         p_hint = f"{p_hint0} and {p_hint1}"
 
-        # fpga_constr = f"{wbuf_index_size} <= {wbuf_elements} and " \
-        #               f"{obuf_index_size} <= {obuf_elements} and " \
-        #               f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} % {n_bandwidth} == 0"
-        # constraint = f"{constraint} and {fpga_constr}"
         constraint = f"{constraint} and {n_hint} and {p_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 

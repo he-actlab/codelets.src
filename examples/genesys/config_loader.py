@@ -166,6 +166,17 @@ def set_defaults(cfg):
         cfg['MERGE_LDST_LOOPS'] = True
     else:
         assert isinstance(cfg['MERGE_LDST_LOOPS'], bool)
+
+    if 'SA_BASE_ADDR' not in cfg:
+        cfg['SA_BASE_ADDR'] = {
+            "INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840
+        }
+    else:
+        assert "INSTR" in cfg['SA_BASE_ADDR']
+        assert "OBUF" in cfg['SA_BASE_ADDR']
+        assert "BBUF" in cfg['SA_BASE_ADDR']
+        assert "WBUF" in cfg['SA_BASE_ADDR']
+        assert "IBUF" in cfg['SA_BASE_ADDR']
     return cfg
 
 def load_config(fpath):

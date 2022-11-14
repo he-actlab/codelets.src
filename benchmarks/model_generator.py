@@ -604,7 +604,7 @@ def create_resnet18(optimize_model, training_mode, convert_data_format, to_polym
 def create_vgg16(optimize_model, training_mode, convert_data_format, to_polymath, batch_size=1):
     model = models.vgg16(pretrained=not training_mode)
     input_var = torch.randn(batch_size, 3, 224, 224)
-    model_name = "vgg16"
+    model_name = "vgg16_t"
     if batch_size != 1:
         model_name = f"{model_name}_batch{batch_size}"
     if not training_mode:
@@ -1930,13 +1930,12 @@ if __name__ == "__main__":
         #           "Sub",
         #          "Add"]
         # ]
-        model_name = "yolo_conv_lrelu_OC32_OH15_KH1_S1-opt"
-        MODEL_DIR = Path(f"{Path(__file__).parent}/models")
-        load_path = f"{MODEL_DIR}/{model_name}.onnx"
-        model = onnx.load(load_path)
-        for n in model.graph.node:
-            print(f"{n.op_type}")
-        # optimize_graph(model)
+        create_vgg16(False, False, False, False)
+        # create_vgg16(args.optimize_model,
+        #              args.training_mode,
+        #              args.data_format_convert,
+        #              args.to_polymath,
+        #                 batch_size=args.batch_size)        # optimize_graph(model)
         # extract_lenet()
         # name = "mobilenetv2-opt"
         # sequences = [['Conv', 'Add'],
