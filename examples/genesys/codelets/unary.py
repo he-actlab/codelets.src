@@ -662,8 +662,10 @@ def load_unary_cdlts(cfg):
         'elem_cast2d': elem_cast2d,
         "inv_sqrt": inv_sqrt,
         "elem_sqrt": partial(elem_unary_nd, "elem_sqrt", "SQRT", 4, None),
+        "elem_sqrt3d": partial(elem_unary_nd, "elem_sqrt3d", "SQRT", 3, None),
         "elem_sqrt2d": partial(elem_unary_nd, "elem_sqrt2d", "SQRT", 2, None),
         "elem_sqrt1d": partial(elem_unary_nd, "elem_sqrt1d", "SQRT", 1, None),
+
         # "elem_sqrt": partial(elem_sqrt, 4),
         # "elem_sqrt1d": partial(elem_sqrt, 1),
         # "elem_sqrt2d": partial(elem_sqrt, 2),

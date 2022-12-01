@@ -38,9 +38,9 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
         denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[axis]), dtype=acc_dtype_name)
         axis_op = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        zero = cdlt.dummy_op('zero', 0)
+        zero = cdlt.dummy_op('init', 0)
 
-        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        zero_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
 
         cdlt.configure("start", "SIMD")

@@ -177,6 +177,10 @@ def set_defaults(cfg):
         assert "BBUF" in cfg['SA_BASE_ADDR']
         assert "WBUF" in cfg['SA_BASE_ADDR']
         assert "IBUF" in cfg['SA_BASE_ADDR']
+
+    if 'OBUF_TO_VMEM_TEST' not in cfg:
+        cfg['OBUF_TO_VMEM_TEST'] = False
+
     return cfg
 
 def load_config(fpath):

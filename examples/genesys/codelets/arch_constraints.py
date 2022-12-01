@@ -111,7 +111,12 @@ def add_gemm_constraints(hag, cdlt):
     obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['N']*sizes['P']"
     obuf_index_size = f"sizes['M']*sizes['P']"
-    constraint = f"np.prod(list(splits.values())) > 1"
+    test = f"(splits['N'] > 1)"
+    n_tiling = f"(splits['N'] == 1 or splits['P'] > 1)"
+
+    constraint = f"np.prod(list(splits.values())) > 1 and {n_tiling}"
+    # constraint = f"np.prod(list(splits.values())) > 1 and {n_tiling} and {test}"
+
     n_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
     p_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
 

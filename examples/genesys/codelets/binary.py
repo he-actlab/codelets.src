@@ -38,7 +38,7 @@ def elem_binary_op_(cdlt_name: str, instr_name: str, hag: ArchitectureNode):
 
     return cdlt
 
-def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: ArchitectureNode):
+def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, dim_vals, hag: ArchitectureNode):
     DIM_NAMES = ["N", "C", "H", "W"]
     inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
     acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
@@ -54,13 +54,29 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: A
         op2_dims = []
         assert num_dims <= len(DIM_NAMES)
         used_names = [DIM_NAMES[i] for i in range(num_dims)]
-        for i in range(num_dims):
-            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
-            if i < nop1_dims:
-                op1_dims.append(dim)
-            if i < nop2_dims:
-                op2_dims.append(dim)
-            dummy_dims.append(dim)
+
+        if dim_vals is None:
+            for i in range(num_dims):
+                dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
+                if i < nop1_dims:
+                    op1_dims.append(dim)
+                if i < nop2_dims:
+                    op2_dims.append(dim)
+                dummy_dims.append(dim)
+        else:
+            op1_names, op2_names = dim_vals
+            op2_dims = [None]*nop2_dims
+            op1_dims = [None]*nop1_dims
+            for i in range(num_dims):
+                dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
+                if DIM_NAMES[i] in op1_names:
+                    idx = op1_names.index(DIM_NAMES[i])
+                    op1_dims[idx] = dim
+                if DIM_NAMES[i] in op2_names:
+                    idx = op2_names.index(DIM_NAMES[i])
+                    op2_dims[idx] = dim
+                dummy_dims.append(dim)
+            assert all([v is not None for v in op1_names]) and all([v is not None for v in op2_names])
 
         op1 = cdlt.create_operand_template("op1", OP_DTYPES, op1_dims, default_dtype=DTYPE_MAP[acc_dtype])
         op2 = cdlt.create_operand_template("op2", OP_DTYPES, op2_dims, default_dtype=DTYPE_MAP[acc_dtype])
@@ -70,18 +86,28 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, hag: A
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
         loops = []
-        op1_indices = []
-        op2_indices = []
+        op1_indices = [None]*nop1_dims
+        op2_indices = [None]*nop2_dims
         for i, d in enumerate(dummy_dims):
             l = cdlt.loop(d)
             loops.append(l)
-            if i < nop1_dims:
-                op1_indices.append(l)
-            if i < nop2_dims:
-                op2_indices.append(l)
+            if dim_vals is None:
+                if i < nop1_dims:
+                    op1_indices[i] = l
+                if i < nop2_dims:
+                    op2_indices[i] = l
+            else:
+                if DIM_NAMES[i] in op1_names:
+                    idx = op1_names.index(DIM_NAMES[i])
+                    op1_indices[idx] = l
+                if DIM_NAMES[i] in op2_names:
+                    idx = op2_names.index(DIM_NAMES[i])
+                    op2_indices[idx] = l
+
             OperationTemplate.loop_ctxt_level += 1
             OperationTemplate.loop_stack.append(l.loop_id)
             OperationTemplate.loop_ctx_dependencies.append(l.op_str)
+        assert all([v is not None for v in op1_indices]) and all([v is not None for v in op2_indices])
 
         cdlt.transfer(op1, ["DRAM", "VMEM1"])
         cdlt.transfer(op2, ["DRAM", "VMEM2"])
@@ -166,17 +192,23 @@ def elem_binary_op_constant(cdlt_name: str, instr_name: str, nop1_dims, hag: Arc
 def load_binary_cdlts(cfg):
 
     BINARY_CODELETS = {
-        "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4),
+        "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4, None),
         "elem_add3d_const": partial(elem_binary_op_constant, "elem_add3d_const", "ADD", 3),
-        "elem_add3d3d": partial(elem_binary_op, "elem_add3d3d", "ADD", 3, 3),
-        "elem_add1d1d": partial(elem_binary_op, "elem_add1d1d", "ADD", 1, 1),
-        "elem_add2d2d": partial(elem_binary_op, "elem_add2d2d", "ADD", 2, 2),
+        "elem_add3d3d": partial(elem_binary_op, "elem_add3d3d", "ADD", 3, 3, None),
+        "elem_add3d1d": partial(elem_binary_op, "elem_add3d1d", "ADD", 3, 1, (["N", "C", "H"], ["H"])),
+        "elem_add1d3d": partial(elem_binary_op, "elem_add1d3d", "ADD", 1, 3, (["H"], ["N", "C", "H"])),
+        "elem_add1d1d": partial(elem_binary_op, "elem_add1d1d", "ADD", 1, 1, None),
+        "elem_add2d2d": partial(elem_binary_op, "elem_add2d2d", "ADD", 2, 2, None),
+        "elem_sub3d3d": partial(elem_binary_op, "elem_sub3d3d", "SUB", 3, 3, None),
         "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
         "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
         "elem_div_const": partial(elem_binary_op_constant, "elem_div_const", "DIV", 4),
         "elem_mul": partial(elem_binary_op_, "elem_mul", "MUL"),
+        "elem_div3d3d": partial(elem_binary_op, "elem_div3d3d", "DIV", 3, 3, None),
+        "elem_mul3d1d": partial(elem_binary_op, "elem_mul3d1d", "MUL", 3, 1, (["N", "C", "H"], ["H"])),
+
         "elem_mul3d_const": partial(elem_binary_op_constant, "elem_mul3d_const", "MUL", 3),
-        "elem_mul3d3d": partial(elem_binary_op, "elem_mul3d3d", "MUL", 3, 3),
+        "elem_mul3d3d": partial(elem_binary_op, "elem_mul3d3d", "MUL", 3, 3, None),
         "elem_less": partial(elem_binary_op_, "elem_less", "LT"),
         "elem_equal": partial(elem_binary_op_, "elem_equal", "EQUAL"),
     }

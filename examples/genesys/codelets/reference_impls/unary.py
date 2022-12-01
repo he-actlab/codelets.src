@@ -278,6 +278,7 @@ def load_unary_impls(cfg):
         'elem_sqrt': Unary,
         'elem_sqrt1d': Unary,
         'elem_sqrt2d': Unary,
+        'elem_sqrt3d': Unary,
         "inv_sqrt": Unary,
     }
     return UNARY_IMPLS

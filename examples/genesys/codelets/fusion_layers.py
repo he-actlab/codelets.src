@@ -3,7 +3,7 @@ from codelets.templates.codelet_template import CodeletTemplate
 from examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, DTYPE_MAP
 from . import add_conv_constraints, range_from_cfg, \
     add_simd_constraint, create_immediate_with_operand, add_scale_op, \
-    add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op
+    add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op, add_flex_simd_constraints
 
 def create_matmul3d_args(cdlt, hag):
     acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
@@ -1298,7 +1298,9 @@ def add_sqrt_div(hag):
                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    cdlt = add_simd_constraint(hag, cdlt, "H")
+    # cdlt = add_simd_constraint(hag, cdlt, "H")
+    cdlt = add_flex_simd_constraints(hag, cdlt, ["N", "H", "C"])
+
     return cdlt
 
 def matmul_add(hag):

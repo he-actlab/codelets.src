@@ -8,12 +8,13 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     all_loop_id = f"(len(cdlt.get_ops_by_type('loop'))//2)"
     other_buff = "VMEM2" if buffer_name == "VMEM1" else "VMEM1"
     n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
-    loop_id_str = f"0"
     ld_st_tabs = f"op.loop_level + 1"
     buff_name_str = f"'{buffer_name}'"
 
     # ns_idx = f"{all_loop_id} + op.operand.get_mem_index({buff_name_str}) * {all_loop_id}"
-    ns_idx = f"0"
+    ns_idx = f"op.operand.get_mem_index('{buffer_name}')"
+    # ns_idx = f"0"
+    imm_ns_idx = f"cdlt.get_temp_idx('init')"
     imm_base_sign_ext = f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()"
     base_sign_ext_low = f"program.extract_bits({imm_base_sign_ext}, 16, 0)"
     base_sign_ext_high = f"program.extract_bits({imm_base_sign_ext}, 16, 16)"
@@ -25,13 +26,13 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
     macro_instr.add_condition(imm_operand_cond)
     macro_instr.set_field_by_name('NS_ID', "IMM")
-    macro_instr.set_field_flex_param('NS_INDEX_ID', f"{loop_id_str}")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', imm_ns_idx)
     macro_instr.set_field_value('IMM', 0)
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)
     micro_instr1.set_field_by_name('NS_ID', "IMM")
-    micro_instr1.set_field_flex_param('NS_INDEX_ID', f"{loop_id_str}")
+    micro_instr1.set_field_flex_param('NS_INDEX_ID', imm_ns_idx)
     micro_instr1.set_field_value('IMM', 0)
     macro_instr.add_base_instruction(micro_instr1)
 
@@ -41,38 +42,34 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     macro_instr.add_condition(f"{imm_operand_cond} and {bitwidth_cond}")
     macro_instr.set_field_by_name('NS_ID', buffer_name)
     macro_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
-    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
     macro_instr.set_field_flex_param('IMM', imm_base_sign_ext)
+    instructions.append(macro_instr)
 
     low_instr = hag.get_primitive_template("BASE_LOW")
     low_instr.add_condition(f"{imm_operand_cond} and not {bitwidth_cond}")
     low_instr.set_field_by_name('NS_ID', buffer_name)
     low_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
-    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
     low_instr.set_field_flex_param('IMM', base_sign_ext_low)
-    macro_instr.add_base_instruction(low_instr)
+    instructions.append(low_instr)
 
     high_instr = hag.get_primitive_template("BASE_HIGH")
     high_instr.add_condition(f"{imm_operand_cond} and not {bitwidth_cond}")
     high_instr.set_field_by_name('NS_ID', buffer_name)
     high_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
-    # macro_instr.set_field_flex_param('IMM', f"op.operand.get_mem_offset({buff_name_str})//op.operand.dtype.bits()")
     high_instr.set_field_flex_param('IMM', base_sign_ext_high)
-    macro_instr.add_base_instruction(high_instr)
-
+    instructions.append(high_instr)
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)
     micro_instr1.set_field_by_name('NS_ID', buffer_name)
     micro_instr1.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
     micro_instr1.set_field_value('IMM', 1)
-    macro_instr.add_base_instruction(micro_instr1)
+    instructions.append(micro_instr1)
 
-    instructions.append(macro_instr)
 
     iter_instr = hag.get_primitive_template("SET_ITER")
     iter_instr.add_condition(imm_operand_cond)
-    iter_instr.set_field_flex_param("LOOP_ID", f"{loop_id_str}")
+    iter_instr.set_field_flex_param("LOOP_ID", imm_ns_idx)
     iter_instr.set_field_flex_param("NUM_ITER",
                                    f"op.operand.get_tile_size({buff_name_str}, 'SIMD')//{n_banks}")
     instructions.append(iter_instr)

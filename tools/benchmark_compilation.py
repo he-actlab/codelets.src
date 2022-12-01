@@ -157,10 +157,14 @@ def compile_benchmark(model_name,
                       store_results=True,
                       store_whole_program=False,
                       count_compute=False,
-                      check_layer_count=False
+                      check_layer_count=False,
+                      dir_ext=None
                       ):
     arch_config = load_config(f"{CWD}/configs/{cfg_name}")
-    dir_ext = ""
+    if dir_ext is None:
+        dir_ext = ""
+    else:
+        assert isinstance(dir_ext, str)
     if model_name in BENCHMARK_NAMES:
         if arch_config['FUSE_LAYERS']:
             assert not only_systolic
@@ -170,29 +174,29 @@ def compile_benchmark(model_name,
     else:
         num_layers = 0
 
-    if custom_config:
-        assert "custom" in cfg_name
-
-        assert arch_config['USE_QUANTIZATION']
-        assert not arch_config['SW_PIPELINE_TEST']
-        assert not arch_config['ADDR_GEN_TEST']
-        assert arch_config['ADDR_GEN_TEST']
-
-        dir_ext = "dse_"
-    elif sw_pipeline_test:
-        assert not arch_config['USE_QUANTIZATION']
-        assert arch_config['SW_PIPELINE_TEST']
-        assert not arch_config['ADDR_GEN_TEST']
-        dir_ext = "sw_pipeline_"
-    elif addr_gen_test:
-        assert arch_config['USE_QUANTIZATION']
-        assert not arch_config['SW_PIPELINE_TEST']
-        assert arch_config['ADDR_GEN_TEST']
-
-        dir_ext = "addr_gen_"
-    else:
-        assert not arch_config['SW_PIPELINE_TEST']
-        assert not arch_config['ADDR_GEN_TEST']
+    # if custom_config:
+    #     assert "custom" in cfg_name
+    #
+    #     assert arch_config['USE_QUANTIZATION']
+    #     assert not arch_config['SW_PIPELINE_TEST']
+    #     assert not arch_config['ADDR_GEN_TEST']
+    #     assert arch_config['ADDR_GEN_TEST']
+    #
+    #     dir_ext = "dse_"
+    # elif sw_pipeline_test:
+    #     assert not arch_config['USE_QUANTIZATION']
+    #     assert arch_config['SW_PIPELINE_TEST']
+    #     assert not arch_config['ADDR_GEN_TEST']
+    #     dir_ext = "sw_pipeline_"
+    # elif addr_gen_test:
+    #     assert arch_config['USE_QUANTIZATION']
+    #     assert not arch_config['SW_PIPELINE_TEST']
+    #     assert arch_config['ADDR_GEN_TEST']
+    #
+    #     dir_ext = "addr_gen_"
+    # else:
+    #     assert not arch_config['SW_PIPELINE_TEST']
+    #     assert not arch_config['ADDR_GEN_TEST']
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
@@ -308,9 +312,16 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        # config = "simd_paper32x32.json"
-        config = "paper_fpga16x16.json"
+        config = "simd_paper32x32.json"
+
+        # config = "simd_paper8x8_dse.json"
+        # config = "simd_paper16x16_dse.json"
+        # config = "simd_paper32x32_dse.json"
+        # config = "simd_paper64x64_dse.json"
+        # config = "simd_paper128x128_dse.json"
+        # config = "paper_fpga16x16.json"
         # config = "fpga16x16.json"
+        dir_ext = "unfused_"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -333,8 +344,9 @@ if __name__ == "__main__":
                       'normalize-200-opt', # 19
                       'linear_reg-opt', # 20
                       'logistic_reg-opt', # 21
+                      'linear_reg_test', # 22
                       ]
-        compile_benchmark(benchmarks[21],
+        compile_benchmark(benchmarks[8],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -343,4 +355,6 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           store_whole_program=False,
-                          identifier=0)
+                          # filtered_layers=[0],
+                          dir_ext=dir_ext,
+                          identifier=3)

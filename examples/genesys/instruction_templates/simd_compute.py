@@ -308,6 +308,8 @@ def add_pow_loop(hag):
     instructions.append(macro_instr)
     if hag.meta_cfg['ADDR_GEN_TEST']:
         instructions += sw_addr_nops_nested("POW", hag)
+    elif hag.meta_cfg['OBUF_TO_VMEM_TEST']:
+        instructions += obuf_mv_vmem_test("POW", hag)
     return instructions
 
 def add_pow_compute(hag, rd_op_str):
@@ -333,6 +335,139 @@ def insert_dtype_cfg_from_cast(op_name, hag):
     instructions.append(instr)
     return instructions
 
+def single_loop_overhead(hag, iter_split_cond, total_iters):
+    instructions = []
+    ns_idx = "0"
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_condition(f"{iter_split_cond}")
+    macro_instr.set_field_by_name('NS_ID', "VMEM1")
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    macro_instr.set_field_value('IMM', 0)
+    #
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name('NS_ID', "VMEM1")
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    sub_instr.set_field_flex_param('IMM', 0)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    ## Now generate loops
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_condition(f"{iter_split_cond}")
+    macro_instr.set_field_flex_param("LOOP_ID", f"0")
+    macro_instr.set_field_flex_param("NUM_ITER",
+                                     f"{total_iters}")
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name("DST_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("DST_INDEX_ID", ns_idx)
+    sub_instr.set_field_by_name("SRC1_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", ns_idx)
+    sub_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", ns_idx)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+    return instructions
+
+def multi_loop_overhead(hag, iter_split_cond):
+
+    total_iters_outer = f"cdlt.loop_overhead_iters(op, 'SIMD', True, 16)[1]"
+    total_iters_inner = f"cdlt.loop_overhead_iters(op, 'SIMD', True, 16)[0]"
+    instructions = []
+    ns_idx_outer = "0"
+    ns_idx_inner = "1"
+    iter_split_cond = f"not ({iter_split_cond})"
+    ## First, do the outer loops
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_condition(iter_split_cond)
+    macro_instr.set_field_by_name('NS_ID', "VMEM1")
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx_outer)
+    macro_instr.set_field_value('IMM', 0)
+    #
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name('NS_ID', "VMEM1")
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx_outer)
+    sub_instr.set_field_flex_param('IMM', 0)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    ## Now generate loops
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_condition(f"{iter_split_cond}")
+    macro_instr.set_field_flex_param("LOOP_ID", f"0")
+    macro_instr.set_field_flex_param("NUM_ITER",
+                                     f"{total_iters_outer}")
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name("DST_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("DST_INDEX_ID", ns_idx_outer)
+    sub_instr.set_field_by_name("SRC1_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", ns_idx_outer)
+    sub_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", ns_idx_outer)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+
+    # Next, do the inner loops
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_condition(iter_split_cond)
+    macro_instr.set_field_by_name('NS_ID', "VMEM1")
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2 + 1")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx_inner)
+    macro_instr.set_field_value('IMM', 0)
+    #
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(f"{ALL_LOOP_ID} + 1")
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name('NS_ID', "VMEM1")
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx_inner)
+    sub_instr.set_field_flex_param('IMM', 0)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    ## Now generate loops
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs(f"{ALL_LOOP_ID} + 1")
+    macro_instr.add_condition(f"{iter_split_cond}")
+    macro_instr.set_field_flex_param("LOOP_ID", f"0")
+    macro_instr.set_field_flex_param("NUM_ITER",
+                                     f"{total_iters_inner}")
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    sub_instr.set_print_tabs(f"{ALL_LOOP_ID} + 1")
+    sub_instr.add_condition(f"{iter_split_cond}")
+    sub_instr.set_field_by_name("DST_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("DST_INDEX_ID", ns_idx_inner)
+    sub_instr.set_field_by_name("SRC1_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", ns_idx_inner)
+    sub_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", ns_idx_inner)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    return instructions
+
 def loop_overhead(op_name, hag):
     instructions = []
 
@@ -344,66 +479,22 @@ def loop_overhead(op_name, hag):
     ## First loop
     all_loop_list = LOOP_ITER[1]
     other_constr = " and ".join(LOOP_CONDS + ["loop_op.op_str in op.dependencies"])
-    # ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID})"
-    ns_idx = "0"
-    tgt_loop_list = f"[loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]] for loop_op in {all_loop_list} if {other_constr}]"
+    tgt_loop_list = f"[loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]] for loop_op in {all_loop_list} if ({other_constr})]"
 
-    # iters = f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]"
-    # filtered_loops = f"[loop_op for loop_op in {tgt_loop_list}]"
-    # filtered_loop_iters = f"[({iters}) for loop_op in ({filtered_loops})]"
-    total_iters = f"np.sum([np.prod(({tgt_loop_list})[:i+1])*3 for i in range(len({tgt_loop_list}))])"
+    # total_iters = f"np.sum([np.prod(({tgt_loop_list})[:i+1])*3 for i in range(len({tgt_loop_list}))])"
 
-    filterd_operand_locs = "([op.get_operand_location(o.name) for o in op.operands if op.get_operand_location(o.name) != 'IMM'])"
+    total_iters = f"cdlt.loop_overhead_iters(op, 'SIMD')"
 
-    # multiplier = f"(3)"
-    # multiplier_val = f"({multiplier} if loop_op.loop_id == {filtered_loops}[0].loop_id else 1)"
-    # multiplier_val = f"(3)"
-    filtered_loops = f"[l for l in cdlt.get_ops_by_type('loop') if {other_constr}]"
-    multiplier_val = f""
+    iter_split_cond = f"np.log2({total_iters}) <= 16"
 
-    lconds = " and ".join(LOOP_CONDS)
+    ## Single loop body execution
+    instructions += single_loop_overhead(hag, iter_split_cond, total_iters)
+    ## End Single loop body execution
 
-    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
-    macro_instr.set_print_tabs(ALL_LOOP_ID)
-    # macro_instr.add_iterable(*LOOP_ITER)
-    # macro_instr.add_condition(lconds)
-    macro_instr.set_field_by_name('NS_ID', "VMEM1")
-    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
-    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
-    macro_instr.set_field_value('IMM', 0)
-    #
+    ## Multi-loop body execution
+    instructions += multi_loop_overhead(hag, iter_split_cond)
+    ## End Multi-loop body execution
 
-    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
-    sub_instr.set_print_tabs(ALL_LOOP_ID)
-    # sub_instr.add_iterable(*LOOP_ITER)
-    # sub_instr.add_condition(lconds)
-    sub_instr.set_field_by_name('NS_ID', "VMEM1")
-    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
-    sub_instr.set_field_flex_param('IMM', 0)
-    macro_instr.add_base_instruction(sub_instr)
-    instructions.append(macro_instr)
-
-    ## Now generate loops
-    macro_instr = hag.get_primitive_template("SET_ITER")
-    macro_instr.set_print_tabs(ALL_LOOP_ID)
-    # macro_instr.add_iterable(*LOOP_ITER)
-    # macro_instr.add_condition(other_constr)
-    macro_instr.set_field_flex_param("LOOP_ID", f"0")
-    macro_instr.set_field_flex_param("NUM_ITER",
-                                     f"{total_iters}")
-
-    sub_instr = hag.get_primitive_template("SET_INDEX")
-    sub_instr.set_print_tabs(ALL_LOOP_ID)
-    # sub_instr.add_iterable(*LOOP_ITER)
-    # sub_instr.add_condition(other_constr)
-    sub_instr.set_field_by_name("DST_NS_ID", "VMEM1")
-    sub_instr.set_field_flex_param("DST_INDEX_ID", ns_idx)
-    sub_instr.set_field_by_name("SRC1_NS_ID", "VMEM1")
-    sub_instr.set_field_flex_param("SRC1_INDEX_ID", ns_idx)
-    sub_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
-    sub_instr.set_field_flex_param("SRC2_INDEX_ID", ns_idx)
-    macro_instr.add_base_instruction(sub_instr)
-    instructions.append(macro_instr)
 
     # Compute instruction
     instr = hag.get_primitive_template("SET_INST")
@@ -411,6 +502,7 @@ def loop_overhead(op_name, hag):
     instr.set_field_flex_param("SINGLE_NESTED", "1")
     instr.set_field_flex_param("NUM_INSTR", "1")
     instructions.append(instr)
+
 
     noop_instr = hag.get_primitive_template("NOP")
     instructions.append(noop_instr)
@@ -631,6 +723,130 @@ def sw_addr_nops_nested(op_name, hag):
 
     return instructions
 
+
+def obuf_mv_vmem_test(op_name, hag):
+
+    ## First, need to do BASE/SIGN_EX
+
+
+    ## Now, create the loop
+    ## First loop
+    instructions = []
+
+    buffer_name = "VMEM1"
+    all_obuf_ops = f"([o for o in cdlt.get_ops_by_type('compute') if 'OBUF' in o.source_locations])"
+    obuf_cond = f"len({all_obuf_ops}) > 0 and op == {all_obuf_ops}[-1]"
+
+    other_buff = "VMEM2" if buffer_name == "VMEM1" else "VMEM1"
+    n_banks = f"hag.get_subgraph_node('{buffer_name}').banks"
+    loop_id_str = f"0"
+    ld_st_tabs = f"op.loop_level + 1"
+    buff_name_str = f"'OBUF'"
+    operand = f"([o for o in op.operands if op.get_operand_location(o.name) == 'OBUF'][0])"
+
+    # ns_idx = f"{all_loop_id} + op.operand.get_mem_index({buff_name_str}) * {all_loop_id}"
+    ns_idx = f"0"
+    imm_base_sign_ext = f"{operand}.get_mem_offset({buff_name_str})//{operand}.dtype.bits()"
+    base_sign_ext_low = f"program.extract_bits({imm_base_sign_ext}, 16, 0)"
+    base_sign_ext_high = f"program.extract_bits({imm_base_sign_ext}, 16, 16)"
+    bitwidth = f"len(np.binary_repr({imm_base_sign_ext})) + int(np.signbit({imm_base_sign_ext}))"
+    bitwidth_cond = f"{bitwidth} <= 16"
+
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.add_condition(obuf_cond)
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    macro_instr.set_field_by_name('NS_ID', "OBUF")
+    macro_instr.set_field_flex_param('NS_INDEX_ID', f"{loop_id_str}")
+    macro_instr.set_field_value('IMM', 0)
+
+    micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    micro_instr1.set_print_tabs("op.loop_level - op.loop_level//2")
+    micro_instr1.add_condition(obuf_cond)
+    micro_instr1.set_field_by_name('NS_ID', "OBUF")
+    micro_instr1.set_field_flex_param('NS_INDEX_ID', f"{loop_id_str}")
+    micro_instr1.set_field_value('IMM', 0)
+    macro_instr.add_base_instruction(micro_instr1)
+
+    instructions.append(macro_instr)
+
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    macro_instr.add_condition(f"{obuf_cond} and {bitwidth_cond}")
+    macro_instr.set_field_by_name('NS_ID', buffer_name)
+    macro_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    macro_instr.set_field_flex_param('IMM', imm_base_sign_ext)
+    instructions.append(macro_instr)
+
+    low_instr = hag.get_primitive_template("BASE_LOW")
+    low_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    low_instr.add_condition(f"{obuf_cond} and not {bitwidth_cond}")
+    low_instr.set_field_by_name('NS_ID', buffer_name)
+    low_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    low_instr.set_field_flex_param('IMM', base_sign_ext_low)
+    instructions.append(low_instr)
+
+    high_instr = hag.get_primitive_template("BASE_HIGH")
+    high_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    high_instr.add_condition(f"{obuf_cond} and not {bitwidth_cond}")
+    high_instr.set_field_by_name('NS_ID', buffer_name)
+    high_instr.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    high_instr.set_field_flex_param('IMM', base_sign_ext_high)
+    instructions.append(high_instr)
+
+
+
+    micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    micro_instr1.set_print_tabs("op.loop_level - op.loop_level//2")
+    micro_instr1.add_condition(obuf_cond)
+    micro_instr1.set_field_by_name('NS_ID', buffer_name)
+    micro_instr1.set_field_flex_param('NS_INDEX_ID', f"{ns_idx}")
+    micro_instr1.set_field_value('IMM', 1)
+    instructions.append(micro_instr1)
+
+    iter_instr = hag.get_primitive_template("SET_ITER")
+    iter_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    iter_instr.add_condition(obuf_cond)
+    iter_instr.set_field_flex_param("LOOP_ID", f"{loop_id_str}")
+    iter_instr.set_field_flex_param("NUM_ITER",
+                                   f"{operand}.get_tile_size('OBUF', 'pe_array')//{n_banks}")
+    instructions.append(iter_instr)
+
+    idx_instr = hag.get_primitive_template("SET_INDEX")
+    idx_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+    idx_instr.add_condition(obuf_cond)
+    idx_instr.set_field_by_name("DST_NS_ID", f"{buffer_name}")
+    idx_instr.set_field_flex_param("DST_INDEX_ID", f"{ns_idx}")
+    idx_instr.set_field_by_name("SRC1_NS_ID", "OBUF")
+    idx_instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
+    idx_instr.set_field_by_name("SRC2_NS_ID", other_buff)
+    idx_instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
+    instructions.append(idx_instr)
+
+    set_inst_instr = hag.get_primitive_template("SET_INST")
+    set_inst_instr.set_print_tabs("op.loop_level - op.loop_level//2")
+
+    set_inst_instr.add_condition(obuf_cond)
+    set_inst_instr.set_field_flex_param("SINGLE_NESTED", "1")
+    set_inst_instr.set_field_flex_param("NUM_INSTR", "1")
+    instructions.append(set_inst_instr)
+
+
+    move_instr = hag.get_primitive_template(f"MOVE")
+    move_instr.add_condition(obuf_cond)
+    move_instr.set_field_by_name("DST_NS_ID", f"{buffer_name}")
+    move_instr.set_field_flex_param("DST_INDEX_ID", f"{ns_idx}")
+    move_instr.set_field_by_name("SRC1_NS_ID", f"OBUF")
+    move_instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
+    move_instr.set_field_by_name("SRC2_NS_ID", other_buff)
+    move_instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
+    move_instr.set_print_tabs(ld_st_tabs)
+
+    instructions.append(move_instr)
+
+
+    return instructions
+
 def simd_alu_template(op_name, hag: ArchitectureNode):
     if op_name == "TRANSPOSE":
         return simd_transpose(hag)
@@ -675,8 +891,6 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
     src2_ns = "'IMM' if op.get_operand_location(op.sources[0].name) != 'IMM' else 'VMEM1'"
     sub_instr.set_field_flex_param("SRC2_NS_ID",
                                    f"({src2_ns}) if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
-    # sub_instr.set_field_flex_param("SRC2_NS_ID",
-    #                                f"'IMM' if len(op.sources) == 1 else op.get_operand_location(op.sources[1].name)")
     src2_idx = f"0 if len(op.sources) == 1 else " + set_index_fmt.format(all_loop_id=ALL_LOOP_ID,
                                                                          operand="op.sources[1]",
                                                                          op_loc="op.get_operand_location(op.sources[1].name)")
@@ -732,6 +946,8 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
         instructions += sw_addr_nops_nested(op_name, hag)
     elif hag.meta_cfg['LOOP_OVERHEAD']:
         instructions += loop_overhead(op_name, hag)
+    elif hag.meta_cfg['OBUF_TO_VMEM_TEST']:
+        instructions += obuf_mv_vmem_test(op_name, hag)
 
     return instructions
 

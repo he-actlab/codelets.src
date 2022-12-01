@@ -36,8 +36,8 @@ def depthwise_conv(hag: ArchitectureNode):
 
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
-        zero_op = cdlt.dummy_op('zero', 0)
-        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        zero_op = cdlt.dummy_op('init', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
 
         # OS ->
         cdlt.configure("start", "SIMD")
@@ -94,8 +94,8 @@ def depthwise_conv_bias(hag: ArchitectureNode):
         stride = cdlt.dummy_op("stride", cdlt.node.stride)
         pad = cdlt.dummy_op("pad", cdlt.node.pad_int)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        zero_op = cdlt.dummy_op('zero', 0)
-        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        zero_op = cdlt.dummy_op('init', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
 
 
         # OS ->
@@ -187,6 +187,7 @@ def bias_add(hag: ArchitectureNode):
         cdlt.set_inputs([data, bias])
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
+
         with cdlt.loop(C) as c:
             with cdlt.loop(N) as n:
                 with cdlt.loop(H) as h:
@@ -199,6 +200,8 @@ def bias_add(hag: ArchitectureNode):
         cdlt.configure("end", "SIMD")
 
     cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt.update_compilation_param("LEVEL1_hint", "splits['W'] == 1 and splits['H'] == 1")
+
     return cdlt
 
 def mean_var(hag: ArchitectureNode):
@@ -317,9 +320,9 @@ def maxpool2d(hag: ArchitectureNode):
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
         min_val, _ = range_from_cfg(FXP_CONFIGS[acc_dtype_name])
-        min_val_op = cdlt.dummy_op('min_val', min_val)
+        min_val_op = cdlt.dummy_op('init', min_val)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        min_val_temp = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="min_val")
+        min_val_temp = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
 
         cdlt.configure("start", "SIMD")
         cdlt.configure("start", "IMM", immediate_value=min_val_op)
@@ -363,8 +366,8 @@ def averagepool2d(hag: ArchitectureNode):
         cdlt.set_outputs([out])
         denom = cdlt.dummy_op("denom", cdlt.node.kernel_size[0]*cdlt.node.kernel_size[1], dtype=acc_dtype_name)
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
-        zero_op = cdlt.dummy_op('zero', 0)
-        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="zero")
+        zero_op = cdlt.dummy_op('init', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
         cdlt.configure("start", "SIMD")
         # denom = IH*IW
         cdlt.configure("start", "IMM", immediate_value=denom)
@@ -413,8 +416,8 @@ def global_avg_pool(hag: ArchitectureNode):
 
         denom = cdlt.dummy_op("denom", 1/(cdlt.node.inputs[0].shape[2]*cdlt.node.inputs[0].shape[3]), dtype=acc_dtype_name)
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        zero_op = cdlt.dummy_op('zero', 0)
-        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='zero')
+        zero_op = cdlt.dummy_op('init', 0)
+        zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='init')
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
 
         cdlt.configure("start", "SIMD")

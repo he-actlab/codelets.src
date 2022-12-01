@@ -197,6 +197,13 @@ def set_codelet_tiling(cdlt: 'Codelet',
     invalid_permutations = {}
 
     eval_params = {}
+    def print_info(level, perm, stop_part):
+        if cdlt.cdlt_uid == 46:
+            if level == 1 and perm == (1, 1, 1, 1, 1, 7, 16):
+                print(f"Stopped at {stop_part} for level {level}, perm: {perm}")
+            elif level == 2 and perm == (1, 16, 7, 3, 3, 1, 1):
+                print(f"Stopped at {stop_part} for level {level}, perm: {perm}")
+
 
     for k, v in cdlt.required_params.items():
         if k not in list(cdlt.loop_param_map.values()):
@@ -219,15 +226,19 @@ def set_codelet_tiling(cdlt: 'Codelet',
             level_counter[level] += 1
 
             perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
+
             passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
             if not passes_hint:
+                print_info(level, p, "tile hints")
                 continue
             valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
             if valid_splits is None:
+                print_info(level, p, "valid splits")
                 continue
             last_valid_permutation = p
             search_space[p] = heuristic_fn(p)
             stop_search = stopping_condition(search_space)
+
             if stop_search:
                 selected_permutation = selection_metric(search_space, p)
                 break
@@ -248,12 +259,13 @@ def set_codelet_tiling(cdlt: 'Codelet',
         else:
             selected_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
                                enumerate(selected_permutation)}
+
             parent_perms.append(selected_permutation)
             new_perms = tile_info.move_down_tile_level(cdlt, level, selected_splits)
             perm_stack.append(new_perms)
             level += 1
 
-    if level == 0 or f"{cdlt.op_name}{cdlt.instance_id}" == "conv_bias_relu46":
+    if level == 0:
         other_hint_str = []
         for k, lh in tile_info.tile_hints.items():
             if isinstance(lh, dict):

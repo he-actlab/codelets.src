@@ -306,6 +306,31 @@ class Codelet(object):
                 ops += c.dests
         return ops
 
+    def loop_overhead_iters(self, op, node, multi=False, bitwidth=None):
+        tgt_loop_list = []
+        for loop_op in self.get_ops_by_type('loop'):
+            if loop_op.op_str in op.operand_indices and loop_op.loop_level < op.loop_level and \
+                    self.is_direct_loop_dep(loop_op, node) and loop_op.op_str in op.dependencies:
+                n = loop_op.iter_count // self.param_tiling[2][self.loop_param_map[loop_op.op_str]]
+                tgt_loop_list.append(n)
+        partials = [np.prod((tgt_loop_list)[:i+1])*3 for i in range(len(tgt_loop_list))]
+        if multi:
+            assert bitwidth is not None and isinstance(bitwidth, int)
+            init = np.sum(partials)
+            factor = None
+            for i in range(2, init):
+                if init % i == 0 and np.log2(init / i) <= bitwidth:
+                    factor = i
+                    break
+            if factor is None:
+                raise RuntimeError(f"Somehow the result is a prime number for loop overhead: {init}")
+            outer = int(init / factor)
+            inner = factor
+            total = [inner, outer]
+        else:
+            total = np.sum(partials)
+        return total
+
 
     def is_tiling_set(self, level: int):
         return level in self.domain_tiling
@@ -1013,6 +1038,12 @@ class Codelet(object):
         #             if k not in self.required_params or not self.required_params[k].is_set():
         #                 raise RuntimeError(f"Shape {k} for operand {t.name} not found or not set.")
         #             t.update_shape_symbols(k, self.required_params[k].value)
+
+    def get_temp_idx(self, name):
+        for i, t in enumerate(self.temps):
+            if t.name == name:
+                return i
+        raise RuntimeError(f"Unable to find temporary storage in codelet with name {name}")
 
     def instantiate_node_params(self, node, hag):
         fn_params = []
