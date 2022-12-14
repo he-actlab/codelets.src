@@ -75,7 +75,7 @@ def shuffle_weights(w_orig, arch_config, cdlt):
         # [P, N, M] = [OC, IC, N]
         # [N, M, P] = [IC, N, OC]
         loop_order = cdlt.get_loop_order()
-        if loop_order == ['N', 'M', 'P', 'J']:
+        if loop_order == ['N', 'M', 'P']:
             l2_iter, l2_stride = w_dim[1], tile_m
             l1_iter, l1_stride = w_dim[0], tile_n
             src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l1 + l1_inner, l2 + l2_inner)
@@ -201,14 +201,13 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
                                    f"Sys array col size: {systolic_array_column_size}"
     assert tile_n == tile_m
 
-    big_tile_size_oc = dram_tiling[weight_loop_order[0]]
-    w_dim_outer = weight_symbols.index(weight_loop_order[0])
-    w_dim_inner = weight_symbols.index(weight_loop_order[1])
-    big_tile_size_ic = dram_tiling[weight_loop_order[1]]
     # [P, N, M] = [OC, IC, N]
     # [N, M, P] = [IC, N, OC]
-    if loop_order == ['N', 'M', 'P', 'J']:
-
+    if loop_order == ['N', 'M', 'P']:
+        big_tile_size_oc = dram_tiling[weight_loop_order[1]]
+        w_dim_outer = weight_symbols.index(weight_loop_order[1])
+        w_dim_inner = weight_symbols.index(weight_loop_order[0])
+        big_tile_size_ic = dram_tiling[weight_loop_order[0]]
         assert tile_n * interleave_factor <= big_tile_size_oc
         cnt = 0
         for big_tile_ic in range(0, w_dim[w_dim_inner], big_tile_size_ic):  # Tile over IC
@@ -225,6 +224,7 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
                                     result[cnt] = weights[src_coord[0]][src_coord[1]]
                                     cnt += 1
     elif len(weights.shape) == 4:
+
         cnt = 0
         big_tile_size_oc = dram_tiling['P']
         big_tile_size_ic = dram_tiling['N']
@@ -250,6 +250,12 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
                                             cnt += 1
         return result
     else:
+        print(f"weight loop order: {weight_loop_order}")
+
+        big_tile_size_oc = dram_tiling[weight_loop_order[0]]
+        w_dim_outer = weight_symbols.index(weight_loop_order[0])
+        w_dim_inner = weight_symbols.index(weight_loop_order[1])
+        big_tile_size_ic = dram_tiling[weight_loop_order[1]]
         assert tile_n * interleave_factor <= big_tile_size_oc
         cnt = 0
         for big_tile_oc in range(0, w_dim[w_dim_outer], big_tile_size_oc):  # Tile over OC
