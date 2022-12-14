@@ -763,7 +763,7 @@ def conv2d_bias(hag: ArchitectureNode):
 
 
 ## Unquantized versions
-def gemm_unquantized_(hag: ArchitectureNode):
+def gemm_unquantized(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm") as cdlt:
@@ -808,7 +808,7 @@ def gemm_unquantized_(hag: ArchitectureNode):
 
     return cdlt
 
-def gemm_unquantized(hag: ArchitectureNode):
+def gemm_unquantized_(hag: ArchitectureNode):
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
     acc_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['ACC_WIDTH']}"]
     with CodeletTemplate("gemm") as cdlt:
