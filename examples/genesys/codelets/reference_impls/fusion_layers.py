@@ -27,6 +27,11 @@ class FusionOp(ReferenceOp):
         operands = [i for i in cdlt.inputs]
         outputs = [o for o in cdlt.outputs]
         super().__init__(cdlt, operands, outputs, program)
+        ## Constants which may or may not be required
+        self.k = 1.4142
+        self.n = 14 # sufficiently large integer
+        self.coeff = [-0.2888, -1.769, 1] # a(x+b)**2 + c
+        self.coeff[2] /= self.coeff[0]
 
     def fn_impl(self, inouts):
         res = self.eval_dfg(self.dfg, inouts)
@@ -65,8 +70,10 @@ class FusionOp(ReferenceOp):
             out = self.sqrt(*args)
         elif dfg.op == "square":
             out = self.square(*args)
-        elif dfg.op == "matmul":
-            out = self.matmul(inouts, *args)
+        # elif dfg.op == "matmul":
+        #     out = self.matmul(inouts, *args)
+        elif dfg.op in ["matmul_add", "gemm", "matmul"]:
+            out = self.gemm(inouts, *args)
         elif dfg.op == "conv":
             out = self.conv2d(inouts, *args)
         elif dfg.op == "relu":
@@ -81,12 +88,43 @@ class FusionOp(ReferenceOp):
             out = self.dw_conv2d_bias(*args)
         elif dfg.op == "bias_add":
             out = self.bias_add(*args)
+        elif dfg.op == "gelu":
+            out = self.gelu(*args)
         else:
             raise RuntimeError(f"Unsupported dfg op: {dfg.op}")
         # if self.store_intermediates:
         #     operand = OperandData(data=out, opname=)
         #     inouts'[f"intermediate_{dfg.op}_out"] = out
         return out
+
+    def ierf(self, x_int, s):
+        b_int = np.floor(self.coeff[1] / s)
+        c_int = np.floor(self.coeff[2] / s ** 2)
+        sign = np.sign(x_int)
+
+        abs_int = np.abs(x_int)
+        abs_int = np.minimum(abs_int, -b_int)
+        y_int = (abs_int + b_int) ** 2 + c_int
+        y_int = sign * y_int
+        s = s ** 2 * self.coeff[0]
+        y_int = np.floor(y_int / 2 ** self.n)
+        s = s * 2 ** self.n
+
+        return y_int, s
+
+    def gelu(self, x):
+        scaling_factor = QUANT_SCALE
+
+        x_int = x / scaling_factor
+        sigmoid_int, sigmoid_scaling_factor = self.ierf(x_int, scaling_factor / self.k)
+
+        shift_int = np.floor(1. / sigmoid_scaling_factor)
+
+        x_int = x_int * (sigmoid_int + shift_int)
+        scaling_factor = scaling_factor * sigmoid_scaling_factor / 2
+
+        output = x_int * scaling_factor
+        return output
 
     def div(self, op1, op2):
         output = quantize_np(op1//op2, "FXP32")
@@ -100,7 +138,7 @@ class FusionOp(ReferenceOp):
         return op1 + op2
 
     def sub(self, op1, op2):
-        return op1 + op2
+        return op1 - op2
 
     def pow(self, data, exp):
         out = np.copy(data)
@@ -108,11 +146,48 @@ class FusionOp(ReferenceOp):
             out = quantize_np(out * data, "FXP32")
         return out
 
-    def sqrt(self, data, exp):
-        raise RuntimeError("Sqrt not yet implemented")
+    def sqrt(self, data):
+        data = np.abs(data)
+        data_fp = Fxp(None, **FXP_CONFIGS["FXP32"])
+        data_fp.val = data
+        output = np.sqrt(data_fp.astype(float))
+        output = Fxp(output, **FXP_CONFIGS["FXP32"]).val
+        return output
 
     def square(self, data):
-        raise RuntimeError("Square not yet implemented")
+        output = quantize_np(data*data, "FXP32")
+        return output
+
+    def gemm(self, inouts, data, wgt, bias=None):
+        assert isinstance(data, tuple)
+        assert isinstance(wgt, tuple)
+        data, data_op = data
+        wgt, wgt_op = wgt
+        inouts["inputs"].append(
+            create_operand_data(transform_data(data, "input", "shuffled", self.cdlt, self.hag), data_op,
+                                fmt='shuffled'))
+        inouts["inputs"].append(
+            create_operand_data(transform_data(data, "input", "raw", self.cdlt, self.hag), data_op, fmt='raw'))
+        inouts["inputs"].append(
+            create_operand_data(transform_data(wgt, "weights", "shuffled", self.cdlt, self.hag), wgt_op,
+                                fmt='shuffled'))
+        inouts["inputs"].append(
+            create_operand_data(transform_data(wgt, "weights", "shuffled_raw", self.cdlt, self.hag), wgt_op,
+                                fmt='shuffled_raw'))
+        inouts["inputs"].append(
+            create_operand_data(transform_data(wgt, "weights", "raw", self.cdlt, self.hag), wgt_op, fmt='raw'))
+
+        if len(wgt.shape) == 2:
+            output = np.dot(np.int32(data), np.int32(wgt))
+        else:
+            output = np.matmul(np.int32(data), np.int32(wgt))
+
+        if bias is not None:
+            assert isinstance(bias, tuple)
+            bias, bias_op = bias
+            output = output + bias
+
+        return output
 
     def matmul(self, inouts, data, wgt):
         # TODO: Need to fix this
@@ -821,3 +896,9 @@ def load_unquant_fusion_impl(cfg):
     FUSION_OP_INFO  = load_unquant_fusion_op_info_impl(cfg)
     UNQUANT_FUSION_IMPLS = {k : v['cdlt'] for k, v in FUSION_OP_INFO.items() if k != 'single_layer_info'}
     return UNQUANT_FUSION_IMPLS
+
+
+
+
+
+

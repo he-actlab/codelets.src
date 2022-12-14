@@ -63,7 +63,8 @@ def elem_unary_nd(cdlt_name, instr_name, num_dims, imm_val, hag):
 
         cdlt.configure("end", "SIMD")
 
-        cdlt = add_simd_constraint(hag, cdlt, "C")
+        cdlt = add_flex_simd_constraints(hag, cdlt, DIM_NAMES[:num_dims])
+
     return cdlt
 
 def coarse_flatten(hag: ArchitectureNode):
@@ -522,7 +523,9 @@ def tensor_transpose3d(hag: ArchitectureNode):
         cdlt.set_outputs([out])
         # Change this to be the reciprocal as a FXP value
 
-        # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        axis0 = cdlt.dummy_op("axis0", cdlt.node.kwargs['perm'][0])
+        axis1 = cdlt.dummy_op("axis1", cdlt.node.kwargs['perm'][1])
+        axis2 = cdlt.dummy_op("axis2", cdlt.node.kwargs['perm'][2])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         cdlt.configure("start", "SIMD")
@@ -563,6 +566,10 @@ def tensor_transpose4d(hag: ArchitectureNode):
         # Change this to be the reciprocal as a FXP value
 
         # axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axes'][0])
+        axis0 = cdlt.dummy_op("axis0", cdlt.node.kwargs['perm'][0])
+        axis1 = cdlt.dummy_op("axis1", cdlt.node.kwargs['perm'][1])
+        axis2 = cdlt.dummy_op("axis2", cdlt.node.kwargs['perm'][2])
+        axis3 = cdlt.dummy_op("axis3", cdlt.node.kwargs['perm'][3])
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
 
         cdlt.configure("start", "SIMD")

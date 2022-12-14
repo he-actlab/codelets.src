@@ -65,8 +65,12 @@ def tensor_reshape4d3d(hag: ArchitectureNode):
         H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
         W = cdlt.dummy_op("W", cdlt.node.inputs[0].shape[3])
 
+        ON = cdlt.dummy_op("ON", cdlt.node.outputs[0].shape[0])
+        OC = cdlt.dummy_op("OC", cdlt.node.outputs[0].shape[1])
+        OH = cdlt.dummy_op("OH", cdlt.node.outputs[0].shape[2])
+
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [ON, OC, OH], default_dtype=acc_dtype)
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
     return cdlt
@@ -78,13 +82,17 @@ def tensor_reshape3d4d(hag: ArchitectureNode):
     # TODO: Right now, shapes are fixed. Need to enable different dimension combinations
     with CodeletTemplate("tensor_reshape3d4d") as cdlt:
 
-        N = cdlt.dummy_op("N", cdlt.node.outputs[0].shape[0])
-        C = cdlt.dummy_op("C", cdlt.node.outputs[0].shape[1])
-        H = cdlt.dummy_op("H", cdlt.node.outputs[0].shape[2])
-        W = cdlt.dummy_op("W", cdlt.node.outputs[0].shape[3])
+        N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[0])
+        C = cdlt.dummy_op("C", cdlt.node.inputs[0].shape[1])
+        H = cdlt.dummy_op("H", cdlt.node.inputs[0].shape[2])
+
+        N1 = cdlt.dummy_op("N1", cdlt.node.outputs[0].shape[0])
+        C1 = cdlt.dummy_op("C1", cdlt.node.outputs[0].shape[1])
+        H1 = cdlt.dummy_op("H1", cdlt.node.outputs[0].shape[2])
+        W1 = cdlt.dummy_op("W1", cdlt.node.outputs[0].shape[3])
 
         data = cdlt.create_operand_template("data", OP_DTYPES, [N, C, H], default_dtype=acc_dtype)
-        out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, H, W], default_dtype=acc_dtype)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [N1, C1, H1, W1], default_dtype=acc_dtype)
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
     return cdlt

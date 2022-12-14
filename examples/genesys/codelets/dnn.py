@@ -364,7 +364,7 @@ def averagepool2d(hag: ArchitectureNode):
         out = cdlt.create_operand_template("out", OP_DTYPES, [N, C, OH, OW], default_dtype=acc_dtype)
         cdlt.set_inputs([data])
         cdlt.set_outputs([out])
-        denom = cdlt.dummy_op("denom", cdlt.node.kernel_size[0]*cdlt.node.kernel_size[1], dtype=acc_dtype_name)
+        denom = cdlt.dummy_op("denom", 1./(cdlt.node.kernel_size[0]*cdlt.node.kernel_size[1]), dtype=acc_dtype_name)
         denom_op = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name='denom')
         zero_op = cdlt.dummy_op('init', 0)
         zero = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="init")
@@ -375,11 +375,11 @@ def averagepool2d(hag: ArchitectureNode):
         sy = cdlt.dummy_op("sy", cdlt.node.stride[0])
         sx = cdlt.dummy_op("sx", cdlt.node.stride[1])
         with cdlt.loop(N) as n:
-            with cdlt.loop(C) as c:
-                with cdlt.loop(KH) as kh:
-                    with cdlt.loop(KW) as kw:
-                        with cdlt.loop(OH) as y:
-                            with cdlt.loop(OW) as x:
+            with cdlt.loop(KH) as kh:
+                with cdlt.loop(KW) as kw:
+                    with cdlt.loop(OH) as y:
+                        with cdlt.loop(OW) as x:
+                            with cdlt.loop(C) as c:
                                 cdlt.transfer(data, ["DRAM", "VMEM1"])
                                 # TODO: Initialize output as negative infinity at compile time
                                 cdlt.transfer(out, ["DRAM", "VMEM2"])
@@ -389,6 +389,7 @@ def averagepool2d(hag: ArchitectureNode):
                                 cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
     cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_simd_tile_constraint(hag, cdlt, ["OH", "OW"])
 
     return cdlt
 

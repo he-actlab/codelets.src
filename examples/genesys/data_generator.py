@@ -29,7 +29,11 @@ class DataGen(object):
                  verbose=False,
                  store_partials=False,
                  store_whole_program=False,
-                 propagate_outputs=False):
+                 propagate_outputs=False,
+                 print_datagen_range=False,
+                 datagen_vrange=None):
+        self.print_datagen_range = print_datagen_range
+        self.datagen_vrange = datagen_vrange
         self.store_whole_program = store_whole_program
         self._storage_info = {}
         self._propagate_outputs = propagate_outputs
@@ -219,7 +223,7 @@ class DataGen(object):
     def generate_cdlt_data(self, cdlt: Codelet, base_path):
         inouts = self.initialize_value_dict(cdlt)
         opgen = self.program.metadata['GENESYS_IMPLS'][cdlt.op_name](cdlt, self.program)
-        inouts = opgen.compute_outputs(inouts)
+        inouts = opgen.compute_outputs(inouts, print_range=self.print_datagen_range, vrange=self.datagen_vrange)
         formatted = self.initialize_storage(cdlt, inouts)
         self.store_inputs(base_path, inouts)
         self.store_outputs(cdlt, inouts, base_path)

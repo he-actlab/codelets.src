@@ -19,15 +19,23 @@ def from_fxp(v, dtype):
     fp.val = v
     return fp
 
-def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, fxp_dtype='FXP32', constant_val=None, print_range=False):
-    if constant_val is None:
+def numpy_datagen(shape, bitwidth, scale=2, cast_to=None, vrange=None, fxp_dtype='FXP32', constant_val=None, print_range=False):
+    if vrange is not None:
+        assert isinstance(vrange, tuple) and len(vrange) == 2
+        low, high = vrange
+        assert high > low
+        ref_low, ref_high = compute_range(fxp_dtype, scale)
+        assert ref_low <= low and ref_high >= high
+        v = np.random.randint(low=low, high=high,
+                              size=shape, dtype=np.int64)
+    elif constant_val is not None:
+        v = np.full(shape, constant_val, dtype=np.int64)
+    else:
         low, high = compute_range(fxp_dtype, scale)
         if print_range:
             print(f"High: {high}, Low: {low}")
         v = np.random.randint(low=low, high=high,
                               size=shape, dtype=np.int64)
-    else:
-        v = np.full(shape, constant_val, dtype=np.int64)
 
     return v
 

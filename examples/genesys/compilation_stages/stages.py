@@ -18,10 +18,12 @@ CUSTOM_PAD_OPS = CUSTOM_TILE_OPS + ["conv_bias", "conv_bias_add", "conv_bias_cli
 
 import polymath as pm
 
-TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'], ['N', 'IC', 'IH', 'IW'],
+TRANSPOSED_SHAPES = [['N', 'C', 'H', 'W'],
+                     ['N', 'IC', 'IH', 'IW'],
                      ['N', 'C', 'IH', 'IW'], ['N', 'OC', 'OH', 'OW'],
                      ['N', 'OC', 'OH1', 'OW1'],
-                     ['ON', 'OC', 'OH', 'OW'], ['N', 'C', 'OH', 'OW']]
+                     ['ON', 'OC', 'OH', 'OW'],
+                     ['N', 'C', 'OH', 'OW']]
 TRANSPOSE_PERM = [0, 2, 3, 1]
 TRANSPOSE_POS = [0, 3, 1, 2]
 FLIP_SHAPE_PERM = [2, 3, 1, 0]
@@ -129,8 +131,9 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         updated_dims.append(inp_dim.name)
 
         out_dim = compute_op.param_map['dests'][0].operand_shape_list[-1]
+
         if inp_dim.name == "N":
-            idx = 1
+            idx = -1
         else:
             assert inp_dim.name == "IC"
             idx = 0

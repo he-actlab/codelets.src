@@ -518,8 +518,6 @@ def matmul3d2d_no_quant(hag: ArchitectureNode):
         data = cdlt.create_operand_template("data", OP_DTYPES, [C, M, N], default_dtype=inpt_dtype)
         weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
         out = cdlt.create_operand_template("out", OP_DTYPES, [C, M, P], default_dtype=acc_dtype)
-        gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [C, M, P], default_dtype=acc_dtype)
-        cdlt.add_temp_operand(gemm_out)
 
 
         cdlt.set_inputs([data, weight])
@@ -535,9 +533,11 @@ def matmul3d2d_no_quant(hag: ArchitectureNode):
                     with cdlt.loop(P) as p:
                         cdlt.transfer(data, ["DRAM", "IBUF"])
                         cdlt.transfer(weight, ["DRAM", "WBUF"])
-                        cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
-                        gemm_out.set_write_destination("OBUF")
-                        cdlt.compute("MVMUL", [data[c, m, n], weight[n, p], gemm_out[c, m, p]], [gemm_out[c, m, p]], target="pe_array")
+                        cdlt.transfer(out, ["DRAM", "OBUF"])
+                        out.set_write_destination("OBUF")
+                        cdlt.compute("MVMUL", [data[c, m, n], weight[n, p], out[c, m, p]], [out[c, m, p]], target="pe_array")
+                        cdlt.transfer(out, ["OBUF", "DRAM"])
+
         # TODO: Add store off chip
         cdlt.configure("end", "WBUF")
         cdlt.configure("end", "IBUF")

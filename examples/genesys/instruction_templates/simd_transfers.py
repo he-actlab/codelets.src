@@ -21,19 +21,19 @@ def move_zero_to_mem(hag: ArchitectureNode, buffer_name):
     bitwidth = f"len(np.binary_repr({imm_base_sign_ext})) + int(np.signbit({imm_base_sign_ext}))"
     bitwidth_cond = f"{bitwidth} <= 16"
 
-
+    # First set the sign extensions for IMM
     imm_operand_cond = f"op.operand in cdlt.outputs"
     macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
     macro_instr.add_condition(imm_operand_cond)
     macro_instr.set_field_by_name('NS_ID', "IMM")
-    macro_instr.set_field_flex_param('NS_INDEX_ID', imm_ns_idx)
-    macro_instr.set_field_value('IMM', 0)
+    macro_instr.set_field_flex_param('NS_INDEX_ID', f"0")
+    macro_instr.set_field_flex_param('IMM', imm_ns_idx)
 
     micro_instr1 = hag.get_primitive_template("STRIDE_SIGN_EXT")
     micro_instr1.add_condition(imm_operand_cond)
     micro_instr1.set_field_by_name('NS_ID', "IMM")
-    micro_instr1.set_field_flex_param('NS_INDEX_ID', imm_ns_idx)
-    micro_instr1.set_field_value('IMM', 0)
+    micro_instr1.set_field_flex_param('NS_INDEX_ID', f"0")
+    micro_instr1.set_field_flex_param('IMM', f"0")
     macro_instr.add_base_instruction(micro_instr1)
 
     instructions.append(macro_instr)

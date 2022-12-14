@@ -80,7 +80,10 @@ class Unary(ReferenceOp):
         elif "min" in self.op_name:
             output = self.minfn(inpt, *params)
         elif "transpose" in self.op_name:
-            output = self.transposefn(inpt, *params)
+            axes = []
+            for i in range(len(inpt.shape)):
+                axes.append(self.cdlt.required_params[f'axis{i}'].value)
+            output = self.transposefn(inpt, tuple(axes))
         elif "flatten" in self.op_name:
             output = inpt.reshape(inpt.shape[0], -1)
         elif "sqrt" in self.op_name:

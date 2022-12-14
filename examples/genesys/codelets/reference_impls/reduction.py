@@ -11,7 +11,7 @@ class Reduction(ReferenceOp):
     def __init__(self, reduction_type, cdlt, program):
         self.reduction_type = reduction_type
         self.dtype = "FXP32"
-        self.axis = self.cdlt.required_params['axis'].value
+        self.axis = cdlt.required_params['axis'].value
         operands = [cdlt.inputs[0]]
         outputs = [cdlt.outputs[0]]
         super().__init__(cdlt, operands, outputs, program)

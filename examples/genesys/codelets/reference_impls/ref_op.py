@@ -55,11 +55,11 @@ class ReferenceOp(object):
     def fn_impl(self, inouts):
         raise NotImplemented
 
-    def compute_outputs(self, inouts):
+    def compute_outputs(self, inouts, print_range=False, vrange=None):
 
 
         inouts = inouts or {"inputs": [], "params": [], "outputs": []}
-        inouts = self.set_operands(inouts)
+        inouts = self.set_operands(inouts, print_range=print_range, vrange=vrange)
 
 
         inouts = self.fn_impl(inouts)
@@ -76,7 +76,7 @@ class ReferenceOp(object):
         assert all([isinstance(o.data, np.ndarray) for o in inouts['outputs']])
         return inouts
 
-    def set_operands(self, inouts, constant_val=None, print_range=False):
+    def set_operands(self, inouts, constant_val=None, print_range=False, vrange=None):
         new_inputs = []
         for idx, op in enumerate(self.operands):
             found_inp = False
@@ -91,7 +91,10 @@ class ReferenceOp(object):
 
             data = numpy_datagen(op.shape, op.dtype.bits(),
                                  fxp_dtype=f"{op.dtype}",
-                                 scale=self.scale, constant_val=constant_val, print_range=print_range)
+                                 scale=self.scale,
+                                 constant_val=constant_val,
+                                 print_range=print_range,
+                                 vrange=vrange)
             new_op = create_operand_data(data, op)
             new_inputs.append(new_op)
         inouts['inputs'] = new_inputs

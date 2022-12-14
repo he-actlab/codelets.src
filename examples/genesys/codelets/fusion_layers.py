@@ -1460,7 +1460,7 @@ def matmul_div_add(hag):
     acc_dtype = DTYPE_MAP[acc_dtype_name]
     with CodeletTemplate('matmul_div_add') as cdlt:
         cdlt, params = create_matmul4d_args(cdlt, hag)
-        B, M, P, C, N = params['B'], params['M'], params['P'], params['C'], params['N']
+        B, M, P, C = params['B'], params['M'], params['P'], params['C']
 
         add_lhs = cdlt.create_operand_template("add_lhs", OP_DTYPES, [B, C, M, P], default_dtype=acc_dtype)
         cdlt.add_input(add_lhs)
@@ -1489,7 +1489,7 @@ def matmul_div_add(hag):
                         out.set_write_destination('VMEM1')
                         add_lhs.set_write_destination("VMEM1")
                         add_out.set_write_destination("VMEM2")
-                        indices = (b ,c, m, p)
+                        indices = (b, c, m, p)
                         cdlt.compute("MUL", [gemm_out[indices], mul_op], [add_out[indices]],
                                      target="SIMD")
                         cdlt.compute("ADD", [add_out[indices], add_lhs[indices]], [add_out[indices]],

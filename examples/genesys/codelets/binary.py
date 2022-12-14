@@ -132,20 +132,24 @@ def elem_binary_op(cdlt_name: str, instr_name: str, nop1_dims, nop2_dims, dim_va
 
     return cdlt
 
-def elem_binary_op_constant(cdlt_name: str, instr_name: str, nop1_dims, hag: ArchitectureNode):
+def elem_binary_op_constant(cdlt_name: str, instr_name: str, nop1_dims, inpt_idx, hag: ArchitectureNode):
     DIM_NAMES = ["N", "C", "H", "W"]
     inpt_dtype = f"FXP{hag.meta_cfg['DATA_WIDTH']}"
     acc_dtype = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    if inpt_idx == 0:
+        dummy_idx = 1
+    else:
+        dummy_idx = 0
+
     with CodeletTemplate(cdlt_name) as cdlt:
         num_dims = nop1_dims
-        inpt_idx = 0
 
         dummy_dims = []
         op1_dims = []
         assert num_dims <= len(DIM_NAMES)
         used_names = [DIM_NAMES[i] for i in range(num_dims)]
         for i in range(num_dims):
-            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.inputs[inpt_idx].shape[i])
+            dim = cdlt.dummy_op(DIM_NAMES[i], cdlt.node.args[inpt_idx].shape[i])
             if i < nop1_dims:
                 op1_dims.append(dim)
 
@@ -158,7 +162,7 @@ def elem_binary_op_constant(cdlt_name: str, instr_name: str, nop1_dims, hag: Arc
         cdlt.set_outputs([out])
         cdlt.configure("start", "SIMD")
         SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
-        dummy_imm = cdlt.dummy_op("op2", cdlt.node.args[1].default, dtype=acc_dtype)
+        dummy_imm = cdlt.dummy_op("op2", cdlt.node.args[dummy_idx].default, dtype=acc_dtype)
         param = cdlt.create_temp_operand([SIMD_SIZE], "IMM", name="op2")
         cdlt.configure("start", "IMM", immediate_value=dummy_imm)
         loops = []
@@ -193,21 +197,23 @@ def load_binary_cdlts(cfg):
 
     BINARY_CODELETS = {
         "elem_add": partial(elem_binary_op, "elem_add", "ADD", 4, 4, None),
-        "elem_add3d_const": partial(elem_binary_op_constant, "elem_add3d_const", "ADD", 3),
+        "elem_add3d_const": partial(elem_binary_op_constant, "elem_add3d_const", "ADD", 3, 0),
         "elem_add3d3d": partial(elem_binary_op, "elem_add3d3d", "ADD", 3, 3, None),
         "elem_add3d1d": partial(elem_binary_op, "elem_add3d1d", "ADD", 3, 1, (["N", "C", "H"], ["H"])),
         "elem_add1d3d": partial(elem_binary_op, "elem_add1d3d", "ADD", 1, 3, (["H"], ["N", "C", "H"])),
         "elem_add1d1d": partial(elem_binary_op, "elem_add1d1d", "ADD", 1, 1, None),
         "elem_add2d2d": partial(elem_binary_op, "elem_add2d2d", "ADD", 2, 2, None),
         "elem_sub3d3d": partial(elem_binary_op, "elem_sub3d3d", "SUB", 3, 3, None),
+        "elem_sub_const": partial(elem_binary_op_constant, "elem_sub_const", "SUB", 4, 1),
         "elem_sub": partial(elem_binary_op_, "elem_sub", "SUB"),
         "elem_div": partial(elem_binary_op_, "elem_div", "DIV"),
-        "elem_div_const": partial(elem_binary_op_constant, "elem_div_const", "DIV", 4),
+        "elem_mul_const": partial(elem_binary_op_constant, "elem_mul_const", "MUL", 4, 0),
+        "elem_div_const": partial(elem_binary_op_constant, "elem_div_const", "DIV", 4, 0),
         "elem_mul": partial(elem_binary_op_, "elem_mul", "MUL"),
         "elem_div3d3d": partial(elem_binary_op, "elem_div3d3d", "DIV", 3, 3, None),
         "elem_mul3d1d": partial(elem_binary_op, "elem_mul3d1d", "MUL", 3, 1, (["N", "C", "H"], ["H"])),
 
-        "elem_mul3d_const": partial(elem_binary_op_constant, "elem_mul3d_const", "MUL", 3),
+        "elem_mul3d_const": partial(elem_binary_op_constant, "elem_mul3d_const", "MUL", 3, 0),
         "elem_mul3d3d": partial(elem_binary_op, "elem_mul3d3d", "MUL", 3, 3, None),
         "elem_less": partial(elem_binary_op_, "elem_less", "LT"),
         "elem_equal": partial(elem_binary_op_, "elem_equal", "EQUAL"),

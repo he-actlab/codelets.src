@@ -2,7 +2,9 @@ from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, FXP_CONFIGS
 from functools import partial
 from fxpmath import Fxp
 import numpy as np
-from . import ReferenceOp, quantize_np, create_operand_data, transform_data, im2col_indices, pad_tensor, get_slice
+from . import ReferenceOp, quantize_np, \
+    create_operand_data, transform_data, im2col_indices, pad_tensor, get_slice
+
 import itertools
 WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
 WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
@@ -214,6 +216,14 @@ class Softmax(ReferenceOp):
         self.dtype = "FXP32"
         super().__init__(cdlt, operands, outputs, program, scale=1)
 
+    def fn_impl(self, inouts):
+        data = inouts['inputs'][0].data
+        exp_data = np.exp(data)
+        sum_data = np.sum(exp_data, axis=-2, keepdims=1)
+        output = exp_data / sum_data
+        inouts['outputs'] = [output]
+        return inouts
+
 class DWConv(ReferenceOp):
 
     def __init__(self, cdlt, program, use_bias=True, use_quantization=True):
@@ -317,6 +327,48 @@ class Gelu(ReferenceOp):
         outputs = [cdlt.outputs[0]]
         self.dtype = "FXP32"
         super().__init__(cdlt, operands, outputs, program, scale=1)
+        self.k = 1.4142
+        self.n = 14 # sufficiently large integer
+        self.coeff = [-0.2888, -1.769, 1] # a(x+b)**2 + c
+        self.coeff[2] /= self.coeff[0]
+
+    def ipoly(self, q, s, a, b, c):
+        q_b = np.floor(b/s)
+        q_c = np.floor(c/a * s**2)
+        s_out = np.floor(a*s**2)
+        q_out = (q + q_b)**2 + q_c
+        return q_out, s_out
+
+    def ierf(self, x_int, s):
+        b_int = np.floor(self.coeff[1]/s)
+        c_int = np.floor(self.coeff[2]/s**2)
+        sign = np.sign(x_int)
+
+        abs_int = np.abs(x_int)
+        abs_int = np.minimum(abs_int, -b_int)
+        y_int = (abs_int + b_int) ** 2 + c_int
+        y_int = sign * y_int
+        s = s ** 2 * self.coeff[0]
+        y_int = np.floor(y_int / 2 ** self.n)
+        s = s * 2 ** self.n
+
+        return y_int, s
+
+    def fn_impl(self, inouts):
+        x = inouts['inputs'][0].data
+        scaling_factor = QUANT_SCALE
+
+        x_int = x / scaling_factor
+        sigmoid_int, sigmoid_scaling_factor = self.ierf(x_int, scaling_factor / self.k)
+
+        shift_int = np.floor(1. / sigmoid_scaling_factor)
+
+        x_int = x_int * (sigmoid_int + shift_int)
+        scaling_factor = scaling_factor * sigmoid_scaling_factor / 2
+
+        output = x_int * scaling_factor
+        inouts['outputs'] = [output]
+        return inouts
 
 class BiasAdd(ReferenceOp):
 

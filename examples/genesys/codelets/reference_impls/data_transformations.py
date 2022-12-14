@@ -50,6 +50,26 @@ def shuffle_weights(w_orig, arch_config, cdlt):
 
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
+    elif len(weights.shape) == 4:
+        for b in range(w_dim[0]):
+            for c in range(w_dim[1]):
+                for ic in range(0, w_dim[2], tile_n):  # IC
+                    for oc in range(0, w_dim[3], tile_m):  # OC
+                        for n in range(tile_n):  # Rows
+                            for m in range(tile_m):  # Columns
+                                src_coord = b, c, ic + n, oc + m
+                                dst_coord = b, c, ic + n, oc + tile_m - m - 1
+                                # dst_coord = kh, kw, ic + tile_n - n - 1, oc + tile_m - m - 1
+
+                                assert src_coord not in coord_map
+                                coord_map[src_coord] = dst_coord
+                                assert src_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {src_coord[-1]}\n" \
+                                                                         f"OC: {oc}, Column: {m}"
+                                assert dst_coord[-1] < result.shape[-1], f"Invalid coordinate for source: {dst_coord[-1]}\n" \
+                                                                         f"OC: {oc}, Column: {n}"
+
+                                result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
+
     else:
         assert "linear" in cdlt.op_name or  "gemm" in cdlt.op_name or "matmul" in cdlt.op_name, f"Invalid layer type: {cdlt.op_name}"
         # [P, N, M] = [OC, IC, N]
@@ -60,12 +80,12 @@ def shuffle_weights(w_orig, arch_config, cdlt):
             l1_iter, l1_stride = w_dim[0], tile_n
             src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l1 + l1_inner, l2 + l2_inner)
             dst_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l1 + l1_inner, l2 + l2_stride - l2_inner - 1)
+
         else:
             l2_iter, l2_stride = w_dim[0], tile_n
             l1_iter, l1_stride = w_dim[1], tile_m
             src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_inner)
             dst_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_stride - l1_inner - 1)
-
 
         for l2 in range(0, l2_iter, l2_stride):
             for l1 in range(0, l1_iter, l1_stride):
@@ -204,6 +224,31 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
                                     src_coord = tuple(src_coord)
                                     result[cnt] = weights[src_coord[0]][src_coord[1]]
                                     cnt += 1
+    elif len(weights.shape) == 4:
+        cnt = 0
+        big_tile_size_oc = dram_tiling['P']
+        big_tile_size_ic = dram_tiling['N']
+        assert tile_n * interleave_factor <= big_tile_size_oc, f"Invalid size with interleave factor:\n" \
+                                                               f"Tile: {tile_n}\n" \
+                                                               f"Interleave: {interleave_factor}\n" \
+                                                               f"Big tile oc: {big_tile_size_oc}\n" \
+                                                               f"Big tile ic: {big_tile_size_ic}"
+        for big_tile_oc in range(0, w_dim[3], big_tile_size_oc):  # Tile over OC
+            for big_tile_ic in range(0, w_dim[2], big_tile_size_ic):  # Tile over IC
+                for kh in range(w_dim[0]):
+                    for kw in range(w_dim[1]):
+                        for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                            for oc in range(0, big_tile_size_oc, tile_n * interleave_factor):  # OC
+                                for n in range(tile_n):  # Rows
+                                    for m in range(tile_m):  # Columns
+                                        for k in range(interleave_factor):
+                                            # src_coord = (kh, kw, big_tile_ic + ic + m, big_tile_oc + oc + n + (k * tile_n))
+                                            # dst_coord = np.unravel_index([cnt], weights.shape)
+
+                                            result[cnt] = weights[kh][kw][big_tile_ic + ic + m][
+                                                big_tile_oc + oc + n + (k * tile_n)]
+                                            cnt += 1
+        return result
     else:
         assert tile_n * interleave_factor <= big_tile_size_oc
         cnt = 0

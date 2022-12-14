@@ -312,7 +312,7 @@ if __name__ == "__main__":
                           identifier=extension)
 
     else:
-        config = "simd_paper32x32.json"
+        # config = "simd_paper32x32.json"
 
         # config = "simd_paper8x8_dse.json"
         # config = "simd_paper16x16_dse.json"
@@ -320,8 +320,8 @@ if __name__ == "__main__":
         # config = "simd_paper64x64_dse.json"
         # config = "simd_paper128x128_dse.json"
         # config = "paper_fpga16x16.json"
-        # config = "fpga16x16.json"
-        dir_ext = "unfused_"
+        config = "fpga16x16.json"
+        # dir_ext = "unfused_"
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -345,8 +345,9 @@ if __name__ == "__main__":
                       'linear_reg-opt', # 20
                       'logistic_reg-opt', # 21
                       'linear_reg_test', # 22
+                      'custom_gemm'
                       ]
-        compile_benchmark(benchmarks[8],
+        compile_benchmark(benchmarks[22],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -355,6 +356,6 @@ if __name__ == "__main__":
                           verbose=True,
                           skip_broken_layers=False,
                           store_whole_program=False,
-                          # filtered_layers=[0],
-                          dir_ext=dir_ext,
-                          identifier=3)
+                          # filtered_layers=[18],
+                          # dir_ext=dir_ext,
+                          identifier=9)
