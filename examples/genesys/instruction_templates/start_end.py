@@ -25,13 +25,65 @@ def program_start(hag: ArchitectureNode):
 
 def codelet_end(hag: ArchitectureNode):
     instructions = []
+    num_instr = "program.cdlt_num_instr(program.next_codelet(cdlt)) if program.next_codelet(cdlt) is not None else 0"
+    if not hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
+        instr_base_addr = f"{SA_BASE_ADDR}['INSTR'] if program.next_codelet(cdlt) is not None else 0"
+    else:
+        instr_base_addr = f"program.get_codelet_instr_offset(program.next_codelet(cdlt).instance_id) if program.next_codelet(cdlt) is not None else 0"
+
+    # Set the instruction address for the next block of instructions
+    instr = hag.get_primitive_template("SET_BASE_ADDR")
+    # instr.add_condition("program.next_codelet(cdlt) is not None")
+    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+    instr.set_field_by_name("MEM_TYPE", "IMEM")
+    instr.set_field_by_name("BUFFER", "IBUF")
+    # TODO: Fix relocation table imem value
+    instr.set_field_flex_param("BASE_ADDR",
+                               # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+                               f"program.extract_bits({instr_base_addr},"
+                               " 16, 0)",
+                               lazy_eval=True)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("SET_BASE_ADDR")
+    # instr.add_condition("program.next_codelet(cdlt) is not None")
+    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+    instr.set_field_by_name("MEM_TYPE", "IMEM")
+    instr.set_field_by_name("BUFFER", "IBUF")
+    instr.set_field_flex_param("BASE_ADDR",
+                               # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+                               f"program.extract_bits({instr_base_addr},"
+                               " 16, 16)",
+                               lazy_eval=True)
+    instructions.append(instr)
+
+    instr = hag.get_primitive_template("LD_ST")
+    # instr.add_condition("program.next_codelet(cdlt) is not None")
+    instr.set_field_by_name("ACCESS_TYPE", "LD")
+    instr.set_field_by_name("MEM_TYPE", "IMEM")
+    instr.set_field_by_name("BUFFER", "IBUF")
+    instr.set_field_value("LOOP_ID", 0)
+    instr.set_field_flex_param("REQUEST_SIZE", num_instr, lazy_eval=True)
+    instructions.append(instr)
+
+    # Finally, generate block instr
     instr = hag.get_primitive_template("BLOCK_END")
     # # TODO: Make sure this is evaluated after having gone through all codelets
-    instr.set_field_flex_param("IS_END", "int(program.codelets[-1].instance_id == cdlt.instance_id)")
+    instr.set_field_flex_param("IS_END", "int(program.next_codelet(cdlt) is None)")
     instructions.append(instr)
     return instructions
 
 def simd_start_template(hag: ComputeNode):
+    BASE_ADDR_STR_SIMD1 = "{EXTRACT}'{LS}_' + (operand.get_ld_storage_location(cdlt, 1))], {NUM_BITS}, {POS})"
+    p1 = f"program.extract_bits(({SIMD_BASE_ADDR})["
+
+    if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
+        ld_base_addr = f"program.get_input_operand_offset(operand.node_name)"
+        st_base_addr = f"program.get_output_operand_offset(operand.node_name)"
+    else:
+        ld_base_addr = f"({SIMD_BASE_ADDR})['LD_' + (operand.get_ld_storage_location(cdlt, 1))]"
+        st_base_addr = f"({SIMD_BASE_ADDR})['ST_' + (operand.get_ld_storage_location(cdlt, 1))]"
+
 
     instructions = []
     instr = hag.get_primitive_template("SYNC_INST")
@@ -60,12 +112,9 @@ def simd_start_template(hag: ComputeNode):
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"0")
 
-    p1 = f"program.extract_bits(({SIMD_BASE_ADDR})["
-    BASE_ADDR_STR_SIMD1 = "{EXTRACT}'{LS}_' + (operand.get_ld_storage_location(cdlt, 1))], {NUM_BITS}, {POS})"
 
     macro_instr.set_field_flex_param("BASE_ADDR",
-                                     BASE_ADDR_STR_SIMD1.format(EXTRACT=p1, LS="LD", NUM_BITS="16",
-                                                          POS="0"),
+                                     f"program.extract_bits({ld_base_addr}, 16, 0)"
                                      )
 
     #
@@ -76,8 +125,7 @@ def simd_start_template(hag: ComputeNode):
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"0")
     micro_instr.set_field_flex_param("BASE_ADDR",
-                                     BASE_ADDR_STR_SIMD1.format(EXTRACT=p1, LS="LD", NUM_BITS="16",
-                                                          POS="16"),
+                                     f"program.extract_bits({ld_base_addr}, 16, 16)"
                                      )
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
@@ -94,8 +142,9 @@ def simd_start_template(hag: ComputeNode):
     #                                  lazy_eval=True
     #                                  )
     macro_instr.set_field_flex_param("BASE_ADDR",
-                                     BASE_ADDR_STR_SIMD1.format(EXTRACT=p1, LS="ST", NUM_BITS="16",
-                                                          POS="0"),
+                                     # BASE_ADDR_STR_SIMD1.format(EXTRACT=p1, LS="ST", NUM_BITS="16",
+                                     #                      POS="0"),
+                                     f"program.extract_bits({st_base_addr}, 16, 0)"
                                      )
     #
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
@@ -109,8 +158,8 @@ def simd_start_template(hag: ComputeNode):
     #                                                       POS="16"),
     #                                  lazy_eval=True)
     micro_instr.set_field_flex_param("BASE_ADDR",
-                                     BASE_ADDR_STR_SIMD1.format(EXTRACT=p1, LS="ST", NUM_BITS="16",
-                                                          POS="16"),
+                                     f"program.extract_bits({st_base_addr}, 16, 16)"
+
                                      )
     macro_instr.add_base_instruction(micro_instr)
 
@@ -146,37 +195,37 @@ def sa_start_template(hag: ComputeNode):
     instr.set_field_flex_param("NUM_INSTR", "cdlt.num_instr_by_group('systolic_array')", lazy_eval=True)
     instructions.append(instr)
 
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
-    instr.set_field_by_name("MEM_TYPE", "IMEM")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    # TODO: Fix relocation table imem value
-    instr.set_field_flex_param("BASE_ADDR",
-                             # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
-                             f"program.extract_bits({SA_BASE_ADDR}['INSTR'],"
-                             " 16, 0)",
-                               lazy_eval=True)
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("SET_BASE_ADDR")
-    instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
-    instr.set_field_by_name("MEM_TYPE", "IMEM")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_flex_param("BASE_ADDR",
-                             # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
-                             f"program.extract_bits({SA_BASE_ADDR}['INSTR'],"
-                             " 16, 16)",
-                               lazy_eval=True)
-    instructions.append(instr)
-
-    instr = hag.get_primitive_template("LD_ST")
-    instr.add_condition("cdlt.instance_id < len(program.codelets)")
-    instr.set_field_by_name("ACCESS_TYPE", "LD")
-    instr.set_field_by_name("MEM_TYPE", "IMEM")
-    instr.set_field_by_name("BUFFER", "IBUF")
-    instr.set_field_value("LOOP_ID", 0)
-    instr.set_field_flex_param("REQUEST_SIZE", "program.codelets[cdlt.instance_id].num_instr", lazy_eval=True)
-    instructions.append(instr)
+    # instr = hag.get_primitive_template("SET_BASE_ADDR")
+    # instr.set_field_by_name("LOW_HIGH_ADDR", "LOW")
+    # instr.set_field_by_name("MEM_TYPE", "IMEM")
+    # instr.set_field_by_name("BUFFER", "IBUF")
+    # # TODO: Fix relocation table imem value
+    # instr.set_field_flex_param("BASE_ADDR",
+    #                          # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+    #                          f"program.extract_bits({instr_base_addr},"
+    #                          " 16, 0)",
+    #                            lazy_eval=True)
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("SET_BASE_ADDR")
+    # instr.set_field_by_name("LOW_HIGH_ADDR", "HIGH")
+    # instr.set_field_by_name("MEM_TYPE", "IMEM")
+    # instr.set_field_by_name("BUFFER", "IBUF")
+    # instr.set_field_flex_param("BASE_ADDR",
+    #                          # f"program.extract_bits({BENCH_BASE_ADDR['INSTR']},"
+    #                          f"program.extract_bits({instr_base_addr},"
+    #                          " 16, 16)",
+    #                            lazy_eval=True)
+    # instructions.append(instr)
+    #
+    # instr = hag.get_primitive_template("LD_ST")
+    # instr.add_condition("cdlt.instance_id < len(program.codelets)")
+    # instr.set_field_by_name("ACCESS_TYPE", "LD")
+    # instr.set_field_by_name("MEM_TYPE", "IMEM")
+    # instr.set_field_by_name("BUFFER", "IBUF")
+    # instr.set_field_value("LOOP_ID", 0)
+    # instr.set_field_flex_param("REQUEST_SIZE", "program.codelets[cdlt.instance_id].num_instr", lazy_eval=True)
+    # instructions.append(instr)
 
     return instructions
 

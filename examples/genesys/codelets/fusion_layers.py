@@ -1170,7 +1170,7 @@ def sub_pow(hag):
                     cdlt.compute("MUL", [op1[n, c, h], out[n, c, h]], [out[n, c, h]], target="SIMD")
                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
-    cdlt = add_simd_constraint(hag, cdlt, "C")
+    cdlt = add_simd_constraint(hag, cdlt, "H")
     return cdlt
 
 
@@ -1269,25 +1269,7 @@ def add_sqrt_div(hag):
                     cdlt.compute("ADD", [op1[n, c, h], add_op], [x[n, c, h]], target="SIMD")
 
                     # SQRT
-                    cdlt.compute("MUL", [x[n, c, h], t], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("CEIL", [y[n, c, h]], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("RSHIFT", [y[n, c, h], one], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("ADD", [y[n, c, h], t], [out[n, c, h]], target="SIMD")
-
-                    cdlt.compute("MUL", [x[n, c, h], t], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("CEIL", [y[n, c, h]], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("RSHIFT", [y[n, c, h], one], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("ADD", [y[n, c, h], t], [out[n, c, h]], target="SIMD")
-
-                    cdlt.compute("MUL", [x[n, c, h], t], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("CEIL", [y[n, c, h]], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("RSHIFT", [y[n, c, h], one], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("ADD", [y[n, c, h], t], [out[n, c, h]], target="SIMD")
-
-                    cdlt.compute("MUL", [x[n, c, h], t], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("CEIL", [y[n, c, h]], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("RSHIFT", [y[n, c, h], one], [y[n, c, h]], target="SIMD")
-                    cdlt.compute("ADD", [y[n, c, h], t], [out[n, c, h]], target="SIMD")
+                    cdlt.compute("SQRT", [x[n, c, h]], [out[n, c, h]], target="SIMD")
 
                     ## Div
                     indices = (n, c, h)
@@ -2288,22 +2270,6 @@ def load_fusion_op_info(cfg):
             'cdlt': bias_add_clip,
             'seq': ['BiasAdd', 'Clip'],
         },
-        'add_add': {
-          'cdlt': add_add,
-          'seq': ["Add", "Add"]
-        },
-        'add_add4d': {
-            'cdlt': add_add4d,
-            'seq': ["Add", "Add"]
-        },
-        'mul_add': {
-            'cdlt': mul_add,
-            'seq': ["Mul", "Add"]
-        },
-        'mul_add3d': {
-            'cdlt': mul_add3d,
-            'seq': ["Mul", "Add"]
-        },
         'sub_mul': {
             'cdlt': sub_mul,
             'seq': ["Sub", "Mul"]
@@ -2324,6 +2290,23 @@ def load_fusion_op_info(cfg):
             'cdlt': depthwise_conv_bias_clip,
             'seq': ['DepthwiseConvBias', 'Clip'],
         },
+        # These are layers which are failing because they have multiple (more than 2) inputs for simd execution
+        # 'add_add': {
+        #   'cdlt': add_add,
+        #   'seq': ["Add", "Add"]
+        # },
+        # 'mul_add': {
+        #     'cdlt': mul_add,
+        #     'seq': ["Mul", "Add"]
+        # },
+        # 'mul_add3d': {
+        #     'cdlt': mul_add3d,
+        #     'seq': ["Mul", "Add"]
+        # },
+        # 'add_add4d': {
+        #     'cdlt': add_add4d,
+        #     'seq': ["Add", "Add"]
+        # },
         'single_layer_info':
             {
                 'Conv' : {'inputs': 3, 'outputs': 1},

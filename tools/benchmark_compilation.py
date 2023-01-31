@@ -155,7 +155,6 @@ def compile_benchmark(model_name,
                       sw_pipeline_test=False,
                       addr_gen_test=False,
                       store_results=True,
-                      store_whole_program=False,
                       count_compute=False,
                       check_layer_count=False,
                       dir_ext=None
@@ -174,29 +173,6 @@ def compile_benchmark(model_name,
     else:
         num_layers = 0
 
-    # if custom_config:
-    #     assert "custom" in cfg_name
-    #
-    #     assert arch_config['USE_QUANTIZATION']
-    #     assert not arch_config['SW_PIPELINE_TEST']
-    #     assert not arch_config['ADDR_GEN_TEST']
-    #     assert arch_config['ADDR_GEN_TEST']
-    #
-    #     dir_ext = "dse_"
-    # elif sw_pipeline_test:
-    #     assert not arch_config['USE_QUANTIZATION']
-    #     assert arch_config['SW_PIPELINE_TEST']
-    #     assert not arch_config['ADDR_GEN_TEST']
-    #     dir_ext = "sw_pipeline_"
-    # elif addr_gen_test:
-    #     assert arch_config['USE_QUANTIZATION']
-    #     assert not arch_config['SW_PIPELINE_TEST']
-    #     assert arch_config['ADDR_GEN_TEST']
-    #
-    #     dir_ext = "addr_gen_"
-    # else:
-    #     assert not arch_config['SW_PIPELINE_TEST']
-    #     assert not arch_config['ADDR_GEN_TEST']
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     graph = pm.from_onnx(model_path)
@@ -248,6 +224,7 @@ def compile_benchmark(model_name,
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         if check_layer_count:
             check_fused_layer_count(model_path, program)
+
     if stop_stage is None and store_results:
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
@@ -256,8 +233,28 @@ def compile_benchmark(model_name,
                        identifier=identifier,
                        generate_data=arch_config['DATAGEN'],
                        verbose=verbose,
-                        store_whole_program=store_whole_program)
+                        store_whole_program=arch_config['SINGLE_PROGRAM_COMPILATION'])
         dgen.generate()
+
+    def print_attr(name):
+        print(f"{name} depth: {program.hag.get_subgraph_node(name).depth}")
+        print(f"{name} width: {program.hag.get_subgraph_node(name).width}")
+        print(f"{name} banks: {program.hag.get_subgraph_node(name).banks}")
+        print(f"{name} access type: {program.hag.get_subgraph_node(name).access_type}")
+        print(f"{name} buffering: {program.hag.get_subgraph_node(name).buffering_scheme}")
+        print(f"{name} indirection: {program.hag.get_subgraph_node(name).indirection}")
+        print(f"")
+
+    # print_attr("DRAM")
+    # print_attr("IMM")
+    # print_attr("INSTR_MEM")
+    # print_attr("VMEM1")
+    # print_attr("IBUF")
+    # print_attr("WBUF")
+    # print_attr("BBUF")
+    # print_attr("OBUF")
+    # print_attr("OBUF")
+
     if count_compute:
         count_compute_ops(program)
 
@@ -308,7 +305,6 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=verbose,
                           skip_broken_layers=False,
-                          store_whole_program=True,
                           identifier=extension)
 
     else:
@@ -321,7 +317,7 @@ if __name__ == "__main__":
         # config = "simd_paper128x128_dse.json"
         # config = "paper_fpga16x16.json"
         config = "fpga16x16.json"
-        # dir_ext = "unfused_"
+        dir_ext = ""
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -345,9 +341,12 @@ if __name__ == "__main__":
                       'linear_reg-opt', # 20
                       'logistic_reg-opt', # 21
                       'linear_reg_test', # 22
-                      'custom_gemm'
+                      'ppo_model', # 23,
+                      'conv_benchmark_v1', # 24
+                      'ddpg_model-opt', # 25
+                      'my_sac_model', # 26
                       ]
-        compile_benchmark(benchmarks[22],
+        compile_benchmark(benchmarks[0],
                           config,
                           only_systolic=False,
                           sw_pipeline_test=False,
@@ -355,7 +354,6 @@ if __name__ == "__main__":
                           custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          store_whole_program=False,
-                          # filtered_layers=[18],
-                          # dir_ext=dir_ext,
-                          identifier=9)
+                          # filtered_layers=[3],
+                          dir_ext=dir_ext,
+                          identifier=1)

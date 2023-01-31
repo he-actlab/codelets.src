@@ -128,6 +128,7 @@ class FusionOp(ReferenceOp):
 
     def div(self, op1, op2):
         output = quantize_np(op1//op2, "FXP32")
+
         return output
 
     def mul(self, op1, op2):
@@ -151,7 +152,9 @@ class FusionOp(ReferenceOp):
         data_fp = Fxp(None, **FXP_CONFIGS["FXP32"])
         data_fp.val = data
         output = np.sqrt(data_fp.astype(float))
+
         output = Fxp(output, **FXP_CONFIGS["FXP32"]).val
+
         return output
 
     def square(self, data):

@@ -2,12 +2,13 @@ from typing import Dict
 from .codelets.reference_impls.ref_op import OperandData
 from codelets.codelet_impl import Codelet
 from codelets.compiler.program import CodeletProgram
-import argparse
+from collections import defaultdict
 import numpy as np
 import os
 from pathlib import Path
 import json
 from .genesys import get_arch
+import git
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}
 
 
@@ -104,7 +105,7 @@ class DataGen(object):
             if i.node_name in self.value_dict['outputs']:
                 operand = self.value_dict['outputs'].pop(i.node_name)
                 assert isinstance(operand, OperandData), f"Not operand: {operand.name}"
-                assert operand.data.shape == i.shape, "Operand and input shapes are not equal:\n" \
+                assert operand.data.shape == i.shape, f"Operand and input shapes are not equal in {cdlt.cdlt_uid}:\n" \
                                                       f"Data: {operand.data.shape}\n" \
                                                       f"Operand: {i.shape}"
                 inouts['inputs'].append(operand)
@@ -248,6 +249,10 @@ class DataGen(object):
 
     def generate_codelet_data(self):
         for layer_id, cdlt in enumerate(self.program.codelets):
+            if cdlt.is_noop():
+                if self.verbose:
+                    print(f"Skipping generation for {cdlt.cdlt_uid}")
+                continue
             if self.verbose:
                 print(f"Storing codelet {cdlt.cdlt_uid}")
             output_location = f"{self.output_dir}/layer{layer_id}_{cdlt.cdlt_uid}"
@@ -361,15 +366,104 @@ class DataGen(object):
                     os.makedirs(base_path)
                 except OSError as e:
                     raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
-            self.generate_whole_program_data(base_path)
+            self.generate_whole_program_data()
 
-    def generate_whole_program_data(self, base_path):
-        pass
+    def generate_operand_storage_info(self, cdlt, operand, operand_type, offset, path):
+        is_shuffled = False
+        if Path(f"{path}/").exists():
+            assert Path(f"{path}/").is_dir()
+            path = path + f"/{operand.node_name}_shuffled.txt"
+            is_shuffled = True
+        elif Path(f"{path}.txt").exists():
+            path = f"{path}.txt"
+        else:
+            raise RuntimeError(f"Path for codelet {cdlt.cdlt_uid}, {operand_type} {operand.node_name} ({operand.name}) does not exist:\n"
+                               f"path: {path}")
+
+        dtype = str(operand.dtype)
+
+        assert 'DRAM' in operand.tiling, f"Operand {operand.node_name} is not tiled for DRAM in codelet {cdlt.cdlt_uid}"
+        if is_shuffled:
+            assert 'IBUF' in operand.tiling or 'WBUF' in operand.tiling
+        dram_shape = operand.tiling['DRAM']
+        operand_size = operand.dtype.bits() * np.prod(list(dram_shape.values()))
+        buffer = [k for k in operand.tiling.keys() if k not in ['DRAM', 'pe_array', 'SIMD']]
+        assert len(buffer) > 0
+        buffer = buffer[0]
+        info_blob = {
+            "path": path,
+            "dtype": dtype,
+            "layer": cdlt.cdlt_uid,
+            "offset": offset,
+            "shape": dram_shape,
+            "size_in_bytes": operand_size,
+            "buffer": buffer
+        }
+        return info_blob
+
+    def generate_whole_program_data(self):
+        input_offset = 0
+        output_offset = 0
+        info_map = {"inputs": {}, "outputs": {}}
+
+        def check_operand_info(prev_info, new_info, operand_type):
+            pretty_prev = json.dumps(prev_info, indent=2, cls=NPEncoder)
+            pretty_new = json.dumps(new_info, indent=2, cls=NPEncoder)
+            if prev_info['path'] != new_info['path']:
+                raise RuntimeError(f"Found previous {operand_type} with same name but different path:\n"
+                                   f"Previous: {pretty_prev}\n"
+                                   f"New: {pretty_new}")
+            if prev_info['dtype'] != new_info['dtype']:
+                raise RuntimeError(f"Found previous {operand_type} with same name but different datatypes:\n"
+                                   f"Previous: {pretty_prev}\n"
+                                   f"New: {pretty_new}")
+            if prev_info['layer'] != new_info['layer']:
+                raise RuntimeError(f"Found previous {operand_type} with same name but different layers:\n"
+                                   f"Previous: {pretty_prev}\n"
+                                   f"New: {pretty_new}")
+            if prev_info['size_in_bytes'] != new_info['size_in_bytes']:
+                raise RuntimeError(f"Found previous {operand_type} with same name but different sizes:\n"
+                                   f"Previous: {pretty_prev}\n"
+                                   f"New: {pretty_new}")
+
+        for layer_id, cdlt in enumerate(self.program.codelets):
+            cdlt_path = f"{self.output_dir}/layer{layer_id}_{cdlt.cdlt_uid}/data/"
+            for i in cdlt.inputs:
+                input_path = f"{cdlt_path}{i.node_name}"
+                info_blob = self.generate_operand_storage_info(cdlt, i, "input", input_offset, input_path)
+
+                if i.node_name in info_map['inputs']:
+                    check_operand_info(info_map['inputs'][i.node_name], info_blob, 'input')
+                    continue
+                info_map["inputs"][i.node_name] = info_blob
+                input_offset += info_blob['size_in_bytes']
+
+            for o in cdlt.outputs:
+                output_path = f"{cdlt_path}{o.node_name}"
+                info_blob = self.generate_operand_storage_info(cdlt, o, "output", output_offset, output_path)
+
+                if o.node_name in info_map['outputs']:
+                    check_operand_info(info_map['outputs'][o.node_name], info_blob, 'output')
+                    continue
+                info_map["outputs"][o.node_name] = info_blob
+                output_offset += info_blob['size_in_bytes']
+
+
+        output_location = f"{self.output_dir}/program"
+        if not Path(output_location).exists():
+            raise RuntimeError("directory for storying whole program does not exist!")
+        res = json.dumps(info_map, indent=2, cls=NPEncoder)
+        with open(f"{output_location}/{self.program.name}_operand_storage_info.json", "w") as outfile:
+            outfile.write(res)
+
+
 
     def generate(self):
         if 'arch_cfg' in self.output_types:
             assert self.arch_cfg is not None
             self.arch_cfg['IBUF_END'] = int(BENCH_BASE_ADDR['IBUF'] + np.prod(self.program.codelets[0].inputs[0].shape))
+            repo = git.Repo(search_parent_directories=True)
+            self.arch_cfg['COMPILER_COMMIT_HASH'] = repo.head.object.hexsha
             res = json.dumps(self.arch_cfg, indent=2)
             with open(f"{self.output_dir}/{self.program.name}_arch_cfg.json", "w") as outfile:
                 outfile.write(res)
@@ -380,4 +474,12 @@ class DataGen(object):
             self.store_program()
 
 
-
+class NPEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NPEncoder, self).default(obj)

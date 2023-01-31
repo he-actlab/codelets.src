@@ -120,7 +120,7 @@ class Transfer(Operation):
                 break
         return rsize
 
-    def strides_iters(self, data_width, merge_loops, divisor = 1, max_bits = 64, contiguous=False):
+    def strides_iters(self, data_width, merge_loops, divisor=1, max_bits=64, contiguous=False, debug=False):
         assert len(self.sizes) == 2
         if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
@@ -157,6 +157,8 @@ class Transfer(Operation):
                                                    f"Datatype: {self.operand.dtype.bits()}\n" \
                                                    f"Width: {data_width}"
         total_req_size = dtype_strides[-1]
+        if debug:
+            print(f"Iters before finishing: {iters}")
         if np.ceil(np.log2(total_req_size)) > max_bits:
 
             total_iters = (1+np.ceil(np.ceil(np.log2(total_req_size))/max_bits))
@@ -165,9 +167,11 @@ class Transfer(Operation):
                 total_iters += 1
             dtype_strides[-1] /= total_iters
             iters[-1] = total_iters
+
         final_strides = [np.int32(s) for s in dtype_strides]
         iters = [np.int32(i) for i in iters]
-
+        if debug:
+            print(f"Iters after finishing: {iters}")
         return final_strides, iters
 
     def test_contig_strides(self):

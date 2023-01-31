@@ -202,11 +202,11 @@ class StorageNode(ArchitectureNode):
         return bit_offset // self.width
 
     def address_from_bits(self, bits):
-        assert bits % self.mem_width == 0, f"Invalid offset for {self.name}: \n" \
+        assert bits % self.width == 0, f"Invalid offset for {self.name}: \n" \
                                            f"Bit Offset: {bits}\n" \
-                                           f"Memory width: {self.mem_width}\n" \
+                                           f"Memory width: {self.width}\n" \
                                            f"Width: {self.width}\n"
-        return bits // self.mem_width
+        return bits // self.width
 
     # Class methods
     def get_viz_attr(self):

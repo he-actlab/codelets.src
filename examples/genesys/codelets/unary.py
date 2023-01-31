@@ -539,7 +539,8 @@ def tensor_transpose3d(hag: ArchitectureNode):
                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
 
-    cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['C'] == 1")
+    # cdlt.add_compilation_param("LEVEL1_hint", f"splits['H'] == 1 or splits['C'] == 1")
+    cdlt.add_compilation_param("LEVEL1_hint", f"splits['C'] == 1")
     # cdlt = add_simd_constraint(hag, cdlt, "H")
     cdlt = add_flex_simd_constraints(hag, cdlt, ["C", "H"])
 

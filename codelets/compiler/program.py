@@ -72,7 +72,7 @@ class CodeletProgram(object):
         self._graph = graph
         self._codelets = []
         self._program_flex_templates = {"start": [], "end": []}
-        self._cdlt_flex_templates = {"start": [], "end": []}
+        self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
         self._relocatables = RelocationTable(hag.get_off_chip_storage())
         self._compilation_pipeline = defaultdict(list)
@@ -99,7 +99,7 @@ class CodeletProgram(object):
 
         self._codelets = []
         self._program_flex_templates = {"start": [], "end": []}
-        self._cdlt_flex_templates = {"start": [], "end": []}
+        self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
         self._relocatables = RelocationTable(self.hag.get_off_chip_storage())
         self._compilation_pipeline = defaultdict(list)
@@ -221,6 +221,26 @@ class CodeletProgram(object):
             if cdlt.instance_id == cdlt_id:
                 return cdlt
         raise KeyError(f"Unable to get codelet with id {cdlt_id} in codelet list")
+
+    def next_codelet(self, curr: Codelet):
+        curr_id = curr.instance_id
+        while curr_id + 1 < len(self.codelets):
+            next_cdlt = self.get_codelet(curr_id + 1)
+            if next_cdlt.is_noop():
+                curr_id = curr_id + 1
+            else:
+                return next_cdlt
+        return None
+
+    def get_codelet_instr_offset(self, cdlt_id: int) -> int:
+        cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
+        return self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start//8
+
+    def get_input_operand_offset(self, operand: str):
+        return self.relocatables.get_relocation('INPUTS', operand).start
+
+    def get_output_operand_offset(self, operand: str):
+        return self.relocatables.get_relocation('OUTPUTS', operand).start
 
     def save(self, output_path=None, save_format="json"):
         if output_path:
@@ -524,11 +544,12 @@ class CodeletProgram(object):
     def emit_codelets(self, output_type):
         codelet_strings = []
         for c in self.codelets:
-
+            if c.is_noop():
+                continue
             # Emit codelet start
             if output_type not in ['operations', 'operations_idx']:
 
-                cdlt_start = self.cdlt_flex_templates['start']
+                cdlt_start = self.cdlt_flex_templates['start'][c.instance_id]
                 assert isinstance(cdlt_start, list)
                 assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start])
                 for ft in cdlt_start:
@@ -536,9 +557,10 @@ class CodeletProgram(object):
             codelet_strings.append(self.emit_single_codelet(c, output_type))
             # Emit codelet end
             if output_type not in ['operations', 'operations_idx']:
-                cdlt_end = self.cdlt_flex_templates['end']
+                cdlt_end = self.cdlt_flex_templates['end'][c.instance_id]
                 assert isinstance(cdlt_end, list)
                 assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end])
+
                 for ft in cdlt_end:
                     codelet_strings += ft.emit(output_type)
         return codelet_strings
@@ -575,7 +597,7 @@ class CodeletProgram(object):
         # Emit codelet start
         if output_type not in ['operations', 'operations_idx']:
 
-            cdlt_start = self.cdlt_flex_templates['start']
+            cdlt_start = self.cdlt_flex_templates['start'][cdlt_id]
             assert isinstance(cdlt_start, list)
             assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start])
             for ft in cdlt_start:
@@ -587,7 +609,7 @@ class CodeletProgram(object):
 
         # Emit codelet end
         if output_type not in ['operations', 'operations_idx']:
-            cdlt_end = self.cdlt_flex_templates['end']
+            cdlt_end = self.cdlt_flex_templates['end'][cdlt_id]
             assert isinstance(cdlt_end, list)
             assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end])
             for ft in cdlt_end:
@@ -618,7 +640,7 @@ class CodeletProgram(object):
             for ft in cdlt_start:
                 assert ft.template_type == "codelet"
                 ft.evaluate(*args)
-            self._cdlt_flex_templates['start'] = cdlt_start
+            self._cdlt_flex_templates['start'][cdlt.instance_id] = cdlt_start
 
         if self.hag.has_op_template("codelet", "end"):
             cdlt_end = self.hag.get_cdlt_op_template_copy("end")
@@ -626,14 +648,33 @@ class CodeletProgram(object):
             for ft in cdlt_end:
                 assert ft.template_type == "codelet"
                 ft.evaluate(*args)
-            self._cdlt_flex_templates['end'] = cdlt_end
+            self._cdlt_flex_templates['end'][cdlt.instance_id] = cdlt_end
 
 
     def evaluate_lazy_instruction_templates(self, cdlt):
+        if self.hag.has_op_template("codelet", "start"):
+            # cdlt_start = self.hag.get_cdlt_op_template_copy("start")
+            cdlt_start = self._cdlt_flex_templates['start'][cdlt.instance_id]
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_start:
+                assert ft.template_type == "codelet"
+                ft.lazy_evaluate(*args)
+            self._cdlt_flex_templates['start'][cdlt.instance_id] = cdlt_start
+
         for o in cdlt.ops:
             args = (self, self.hag, o.global_op_id, cdlt.instance_id)
             for ft in o.instructions:
                 ft.lazy_evaluate(*args)
+
+        if self.hag.has_op_template("codelet", "end"):
+
+            # cdlt_end = self.hag.get_cdlt_op_template_copy("end")
+            cdlt_end = self._cdlt_flex_templates['end'][cdlt.instance_id]
+            args = (self, self.hag, -1, cdlt.instance_id)
+            for ft in cdlt_end:
+                assert ft.template_type == "codelet"
+                ft.lazy_evaluate(*args)
+            self._cdlt_flex_templates['end'][cdlt.instance_id] = cdlt_end
 
     def add_operand_mapping(self, cdlt: Codelet, parent_node: pm.Node, node: pm.Node, operand: Operand, operand_type):
 
@@ -941,6 +982,30 @@ class CodeletProgram(object):
                 ft.evaluate(*args)
             self._program_flex_templates['end'] = end_instrs
 
+    def cdlt_num_instr(self, cdlt) -> int:
+        cdlt = self.get_codelet(cdlt.instance_id)
+        base = cdlt.num_instr
+
+        # First, collect end instructions
+        end_instr = 0
+        cdlt_end_instr = self.cdlt_flex_templates['end'][cdlt.instance_id]
+        assert isinstance(cdlt_end_instr, list)
+        assert all([isinstance(ft, FlexTemplate) for ft in cdlt_end_instr])
+
+        for ft in cdlt_end_instr:
+            end_instr += len(ft.instructions)
+
+        # Next, collect preamble instructions
+        start_instr = 0
+        cdlt_start_instr = self.cdlt_flex_templates['start'][cdlt.instance_id]
+        assert isinstance(cdlt_start_instr, list)
+        assert all([isinstance(ft, FlexTemplate) for ft in cdlt_start_instr])
+        for ft in cdlt_start_instr:
+            start_instr += len(ft.instructions)
+
+        return base + start_instr + end_instr
+
+
     def finalize_instruction_memory(self, node_sequence, codelets, verbose=False):
         if verbose:
             print(f"Finalizing Instruction memory")
@@ -951,9 +1016,9 @@ class CodeletProgram(object):
                 if verbose:
                     print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
                 continue
-            self.relocatables.update_relocation_offset('INSTR_MEM',
-                                                       cdlt.cdlt_uid,
-                                                       cdlt.num_instr * self.hag.instr_length)
+            num_instr = self.cdlt_num_instr(cdlt)
+            self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid,
+                                                       num_instr * self.hag.instr_length)
 
     def finalize_flex_params(self, node_sequence, codelets, verbose=False):
         if verbose:

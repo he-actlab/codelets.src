@@ -181,6 +181,11 @@ def set_defaults(cfg):
     if 'OBUF_TO_VMEM_TEST' not in cfg:
         cfg['OBUF_TO_VMEM_TEST'] = False
 
+    if 'SINGLE_PROGRAM_COMPILATION' not in cfg:
+        cfg['SINGLE_PROGRAM_COMPILATION'] = False
+    else:
+        assert isinstance(cfg['SINGLE_PROGRAM_COMPILATION'], bool)
+
     return cfg
 
 def load_config(fpath):

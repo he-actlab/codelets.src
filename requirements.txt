@@ -13,3 +13,4 @@ tqdm
 fxpmath
 torchvision
 onnx-simplifier
+gitpython

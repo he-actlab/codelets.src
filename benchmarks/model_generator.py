@@ -1811,6 +1811,28 @@ def optimize_mobilenet():
     load_path = f"{MODEL_DIR}/mobilenetv2-12.onnx"
     store_path = f"{MODEL_DIR}/mobilenetv2-12-opt.onnx"
 
+
+def extract_layer(model_name, layer_name):
+    MODEL_DIR = Path(f"{Path(__file__).parent}/models")
+
+    load_path = f"{MODEL_DIR}/{model_name}.onnx"
+    store_path = f"{MODEL_DIR}/{model_name}_{layer_name.lower()}.onnx"
+    model = onnx.load_model(load_path)
+    inputs = None
+    outputs = None
+    for n in model.graph.node:
+        if n.name == layer_name:
+            inputs = n.input
+            outputs = n.output
+            break
+    if inputs is None or outputs is None:
+        raise RuntimeError(f"Unable to find and extract layer with name {layer_name} from {model_name}")
+
+    e = onnx.utils.Extractor(model)
+    extracted = e.extract_model(inputs, outputs)
+    onnx.save(extracted, store_path)
+
+
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
 
@@ -1930,7 +1952,9 @@ if __name__ == "__main__":
         #           "Sub",
         #          "Add"]
         # ]
-        create_vgg16(False, False, False, False)
+        # optimize_graph('ddpg_model')
+        extract_layer("bert-base-cased-transpose-opt-trimmed-ort", "Transpose_1111")
+        # create_vgg16(False, False, False, False)
         # create_vgg16(args.optimize_model,
         #              args.training_mode,
         #              args.data_format_convert,

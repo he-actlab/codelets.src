@@ -33,7 +33,7 @@ class Relocation:
 
 
 class RelocationTable(object):
-    MEM_LAYOUT = ['INSTR_MEM', 'STATE', 'INTERMEDIATE']
+    MEM_LAYOUT = ['INSTR_MEM', 'STATE', 'INTERMEDIATE', 'INPUTS', 'OUTPUTS']
     def __init__(self, storage_node: StorageNode, mem_layout=None, offsets=None):
         self._top_level_node = storage_node.name
         self._mem_layout = mem_layout or RelocationTable.MEM_LAYOUT
@@ -121,9 +121,10 @@ class RelocationTable(object):
     def get_relocation_base(self, namespace: str, item_id: Union[str, int]):
         namespace_offset = self.get_namespace_offset(namespace)
         object_offset = self.get_relocation(namespace, item_id).start
+
         total_bit_offset = (namespace_offset + object_offset)
 
-        assert total_bit_offset % self.storage_node.mem_width == 0, f"Invalid offset for address retrieval:\n" \
+        assert total_bit_offset % self.storage_node.width == 0, f"Invalid offset for address retrieval:\n" \
                                                            f"Storage width: {self.storage_node.width}\n" \
                                                            f"Namespace {namespace} offset: {namespace_offset}\n" \
                                                            f"Object {item_id} offset: {object_offset}"
@@ -136,6 +137,9 @@ class RelocationTable(object):
         if offset_id not in self.relocatables[offset_type].bases:
             relocatable.bases[offset_id] = Fragment(offset_id, current_offset, current_offset + size)
             relocatable.total_length += size
+        elif offset_type in ['INPUTS', 'OUTPUTS']:
+            return
+            # raise RuntimeError(f"Existing relocation offset for offset type {offset_type} for operand {offset_id} found")
         else:
             # TODO: Need to add back in error handling here for the same data with different datatypes
             stored_size = relocatable.bases[offset_id].end - relocatable.bases[offset_id].start
@@ -154,11 +158,15 @@ class RelocationTable(object):
             else:
                 offset_type = 'INTERMEDIATE'
             self.update_relocation_offset(offset_type, i.name, data_size)
+            self.update_relocation_offset('INPUTS', i.name, data_size)
+
 
         for idx, operand in enumerate(cdlt.outputs):
             o = node.outputs[idx]
             data_size = np.prod(operand.shape)*operand.dtype.bits()
             offset_type = 'INTERMEDIATE'
             self.update_relocation_offset(offset_type, o.name, data_size)
+            self.update_relocation_offset('OUTPUTS', o.name, data_size)
+
 
         self.update_namespace_offsets()

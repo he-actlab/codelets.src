@@ -92,7 +92,7 @@ def print_unique_model_layers(model_name, store_as_polymath=False):
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     new_model_path = f"{MODEL_DIR}/{model_name}_shapes.onnx"
     model = onnx.load_model(model_path)
-    model = onnx.shape_inference.infer_shapes(model)
+    # model = onnx.shape_inference.infer_shapes(model)
     with open(new_model_path, "wb") as f:
         f.write(model.SerializeToString())
     for n in model.graph.node:
@@ -100,7 +100,11 @@ def print_unique_model_layers(model_name, store_as_polymath=False):
             layers[n.op_type] = 1
         else:
             layers[n.op_type] += 1
-    print(list(layers.keys()))
+
+    for k, v in layers.items():
+        print(f"{k}, {v}")
+
+
 
 def get_onnx_shape(tensor_dict, val_name):
     assert val_name in tensor_dict
@@ -168,12 +172,12 @@ if __name__ == "__main__":
     #                        const=True, help='Whether or not the model should be converted to PolyMath')
     # args = argparser.parse_args()
     # model_name = 'lenetbn'
-    model_name = 'cc3'
+    model_name = 'vit-pad256-transpose-ort'
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     #
     # convert_model_to_polymath(model_path)
-    store_unique_model_layers(model_name, store_as_polymath=True)
-    # print_unique_model_layers(model_name, store_as_polymath=True)
+    # store_unique_model_layers(model_name, store_as_polymath=True)
+    print_unique_model_layers(model_name, store_as_polymath=False)
     # store_target_model_layer(model_name, "Conv", store_name="conv_large", store_as_polymath=True, store_min=False, tgt_layer_name='Conv_114')
     # model_names = ['reference_fc1', 'resnet_50_v2_fc1', 'resnet_50_v2_c1', 'resnet_50_v2_c2', 'vgg_16_fc1', 'vgg_16_c2',
     #                'inceptionv3_fc1', 'inceptionv3_c1', 'squeezenet_c1', 'squeezenet_c2', 'mobilenet_v3_large_c1',

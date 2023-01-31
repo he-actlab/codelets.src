@@ -106,7 +106,7 @@ class FlexTemplate:
         self.instructions.append(instruction)
 
     def add_condition(self, condition_str: str):
-        base_args = self.get_flex_arg_names(include_instruction=self.template_type == "instruction")
+        base_args = self.get_flex_arg_names(include_instruction=self.template_type in ["instruction", "codelet"])
         self.conditional = FlexParam("conditional", base_args, condition_str)
 
     def set_print_tabs(self, tab_val: Union[str, int]):
@@ -148,12 +148,13 @@ class FlexTemplate:
         self.instructions = instruction_list
 
     def evaluate(self, program, hag, op_idx, cdlt_id):
-        fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
+
+        fn_args = self.create_fn_args(program, hag, op_idx, cdlt_id)
         instructions = self.evaluate_iterable_instructions(fn_args, 0, {})
         self.set_instructions(instructions)
 
     def lazy_evaluate(self, program, hag, op_idx, cdlt_id):
-        fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
+        fn_args = self.create_fn_args(program, hag, op_idx, cdlt_id)
         self.lazy_evaluate_iterable_instructions(fn_args, 0, {}, 0)
 
 
@@ -239,7 +240,7 @@ class FlexTemplate:
 
     def set_instruction_length(self, program, hag, op_idx, cdlt_id):
         instr_size = 0
-        fn_args = self.create_fn_args(program, hag, cdlt_id, op_idx)
+        fn_args = self.create_fn_args(program, hag, op_idx, cdlt_id)
 
         for idx in range(len(self.iterables)):
             iterable = self.iterables[idx].evaluate_fn(*fn_args)
@@ -250,7 +251,6 @@ class FlexTemplate:
     def evaluate_conditional(self, fn_args, iter_args):
 
         if self.conditional is not None:
-            # fn_args = fn_args + tuple(iter_args.values())
             fn_args = fn_args + tuple(iter_args.values()) + tuple(self.current_sideeffects().values())
             condition = self.conditional.evaluate_fn(*fn_args, force_evaluate=True)
         else:
@@ -278,7 +278,7 @@ class FlexTemplate:
         if iter_idx >= len(self.iterables):
             for bi in self.base_instructions:
                 instruction = bi.instruction_copy()
-                if self.template_type == "instruction":
+                if self.template_type in ["instruction", "codelet"]:
                     cond_args = fn_args + (instruction,)
                 else:
                     cond_args = fn_args
@@ -340,16 +340,16 @@ class FlexTemplate:
                             template_type=self.template_type
                             )
 
-    def create_fn_args(self, program, hag, cdlt_id, op_id):
+    def create_fn_args(self, program, hag, op_id, cdlt_id):
 
         args = [program, hag, program.relocatables]
         if cdlt_id >= 0:
             cdlt = program.get_codelet(cdlt_id)
+
             args.append(cdlt)
             if op_id >= 0:
                 op = cdlt.get_op(op_id)
                 args.append(op)
-
         args.append(self)
         return tuple(args)
 
@@ -374,6 +374,11 @@ class FlexTemplate:
             new_args = Instruction.INSTR_TYPE_ARGS[tmplt_type].copy() + self.arg_names[len(prev_template):]
             assert len(self.instructions) == 0
             self.template_type = tmplt_type
+
             for bi in self.base_instructions:
                 bi.update_instr_args_from_type(self.arg_names, new_args)
+
+            if self.conditional is not None:
+                self.conditional.reset_base_fn_args(self.arg_names, new_args)
+
             self.arg_names = new_args

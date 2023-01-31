@@ -77,8 +77,9 @@ def reduce_mean(cdlt_name: str, ninput_dims, axis, hag: ArchitectureNode):
             OperationTemplate.loop_ctx_dependencies.pop()
 
         cdlt.configure("end", "SIMD")
-        cdlt = add_simd_constraint(hag, cdlt, DIM_NAMES[ninput_dims - 1])
-        # cdlt.add_compilation_param("LEVEL1_hint", f"splits['{DIM_NAMES[axis]}'] == 1")
+        inner_dim = DIM_NAMES[ninput_dims - 1]
+        cdlt = add_simd_constraint(hag, cdlt, inner_dim)
+        cdlt.add_compilation_param("LEVEL1_hint", f"sizes['{inner_dim}'] > {hag.all_subgraph_nodes['SIMD'].dimensions[0]}")
 
     return cdlt
 

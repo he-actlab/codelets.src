@@ -56,6 +56,7 @@ DTYPE_CAST_NAMES = ["32FXP_16FXP", "32FXP_8FXP", "32FXP_4FXP", "16FXP_32FXP", "8
 ALL_LOOP_ID = f"(len(cdlt.compute_node_loops('SIMD')))"
 OPERAND_ITER = ("operand", "op.operands_by_unique_location")
 LOOP_ITER = ('loop_op', f'cdlt.get_ops_by_type("loop")')
+LOOP_ITER_ENUM = ('loop_op', f'enumerate(cdlt.get_ops_by_type("loop"))')
 
 # Stride calculation
 MVMT_TYPE = f"'up' if operand.data_path[0] == 'DRAM' else 'down'"
@@ -66,6 +67,10 @@ LOOP_STRIDE = f"operand.get_offset(cdlt," \
               f"hag, op.op_str, 'SIMD', write={RD_WRITE_OPERAND}, " \
               f"outer_loop=False)"
 
+TRANSPOSE_LOOP_STRIDE_RD = f"op.sources[0].get_offset(cdlt," \
+              f"loop_op[1].loop_id," \
+              f"hag, op.op_str, 'SIMD', write=False, " \
+              f"outer_loop=False)"
 
 
 # Instruction generation conditions
@@ -77,12 +82,16 @@ IS_DIRECT_DEP_COND = f"cdlt.is_direct_loop_dep(loop_op, 'SIMD')"
 LOOP_CONDS = [COMPUTE_DEP, OUTER_LOOP_COND, IS_DIRECT_DEP_COND]
 
 # Operand location string
-OPERAND_LOC = f"op.get_operand_location(operand.name)"
+OPERAND_LOC_TMPLT = "op.get_operand_location({OPERAND}.name)"
+OPERAND_LOC = OPERAND_LOC_TMPLT.format(OPERAND="operand")
+
 
 BASE_SIGN_EXT_TEMPLATE = "({OPERAND}.get_mem_offset({OP_LOC})//(hag.get_subgraph_node({OP_LOC}).data_size)) if op.get_operand_location({OPERAND}.name) " \
                 "!= 'IMM' else cdlt.temps.index({OPERAND})"
 
 BASE_SIGN_EXT = BASE_SIGN_EXT_TEMPLATE.format(OPERAND="operand", OP_LOC=OPERAND_LOC)
+BASE_SIGN_EXT_TR_RD = BASE_SIGN_EXT_TEMPLATE.format(OPERAND="op.sources[0]", OP_LOC=f"op.get_operand_location(op.sources[0].name)")
+BASE_SIGN_EXT_TR_WR = BASE_SIGN_EXT_TEMPLATE.format(OPERAND="op.dests[0]", OP_LOC=f"op.get_operand_location(op.dests[0].name)")
 # BASE_SIGN_EXT = f"(operand.get_mem_offset({OPERAND_LOC})//(hag.get_subgraph_node({OPERAND_LOC}).data_size) + 1) if op.get_operand_location(operand.name) " \
 #                 f"!= 'IMM' else cdlt.temps.index(operand)"
 
@@ -92,18 +101,18 @@ ENUM_IS_DEP_COND = f'loop_op[1].op_str in cdlt.all_dependencies(op.dependencies)
 ENUM_OUTER_LOOP_COND = f'loop_op[1].loop_level < op.loop_level'
 ENUM_IS_DIRECT_DEP_COND = f"cdlt.is_direct_loop_dep(loop_op[1], 'SIMD')"
 ENUM_LOOP_CONDS = [ENUM_IS_DEP_COND, ENUM_OUTER_LOOP_COND, ENUM_IS_DIRECT_DEP_COND]
+LOOP_ITER_ENUM_TRANSPOSE_WR = ('loop_op', f'cdlt.get_transpose_loops(op)')
 
 
-def simd_transpose_rd(hag):
+def simd_transpose_rd_(hag):
     instructions = []
     loop_tabs = f"{ALL_LOOP_ID} + loop_op[0] - 1"
     src_loop_iter = ('loop_op', f'enumerate(cdlt.get_ops_by_type("loop"))')
 
     ## Source Read
     operand = "op.sources[0]"
-
-    src_movement_type = f"'up' if {operand}.data_path[0] == 'DRAM' else 'down'"
-    src_loop_iters = f"cdlt.inner_iter({operand}, loop_op[1], loop_op[0]) - 1"
+    # src_loop_iters = f"cdlt.inner_iter({operand}, loop_op[1], loop_op[0]) - 1"
+    src_loop_iters = f"loop_op[1].iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op[1].op_str]] - 1"
 
     src_op_loc = f"op.get_operand_location({operand}.name)"
 
@@ -112,7 +121,8 @@ def simd_transpose_rd(hag):
     # src_base_sign_ext = f"({operand}.get_mem_offset({src_op_loc})//({operand}.dtype.bits()) + 1) if {src_op_loc} " \
     #                     f"!= 'IMM' else cdlt.temps.index({operand})"
     src_base_sign_ext = BASE_SIGN_EXT_TEMPLATE.format(OPERAND=operand, OP_LOC=src_op_loc)
-    src_loop_stride = f"cdlt.inner_stride({operand}, loop_op[1], loop_op[0])"
+    # src_loop_stride = f"cdlt.inner_stride({operand}, loop_op[1], loop_op[0])"
+    src_loop_stride = TRANSPOSE_LOOP_STRIDE_RD
 
     src_base_instr = hag.get_primitive_template("PERM_SET_BASE_ADDR")
     src_base_instr.set_print_tabs(ALL_LOOP_ID)
@@ -140,17 +150,13 @@ def simd_transpose_rd(hag):
 
     return instructions
 
-def simd_transpose_wr(hag):
+def simd_transpose_wr_(hag):
     instructions = []
     simd_size = hag.get_subgraph_node("SIMD").dimensions[0]
     loop_tabs = f"{ALL_LOOP_ID} + loop_op[0]"
     dst_loop_iter = ('loop_op', f'enumerate(cdlt.get_ops_by_type("loop")[:-2] + [list(cdlt.get_ops_by_type("loop"))[-1]] + [list(cdlt.get_ops_by_type("loop"))[-2]])')
-    transpose_axes = f"[i for i,s in enumerate(op.sources[0].shape_list) if s != op.dests[0].shape_list[i]]"
-    # Previous dst_outer_iters
-    # dst_outer_iters = f'cdlt.get_ops_by_type("loop")[-2].iter_count // {simd_size}'
-    # New dst outer_iters
+
     dst_outer_iters = f'max([l.iter_count for i, l in enumerate(cdlt.get_ops_by_type("loop")) if i >= len(cdlt.get_ops_by_type("loop"))/2]) // {simd_size}'
-    # end changes
 
     dst_outer_stride = f'cdlt.get_ops_by_type("loop")[-1].iter_count'
 
@@ -161,16 +167,8 @@ def simd_transpose_wr(hag):
 
     ## Changes for benchmarking
     # Original implementation
-    # dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else (({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
+    dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else (({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
 
-    # This is option 1, which worked, but is more inaccurate relative to the number of iterations
-    # alt_dst_iters = f"1 if {dst_outer_iters} == 0 else ((({dst_loop_iter_base})//({dst_outer_iters})) - 1)"
-    # dst_loop_iters = f"({dst_loop_iter_base}-1) if loop_op[0] != list({dst_loop_iter[1]})[-1][0] else {alt_dst_iters}"
-
-    # Option 2, which uses the lowest tile level to determine iterations, and is more accurate
-    alt_dst_iters = f"loop_op[1].iter_count//{simd_size} - 1"
-    cond = f"cdlt.param_tiling[2][cdlt.loop_param_map[loop_op[1].op_str]] != {simd_size}"
-    dst_loop_iters = f"loop_op[1].iter_count-1 if {cond} else {alt_dst_iters}"
 
     ## End changes for benchmarking
 
@@ -227,12 +225,135 @@ def simd_transpose_wr(hag):
     instructions.append(dst_stride_instr)
     return instructions
 
+def simd_transpose_wr(hag):
+    instructions = []
+    # In contrast to transpose rd, write must take into account the dimensions to be transposed.
+    operand = "op.dests[0]"
+    ns_idx = f"(loop_op[1].loop_level % {ALL_LOOP_ID}) + ({operand}.get_mem_index({OPERAND_LOC_TMPLT.format(OPERAND=operand)}) * {ALL_LOOP_ID}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+    # We also have an additional loop for the write instruction, which means we need to increment the ns_idx by 1
+    ns_idx = f"({ns_idx}) + 1"
+
+    # First, we set the base addr for the input operand being written
+    # Currently, permutation operations only support 16 bit addresses
+    base_sign_ext = f"program.extract_bits({BASE_SIGN_EXT_TR_WR}, 16, 0)"
+    base_instr = hag.get_primitive_template("PERM_SET_BASE_ADDR")
+    base_instr.set_print_tabs(ALL_LOOP_ID)
+    base_instr.set_field_by_name('RD_WR', "WR")
+    base_instr.set_field_flex_param('BASE_ADDR', base_sign_ext)
+    instructions.append(base_instr)
+
+    # Second, we generate an outer loop which iterates over the maximum iteration number
+
+    #TODO
+
+    # Third, we need to generate stride and iteration instructions for each dimension
+    # To factor in the dimensions being transposed, we need to iterate over loops in a different order than the read instruction
+    # Specifically, if one of the dimensions being transposed is one of the innermost dimensions,
+
+    # Case #1: Outer dimensions are being transposed, e.g. for an input with shape (N, H, W, C)=(4,2,2,8) which transposes N, H, we get (H, N, W, C)
+    # Lanes = 4
+    # A. (N, H, W, C)=(4,2,2,8) --> (H, N, W, C)=(2,4,2,8)
+        # PERM DIMS -> (N, H)
+        ## RD Loop order -> (N, H, W, C) -> (4,2,2,8):
+            ## N: iter=4, stride=(2*2*8)/4 -> 8
+            ## H: iter=2, stride=(2*8)/4 -> 4
+            ## W: iter=2, stride=8/4 -> 2
+            ## C: iter=8/4 -> 2, stride=1
+        ## WR Loop order -> (H, N, W, C) -> (2,4,2,8):
+            ## N: iter=4, stride= 2*8/4 -> 4
+            ## H: iter=2, stride=(4*2*8/4) -> 16
+            ## W: iter=2, stride=2
+            ## C: iter=8/4 -> 2, stride=1
+    # dims = [N: 4, H: 2, W: 2, C: 8]
+    # B. (N, H, W, C)=(4,2,2,8) --> (N, W, H, C)=(2,2,4,8)
+        # PERM DIMS -> (H, W)
+        ## RD Loop order -> (N, H, W, C) -> (4,2,2,8):
+            ## N: iter=4, stride=(2*2*8)/4 -> 8
+            ## H: iter=2, stride=(2*8)/4 -> 4
+            ## W: iter=2, stride=8/4 -> 2
+            ## C: iter=8/4 -> 2, stride=1
+        ## WR Loop order -> (N, W, H, C) -> (2,2,4,8):
+            ## N: iter=4, stride=(2*2*8)/4 -> 8
+            ## W: iter=2, stride=8/4 -> 2
+            ## H: iter=2, stride=(2*8)/4 -> 4
+            ## C: iter=8/4 -> 2, stride=1
+
+
+    # Case #2: An inner dimensions is being transposed, e.g. for an input with shape (N, H, W, C)=(4,2,2,8) which transposes W, C we get (N, H, C, W)
+    # Lanes = 4
+    ## RD Loop order -> (N, H, W, C):
+        ## C: iter=2, stride=2
+        ## N: iter=2, stride=1
+        ## W: iter=2, stride=16
+        ## H: iter=4, stride=4
+    ## WR Loop order -> (N, H, C, W)
+        ## C: iter=2, stride=2
+        ## N: iter=2, stride=1
+        ## H: iter=1, stride=0
+        ## W: iter=8, stride=4
+
+    macro_instr = hag.get_primitive_template("PERM_SET_LOOP_STRIDE")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_iterable(*LOOP_ITER_ENUM_TRANSPOSE_WR)
+    macro_instr.set_field_by_name("RD_WR", "WR")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", ns_idx)
+    macro_instr.set_field_flex_param("STRIDE", "loop_op[2]")
+
+    iter_instr = hag.get_primitive_template("PERM_SET_LOOP_ITER")
+    iter_instr.set_print_tabs(ALL_LOOP_ID)
+    iter_instr.add_iterable(*LOOP_ITER_ENUM_TRANSPOSE_WR)
+    iter_instr.set_field_by_name("RD_WR", "WR")
+    iter_instr.set_field_flex_param("LOOP_INDEX_ID", ns_idx)
+    iter_instr.set_field_flex_param("NUM_ITERS", "loop_op[3]")
+    macro_instr.add_base_instruction(iter_instr)
+    instructions.append(macro_instr)
+
+    return instructions
+
+def simd_transpose_rd(hag):
+    instructions = []
+    operand = "op.sources[0]"
+    ns_idx = f"(loop_op[1].loop_level % {ALL_LOOP_ID}) + ({operand}.get_mem_index({OPERAND_LOC_TMPLT.format(OPERAND=operand)}) * {ALL_LOOP_ID}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+    niters = f"loop_op[1].iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op[1].op_str]] - 1"
+    # First, we set the base addr for the input operand being read
+    # Currently, permutation operations only support 16 bit addresses
+    base_sign_ext = f"program.extract_bits({BASE_SIGN_EXT_TR_RD}, 16, 0)"
+
+    base_instr = hag.get_primitive_template("PERM_SET_BASE_ADDR")
+    base_instr.set_print_tabs(ALL_LOOP_ID)
+    base_instr.set_field_by_name('RD_WR', "RD")
+    base_instr.set_field_flex_param('BASE_ADDR', base_sign_ext)
+    instructions.append(base_instr)
+
+    # Second, we need to generate stride and iteration instructions for each dimension
+    macro_instr = hag.get_primitive_template("PERM_SET_LOOP_STRIDE")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_iterable(*LOOP_ITER_ENUM)
+    macro_instr.add_condition(" and ".join(ENUM_LOOP_CONDS))
+    macro_instr.set_field_by_name("RD_WR", "RD")
+    macro_instr.set_field_flex_param("LOOP_INDEX_ID", ns_idx)
+    macro_instr.set_field_flex_param("STRIDE", TRANSPOSE_LOOP_STRIDE_RD)
+
+    iter_instr = hag.get_primitive_template("PERM_SET_LOOP_ITER")
+    iter_instr.set_print_tabs(ALL_LOOP_ID)
+    iter_instr.add_iterable(*LOOP_ITER_ENUM)
+    iter_instr.add_condition(" and ".join(ENUM_LOOP_CONDS))
+    iter_instr.set_field_by_name("RD_WR", "RD")
+    iter_instr.set_field_flex_param("LOOP_INDEX_ID", ns_idx)
+    iter_instr.set_field_flex_param("NUM_ITERS", niters)
+    macro_instr.add_base_instruction(iter_instr)
+    instructions.append(macro_instr)
+
+
+    return instructions
+
+
 def simd_transpose(hag):
     instructions = []
     src_op_loc = f"op.get_operand_location(op.sources[0].name)"
     dst_op_loc = f"op.get_operand_location(op.dests[0].name)"
 
-    instructions += simd_transpose_rd(hag)
+    # instructions += simd_transpose_rd(hag)
     instructions += simd_transpose_wr(hag)
 
 

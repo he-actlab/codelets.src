@@ -414,6 +414,53 @@ class Codelet(object):
                 ops.append(o)
         return ops
 
+    def get_transpose_loops(self, op: Compute):
+        loops = self.get_ops_by_type("loop")
+        filtered = []
+        for l in loops:
+            if l.op_str not in self.all_dependencies(op.dependencies):
+                continue
+            elif l.loop_level >= op.loop_level:
+                continue
+            elif not self.is_direct_loop_dep(l, 'SIMD'):
+                continue
+            else:
+                filtered.append(l)
+        assert len(filtered) == len(op.dests[0].shape), "Invalid loops for transpose operation"
+        perm_dims = []
+        perm_loops = []
+        for i in range(len(op.dests[0].shape)):
+            assert f"axis{i}" in self.required_params
+            if self.required_params[f"axis{i}"].value != i:
+                perm_dims.append((i, self.required_params[f"axis{i}"].value))
+            else:
+                perm_loops.append(filtered[i])
+
+        if len(perm_dims) > 2:
+            raise RuntimeError("Unable to perform transpose operation on more than two dimensions at a time")
+        for i in perm_dims:
+            perm_loops.append(filtered[i[0]])
+
+        out_info = []
+        for i, l in enumerate(perm_loops):
+            curr = [i, l]
+            if i + 1 == len(perm_loops):
+                niters = 1
+                stride = 1
+            else:
+                niters = 1
+                stride = 1
+
+            # number of iterations
+            curr.append(niters)
+            # stride
+            curr.append(stride)
+            out_info.append(tuple(curr))
+
+        return out_info
+
+
+
     def get_max_loop_level(self):
         max_level = -1
         for l in self.ops:
@@ -1082,6 +1129,19 @@ class Codelet(object):
     def is_fusion(self) -> bool:
         return len(set([c.target for c in self.ops if c.op_type == "compute"])) > 1
 
+    def get_operand_by_location(self, loc):
+        for o in self.operands:
+            if loc in o.data_path:
+                return o
+        raise RuntimeError(f"Unable to find operand at location {loc} for codelet {self.cdlt_uid}")
+
+    def is_operand_location_used(self, loc):
+        for o in self.operands:
+            if loc in o.data_path:
+                return True
+        return False
+
+
     def inner_stride(self, operand, loop, loop_idx):
 
         loop_tile_level = self.get_loop_tile_level(loop.loop_level)
@@ -1100,7 +1160,7 @@ class Codelet(object):
 
         rel_idx = operand.shape_list.index(loop_param) - len(operand.shape_list)
         loop_iters = loop.iter_count
-        if abs(rel_idx) <=1:
+        if abs(rel_idx) <= 1:
             loop_iters = np.ceil(loop_iters/tgt_tile_size).astype(np.int32)
         return loop_iters
 
