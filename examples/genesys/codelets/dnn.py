@@ -551,7 +551,10 @@ def softmax4d(hag):
         cval = create_immediate_with_operand(cdlt,'cval', 1.353, simd_size=simd_size, cast_float_to_fxp=True)
         dval = create_immediate_with_operand(cdlt,'dval', 0.3585, simd_size=simd_size, cast_float_to_fxp=True)
         eval = create_immediate_with_operand(cdlt,'eval', 0.344, simd_size=simd_size, cast_float_to_fxp=True)
-        zero = create_immediate_with_operand(cdlt,'zero', 0, simd_size=simd_size)
+        one = create_immediate_with_operand(cdlt, 'one', 1, simd_size=simd_size)
+        axis = cdlt.dummy_op("axis", cdlt.node.kwargs['axis'][0])
+
+        # axis =
         min_val, _ = range_from_cfg(FXP_CONFIGS[acc_dtype_name])
         mval_op = cdlt.dummy_op('min_val', min_val)
         min_op = cdlt.create_temp_operand([simd_size], "IMM", name='min_val')
@@ -598,8 +601,8 @@ def softmax4d(hag):
                         cdlt.compute("ADD", [out[n,c,h,w], eval], [out[n, c, h, w]], target="SIMD")
 
                         # Next, compute sum for denominator
-                        cdlt.compute("MOVE", [zero], [mx[n, c, w]], target="SIMD")
-                        cdlt.compute("ADD", [out[n,c,h,w], mx[n,c,w]], [mx[n, c, w]], target="SIMD")
+                        cdlt.compute("MOVE", [one], [mx[n, c, w]], target="SIMD")
+                        cdlt.compute("MACC", [out[n, c, h, w], mx[n, c, w], out[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
 
 
                         cdlt.transfer(out, ["VMEM1", "DRAM"])

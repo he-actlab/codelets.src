@@ -1,4 +1,6 @@
 from examples.genesys import OP_DTYPES, QUANT_SCALE, SIGN_SHIFT, FXP_CONFIGS
+from examples.genesys.codelets.util import range_from_cfg
+
 from functools import partial
 from fxpmath import Fxp
 import numpy as np
@@ -218,8 +220,12 @@ class Softmax(ReferenceOp):
 
     def fn_impl(self, inouts):
         data = inouts['inputs'][0].data
-        exp_data = np.exp(data)
-        sum_data = np.sum(exp_data, axis=-2, keepdims=1)
+        axis = self.cdlt.required_params['axis'].value
+        minval, _ = range_from_cfg(FXP_CONFIGS[self.dtype])
+        floored = np.maximum(data, minval)
+        out = data - floored
+        exp_data = np.exp(out)
+        sum_data = np.sum(exp_data, axis=axis, keepdims=1)
         output = exp_data / sum_data
         inouts['outputs'] = [output]
         return inouts
