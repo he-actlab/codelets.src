@@ -187,8 +187,8 @@ def matmul(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with cdlt.loop(M) as m:
-            with cdlt.loop(N) as n:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -232,8 +232,8 @@ def matmul4d2d(hag: ArchitectureNode):
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
             with cdlt.loop(C) as c:
-                with cdlt.loop(M) as m:
-                    with cdlt.loop(N) as n:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(M) as m:
                         with cdlt.loop(P) as p:
                             cdlt.transfer(data, ["DRAM", "IBUF"])
                             cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -275,8 +275,8 @@ def matmul3d2d(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         with cdlt.loop(C) as c:
-            with cdlt.loop(M) as m:
-                with cdlt.loop(N) as n:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(M) as m:
                     with cdlt.loop(P) as p:
                         cdlt.transfer(data, ["DRAM", "IBUF"])
                         cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -316,8 +316,8 @@ def matmul2d(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with cdlt.loop(M) as m:
-            with cdlt.loop(N) as n:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -357,8 +357,8 @@ def matmul2d_no_quant(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with cdlt.loop(M) as m:
-            with cdlt.loop(N) as n:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -402,8 +402,8 @@ def matmul4d(hag: ArchitectureNode):
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
             with cdlt.loop(C) as c:
-                with cdlt.loop(M) as m:
-                    with cdlt.loop(N) as n:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(M) as m:
                         with cdlt.loop(P) as p:
                             cdlt.transfer(data, ["DRAM", "IBUF"])
                             cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -444,8 +444,8 @@ def matmul3d(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
-            with cdlt.loop(M) as m:
-                with cdlt.loop(N) as n:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(M) as m:
                     with cdlt.loop(P) as p:
                         cdlt.transfer(data, ["DRAM", "IBUF"])
                         cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -487,8 +487,8 @@ def matmul4d2d_no_quant(hag: ArchitectureNode):
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
             with cdlt.loop(C) as c:
-                with cdlt.loop(M) as m:
-                    with cdlt.loop(N) as n:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(M) as m:
                         with cdlt.loop(P) as p:
                             cdlt.transfer(data, ["DRAM", "IBUF"])
                             cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -528,8 +528,8 @@ def matmul3d2d_no_quant(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         with cdlt.loop(C) as c:
-            with cdlt.loop(M) as m:
-                with cdlt.loop(N) as n:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(M) as m:
                     with cdlt.loop(P) as p:
                         cdlt.transfer(data, ["DRAM", "IBUF"])
                         cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -571,8 +571,8 @@ def matmul4d_no_quant(hag: ArchitectureNode):
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
             with cdlt.loop(C) as c:
-                with cdlt.loop(M) as m:
-                    with cdlt.loop(N) as n:
+                with cdlt.loop(N) as n:
+                    with cdlt.loop(M) as m:
                         with cdlt.loop(P) as p:
                             cdlt.transfer(data, ["DRAM", "IBUF"])
                             cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -613,8 +613,8 @@ def matmul3d_no_quant(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         with cdlt.loop(B) as b:
-            with cdlt.loop(M) as m:
-                with cdlt.loop(N) as n:
+            with cdlt.loop(N) as n:
+                with cdlt.loop(M) as m:
                     with cdlt.loop(P) as p:
                         cdlt.transfer(data, ["DRAM", "IBUF"])
                         cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -831,9 +831,9 @@ def gemm_unquantized_(hag: ArchitectureNode):
         cdlt.configure("start", "BBUF")
         cdlt.configure("start", "OBUF")
         #
-        with cdlt.loop(P) as p:
-            with cdlt.loop(N) as n:
-                with cdlt.loop(M) as m:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
+                with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
                     cdlt.transfer(bias, ["DRAM", "BBUF"])
@@ -877,8 +877,8 @@ def gemm_no_bias_unquantized(hag: ArchitectureNode):
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
 
-        with cdlt.loop(M) as m:
-            with cdlt.loop(N) as n:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])
@@ -917,9 +917,8 @@ def matmul_unquantized(hag: ArchitectureNode):
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
-
-        with cdlt.loop(M) as m:
-            with cdlt.loop(N) as n:
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
                 with cdlt.loop(P) as p:
                     cdlt.transfer(data, ["DRAM", "IBUF"])
                     cdlt.transfer(weight, ["DRAM", "WBUF"])

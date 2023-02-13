@@ -27,6 +27,7 @@ OP_COMPUTE_CYCLES = {
     "POW": 0,
     "LN": 0,
     "SQRT": 8,
+    "DIV": 51,
     "INV_SQRT": 0,
     "LOG2": 0,
     "EQUAL": 0,
@@ -1172,8 +1173,11 @@ def alu_noop(op_name, hag):
         sub_instr.set_field_flex_param('NS_INDEX_ID', "0")
         sub_instr.set_field_flex_param('IMM', f"0")
         macro_instr.add_base_instruction(sub_instr)
+        if op_name == "DIV":
+            noop_iters = f"{OP_COMPUTE_CYCLES[op_name] + hag.get_subgraph_node('SIMD').dimensions[0]}"
+        else:
+            noop_iters = f"{OP_COMPUTE_CYCLES[op_name]}"
 
-        noop_iters = f"{OP_COMPUTE_CYCLES[op_name]}"
         sub_instr = hag.get_primitive_template("SET_ITER")
         sub_instr.set_print_tabs("op.loop_level - 1")
         sub_instr.set_field_flex_param("LOOP_ID", f"op.loop_id % {all_loop_id}")

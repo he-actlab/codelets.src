@@ -250,7 +250,7 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
                                             cnt += 1
         return result
     else:
-        print(f"weight loop order: {weight_loop_order}")
+        # print(f"weight loop order: {weight_loop_order}")
 
         big_tile_size_oc = dram_tiling[weight_loop_order[0]]
         w_dim_outer = weight_symbols.index(weight_loop_order[0])

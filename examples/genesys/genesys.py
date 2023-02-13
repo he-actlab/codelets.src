@@ -36,7 +36,7 @@ VALID_MODELS = ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn', "my_ddpg
 def define_genesys(cfg):
     # TODO: Add capabilties to PE array not systolic_array
 
-    with ComputeNode("Genesys", meta_cfg=cfg) as hag:
+    with ComputeNode("Genesys", meta_cfg=cfg, instr_mem_align=cfg['INSTR_MEM_ALIGN']) as hag:
         VMEM_PARTITIONS = [cfg['VMEM_DEPTH'], cfg['SIMD_WIDTH'], cfg['ACC_WIDTH']]
         IMM_PARTITIONS = [cfg['IMM_DEPTH'], cfg['ACC_WIDTH']]
         INSTR_PARTITIONS = [cfg['INSTR_DEPTH'], cfg['INSTR_WIDTH']]

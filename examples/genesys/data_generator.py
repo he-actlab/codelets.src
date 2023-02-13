@@ -402,7 +402,9 @@ class DataGen(object):
         return info_blob
 
     def generate_whole_program_data(self):
-        input_offset = 0
+        last_cdlt_id = len(self.program.codelets)
+        input_offset = self.program.get_instr_mem_end()
+
         output_offset = 0
         info_map = {"inputs": {}, "outputs": {}}
 

@@ -186,6 +186,9 @@ def set_defaults(cfg):
     else:
         assert isinstance(cfg['SINGLE_PROGRAM_COMPILATION'], bool)
 
+    if 'INSTR_MEM_ALIGN' not in cfg:
+        cfg['INSTR_MEM_ALIGN'] = 4096*8
+
     return cfg
 
 def load_config(fpath):

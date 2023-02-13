@@ -118,6 +118,11 @@ class RelocationTable(object):
         assert namespace in self.mem_layout and namespace in self.namespace_offsets
         return self.namespace_offsets[namespace]
 
+    def get_namespace_size(self, namespace: str):
+        reloc = self.relocatables[namespace]
+        return reloc.total_length
+
+
     def get_relocation_base(self, namespace: str, item_id: Union[str, int]):
         namespace_offset = self.get_namespace_offset(namespace)
         object_offset = self.get_relocation(namespace, item_id).start

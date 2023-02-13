@@ -92,9 +92,10 @@ class ArchitectureNode(Node):
     sub_graph_ctx_nodes = deque([[]])
     sub_graph_ctx_edges = deque([{}])
 
-    def __init__(self, name, meta_cfg=None, index=None):
+    def __init__(self, name, meta_cfg=None, index=None, instr_mem_align=None):
         super(ArchitectureNode, self).__init__(index=index)
         self._meta_cfg = meta_cfg
+        self._instr_mem_align = instr_mem_align
         self._has_parent = None
         self._subgraph = ArchitectureGraph()
         self._instr_length = None
@@ -179,6 +180,11 @@ class ArchitectureNode(Node):
     @property
     def meta_cfg(self):
         return self._meta_cfg
+
+
+    @property
+    def instr_mem_align(self):
+        return self._instr_mem_align
 
     @property
     def parent_ctx_nodes(self) -> List:

@@ -224,7 +224,7 @@ class CodeletProgram(object):
 
     def next_codelet(self, curr: Codelet):
         curr_id = curr.instance_id
-        while curr_id + 1 < len(self.codelets):
+        while curr_id < len(self.codelets):
             next_cdlt = self.get_codelet(curr_id + 1)
             if next_cdlt.is_noop():
                 curr_id = curr_id + 1
@@ -232,12 +232,22 @@ class CodeletProgram(object):
                 return next_cdlt
         return None
 
+    def get_codelet_instr_end(self, cdlt_id: int) -> int:
+        cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
+        return self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).end//8
+
+    def get_instr_mem_end(self) -> int:
+        offset = self.relocatables.get_namespace_size('INSTR_MEM') // 8
+        return offset
+
     def get_codelet_instr_offset(self, cdlt_id: int) -> int:
         cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
         return self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start//8
 
+
     def get_input_operand_offset(self, operand: str):
-        return self.relocatables.get_relocation('INPUTS', operand).start
+
+        return self.relocatables.get_relocation('INPUTS', operand).start + (self.get_instr_mem_end())
 
     def get_output_operand_offset(self, operand: str):
         return self.relocatables.get_relocation('OUTPUTS', operand).start
@@ -1017,8 +1027,10 @@ class CodeletProgram(object):
                     print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
                 continue
             num_instr = self.cdlt_num_instr(cdlt)
-            self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid,
-                                                       num_instr * self.hag.instr_length)
+            instr_mem_align = self.hag.instr_mem_align
+            end_instr_addr = num_instr * self.hag.instr_length
+            instr_offset = end_instr_addr - (end_instr_addr % instr_mem_align) + instr_mem_align
+            self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid, instr_offset)
 
     def finalize_flex_params(self, node_sequence, codelets, verbose=False):
         if verbose:
