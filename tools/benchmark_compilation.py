@@ -243,6 +243,7 @@ def compile_benchmark(model_name,
                        identifier=identifier,
                        generate_data=arch_config['DATAGEN'],
                        verbose=verbose,
+                       out_path=f"{CWD}/compilation_output",
                         store_whole_program=arch_config['SINGLE_PROGRAM_COMPILATION'])
         dgen.generate()
 

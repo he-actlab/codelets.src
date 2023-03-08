@@ -33,6 +33,7 @@ class DataGen(object):
                  shared_datagen=False,
                  propagate_outputs=False,
                  print_datagen_range=False,
+                 out_path=None,
                  datagen_vrange=None):
         self.print_datagen_range = print_datagen_range
         self.datagen_vrange = datagen_vrange
@@ -54,8 +55,10 @@ class DataGen(object):
             assert all([o in OUTPUT_TYPES for o in output_types])
         else:
             self.output_types = OUTPUT_TYPES
-
-        output_dir = f"{OUT_DIR}/{program.name}"
+        if out_path is not None:
+            output_dir = f"{out_path}/{program.name}"
+        else:
+            output_dir = f"{OUT_DIR}/{program.name}"
         if dir_ext:
             output_dir = f"{output_dir}_{dir_ext}"
         self.output_dir = f"{output_dir}_{identifier}"
