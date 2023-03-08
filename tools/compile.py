@@ -8,12 +8,12 @@ from functools import partial
 from pprint import pprint
 
 import polymath as pm
-from examples.genesys import GENESYS_DTYPES, USE_QUANTIZATION, \
+from codelets.examples import GENESYS_DTYPES, USE_QUANTIZATION, \
     SW_PIPELINE_TEST, ADDR_GEN_TEST, PAPER_CFG2, PAPER_CFG1, CUSTOM_CFG
 
-from examples.genesys.codelets import FUSION_OP_INFO
-from examples.genesys.genesys_network_sim import compile_full_model
-from examples.genesys.data_generator import DataGen
+from codelets.examples import FUSION_OP_INFO
+from codelets.examples import compile_full_model
+from codelets.examples import DataGen
 from tools.compile_layer import store_program_codelets
 
 import onnxruntime as ort
@@ -242,6 +242,7 @@ def compile_benchmark(model_name,
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
                        single_codelets=not arch_config['SHARED_DATAGEN'],
+                       shared_datagen=arch_config['SHARED_DATAGEN'],
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
                        identifier=identifier,
                        generate_data=generate_data,

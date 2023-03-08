@@ -1,4 +1,4 @@
-from examples.genesys.genesys_qmodels import QLayer, shuffle_weights, dram_layout, gen_conv_testcase, get_model_values, gen_fc_layer_testcase
+from codelets.examples import QLayer, shuffle_weights, dram_layout, gen_conv_testcase, get_model_values, gen_fc_layer_testcase
 import torch
 import numpy as np
 

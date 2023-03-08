@@ -29,17 +29,6 @@ class Configure(Operation):
                                         target=target,
                                         resolved_params=resolved_params,
                                         add_codelet=add_codelet, **kwargs)
-        # codelet = Operation.current_codelet
-
-        # for k, v in config_params.items():
-        #     if v is None or isinstance(v, FlexParam):
-        #         self._required_params[k] = v
-        #         name = f"{self.op_str}{k}"
-        #         if name not in codelet.required_params:
-        #             codelet.add_required_param(name, value=v)
-        #     else:
-        #         self._resolved_params[k] = FlexParam(k)
-        #         self._resolved_params[k].value = v
 
 
     @property
@@ -67,6 +56,8 @@ class Configure(Operation):
         # TODO: Add template
         if output_type == "operations":
             op_str = f"{self.op_str}: {self.start_or_finish}-{self.target}"
+            if "immediate_value" in self.resolved_params:
+                op_str += f"[{self.resolved_params['index'].value}]={self.resolved_params['immediate_value'].value}"
         elif output_type == "json":
             op_str = {"op_type": self.op_type,
                       "op_id": self.global_op_id,

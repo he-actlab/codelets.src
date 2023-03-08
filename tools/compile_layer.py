@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 import json
 from codelets.compiler.program import CodeletProgram
-from examples.genesys.genesys_qmodels import generate_random_values
-from examples.genesys.datagen_functions import save_array, OperandData
-from examples.genesys import compile_genesys_layer, compile_genesys, get_arch
+from codelets.examples.genesys.genesys_qmodels import generate_random_values
+from codelets.examples.genesys.datagen_functions import save_array, OperandData
+from codelets.examples.genesys import compile_genesys_layer, compile_genesys, get_arch
 import pprint
 import sys
 BENCH_BASE_ADDR = {"INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840}

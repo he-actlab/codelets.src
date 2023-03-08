@@ -1,4 +1,4 @@
-from examples import compile_genesys, compile_genesys_layer
+from codelets.examples import compile_genesys, compile_genesys_layer
 from pprint import pprint
 import argparse
 from pathlib import Path

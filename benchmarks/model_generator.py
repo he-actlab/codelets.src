@@ -1953,7 +1953,9 @@ if __name__ == "__main__":
         #          "Add"]
         # ]
         # optimize_graph('ddpg_model')
-        extract_layer("bert-base-cased-transpose-opt-trimmed-ort", "Transpose_1111")
+        # extract_layer("bert-base-cased-transpose-opt-trimmed-ort", "Transpose_1111")
+        params = {"N": 1, "H": 1, "W": 128, "C": 128}
+        create_custom_layer("elem_div", params, True, True, False, False, fname="div_test")
         # create_vgg16(False, False, False, False)
         # create_vgg16(args.optimize_model,
         #              args.training_mode,

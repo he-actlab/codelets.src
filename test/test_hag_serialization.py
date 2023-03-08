@@ -1,4 +1,4 @@
-from examples.genesys import GENESYS_CFG, define_genesys, compile_genesys_layer
+from codelets.examples import GENESYS_CFG, define_genesys, compile_genesys_layer
 from codelets.adl.serialization import deserialize_hag
 import json
 from pathlib import Path

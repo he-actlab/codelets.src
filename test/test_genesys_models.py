@@ -1,4 +1,4 @@
-from examples.genesys import compile_genesys, get_transformed_srdfg
+from codelets.examples import compile_genesys, get_transformed_srdfg
 import pytest
 import polymath as pm
 from collections import namedtuple

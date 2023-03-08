@@ -11,10 +11,10 @@ from pprint import pprint
 
 import polymath as pm
 
-from examples.genesys.codelets import load_fusion_op_info
-from examples.genesys.config_loader import load_config
-from examples.genesys.genesys_network_sim import compile_full_model
-from examples.genesys.data_generator import DataGen
+from codelets.examples.genesys import load_fusion_op_info
+from codelets.examples.genesys import load_config
+from codelets.examples.genesys import compile_full_model
+from codelets.examples.genesys import DataGen
 from tools.compile_layer import store_program_codelets
 
 import onnxruntime as ort
@@ -143,7 +143,6 @@ def count_compute_ops(program):
 def compile_benchmark(model_name,
                       cfg_name,
                       identifier=0,
-                      custom_config=False,
                       verbose=False,
                       filtered_layers=None,
                       stop_stage=None,
@@ -152,18 +151,18 @@ def compile_benchmark(model_name,
                       only_systolic=False,
                       filter_op_types=None,
                       skip_op_types=None,
-                      sw_pipeline_test=False,
-                      addr_gen_test=False,
                       store_results=True,
                       count_compute=False,
                       check_layer_count=False,
+                      conv_tile_constraints=None,
                       dir_ext=None
                       ):
-    arch_config = load_config(f"{CWD}/configs/{cfg_name}")
+    arch_config = load_config(f"{CWD}/../codelets/examples/genesys/configs/{cfg_name}")
     if dir_ext is None:
         dir_ext = ""
     else:
         assert isinstance(dir_ext, str)
+
     if model_name in BENCHMARK_NAMES:
         if arch_config['FUSE_LAYERS']:
             assert not only_systolic
@@ -188,6 +187,16 @@ def compile_benchmark(model_name,
                                  generate_data=False,
                                     graph=graph,
                                     batch_size=arch_config['BATCH_SIZE'])
+
+    if conv_tile_constraints is not None:
+        conv_layers = ["conv_bias", "conv_bias_add_relu", "conv_bias_relu"]
+        for l in conv_layers:
+            if "LEVEL1_hint" not in program.hag.codelets[l].compilation_params.keys():
+                program.hag.codelets[l].compilation_params[f'LEVEL1_hint'] = conv_tile_constraints
+            else:
+                orig = program.hag.codelets[l].compilation_params[f'LEVEL1_hint']
+                new_constraint = f"{orig} and {conv_tile_constraints}"
+                program.hag.codelets[l].compilation_params[f'LEVEL1_hint'] = new_constraint
 
     if only_systolic:
         if verbose:
@@ -229,6 +238,7 @@ def compile_benchmark(model_name,
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
                        single_codelets=not arch_config['SHARED_DATAGEN'],
+                       shared_datagen=arch_config['SHARED_DATAGEN'],
                        dir_ext=f"{dir_ext}benchmark{sys_array_size}x{sys_array_size}",
                        identifier=identifier,
                        generate_data=arch_config['DATAGEN'],
@@ -273,6 +283,37 @@ def run_benchmarks(benchmarks,
             print(f"Compiling {b}")
             compile_benchmark(b, cfg, **kwargs)
 
+def neuro_benchmarks():
+    t = "oc_ic_oh_ow"
+    tilings = {
+        "oc": "splits['OC'] > 1 and splits['IC'] == 1 and splits['OH'] == 1 and splits['OW'] == 1",
+        "oc_oh": "splits['OC'] > 1 and splits['IC'] == 1 and splits['OH'] > 1 and splits['OW'] == 1",
+        "oc_ow": "splits['OC'] > 1 and splits['IC'] == 1 and splits['OH'] == 1 and splits['OW'] > 1",
+        "oc_oh_ow": "splits['OC'] > 1 and splits['IC'] == 1 and splits['OH'] > 1 and splits['OW'] > 1",
+        "ic_oh_ow": "splits['OC'] == 1 and splits['IC'] > 1 and splits['OH'] > 1 and splits['OW'] > 1",
+        "oc_ic_oh_ow": "splits['OC'] > 1 and splits['IC'] > 1 and splits['OH'] > 1 and splits['OW'] > 1",
+    }
+
+    # Model selection
+    m = 0
+
+    onnx_models = ['conv_only_k3-v1', 'conv_only_k1-v1', 'conv_benchmark_v1', 'conv_lrelu_add_v1-opt', 'conv_add_relu_v0-opt']
+
+    layer = []
+    # layer = [35]
+
+    config = "neuro_cfg_8x8.json"
+    dir_ext = f"neuro_unfused_{t}"
+
+    compile_benchmark(onnx_models[m],
+                      config,
+                      only_systolic=False,
+                      verbose=True,
+                      conv_tile_constraints=tilings[t],
+                      skip_broken_layers=False,
+                      dir_ext=dir_ext,
+                      # filtered_layers=layer,
+                      identifier=0)
 
 if __name__ == "__main__":
     if sys.stdin and sys.stdin.isatty():
@@ -317,6 +358,9 @@ if __name__ == "__main__":
         # config = "simd_paper128x128_dse.json"
         # config = "paper_fpga16x16.json"
         config = "fpga16x16.json"
+        # config = "neuro_cfg_8x8.json"
+
+        # dir_ext = "neuro_"
         dir_ext = ""
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
@@ -344,16 +388,18 @@ if __name__ == "__main__":
                       'ppo_model', # 23,
                       'conv_benchmark_v1', # 24
                       'ddpg_model-opt', # 25
-                      'my_sac_model', # 26
+                      'my_sac_model', # 26,
+                      'div_test', # 27,
+                      'conv_lrelu_add_v1-opt', # 28
+                      'conv_add_relu_v0-opt', # 29
+                      "conv_benchmark_v1"
                       ]
+        # neuro_benchmarks()
         compile_benchmark(benchmarks[0],
                           config,
                           only_systolic=False,
-                          sw_pipeline_test=False,
-                          addr_gen_test=False,
-                          custom_config=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          # filtered_layers=[3],
+                          # filtered_layers=[52],
                           dir_ext=dir_ext,
-                          identifier=1)
+                          identifier=5)

@@ -1,11 +1,9 @@
 from pathlib import Path
 import os
 from codelets.compiler.program import CodeletProgram
-from examples.genesys import compile_genesys_layer, compile_genesys, define_genesys, get_arch
+from codelets.examples import compile_genesys_layer, compile_genesys, get_arch
 from dataclasses import is_dataclass
-import numpy as np
 import polymath as pm
-import pprint
 import json
 ALL_LAYER_NAMES = ["resnet18_relu", "resnet18_add", "resnet18_conv", "resnet18_conv_bias", "resnet18_gemm", "resnet18_globalaveragepool",
                    "resnet18_train_batchnormalization", "lenet_averagepool", "lenet_conv", "lenet_gemm"]

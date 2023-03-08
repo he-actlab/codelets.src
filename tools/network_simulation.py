@@ -2,8 +2,7 @@ from pathlib import Path
 import shutil
 from layer_generator import update_tile_constraints
 from benchmarks.load_onnx_model import store_unique_model_layers, convert_model_to_polymath
-from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
-from examples.genesys import compile_genesys_layer
+from codelets.examples import compile_genesys_layer
 import numpy as np
 import os
 import json

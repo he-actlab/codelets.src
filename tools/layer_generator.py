@@ -4,11 +4,11 @@ from benchmarks.model_generator import create_custom_conv, create_custom_gemm,\
     create_custom_matmul, create_custom_layer, create_custom_multi_layer, is_dw_conv,\
     collect_value_info
 from benchmarks.load_onnx_model import store_unique_model_layers, convert_model_to_polymath
-from examples.genesys.datagen_functions import check_conv_params, compute_im2col_dims
-from examples.genesys import compile_genesys_layer, compile_genesys
-from examples.genesys.config_loader import load_config
-from examples.genesys.codelets import FUSION_OP_INFO
-from examples.genesys.genesys_network_sim import compile_full_model
+from codelets.examples import check_conv_params, compute_im2col_dims
+from codelets.examples import compile_genesys_layer, compile_genesys
+from codelets.examples import load_config
+from codelets.examples import FUSION_OP_INFO
+from codelets.examples import compile_full_model
 from tools.neuroweaver.compile_model import get_onnx_weights
 import numpy as np
 import os

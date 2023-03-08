@@ -1,4 +1,4 @@
-from examples import compile_genesys, compile_genesys_layer
+from codelets.examples import compile_genesys, compile_genesys_layer
 from pprint import pprint
 from load_onnx_model import convert_model_to_polymath
 import argparse

@@ -1,5 +1,5 @@
 from codelets.compiler.relocation_table import RelocationTable
-from examples.genesys import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
+from codelets.examples import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
     compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
 from tools.compile_layer import store_outputs
