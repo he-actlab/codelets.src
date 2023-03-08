@@ -6,3 +6,4 @@ from . import graph
 from . import adl
 from .adl import util
 from .compiler import initialize_program
+from . import examples
