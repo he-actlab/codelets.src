@@ -295,7 +295,7 @@ def generate_inputs_from_program(program):
     return model_data
 
 def compile_full_model(model_name,
-                       cfg_file,
+                       cfg_path,
                        store_compile=False,
                        dir_ext=None,
                        added_constr=None,
@@ -308,7 +308,6 @@ def compile_full_model(model_name,
                        graph=None
                        ):
 
-    model_path = f"{MODEL_DIR}/{model_name}.onnx"
 
     tile_method = tile_method or "min_tiles"
 
@@ -317,7 +316,7 @@ def compile_full_model(model_name,
     store_tiling = False
     store_json_output = False
     json_output_filename = None
-    arch_cfg = load_config(f"{CWD}/configs/{cfg_file}")
+    arch_cfg = load_config(cfg_path)
     # This function returns
     program = compile_genesys(model_name,
                               arch_cfg,

@@ -22,6 +22,7 @@ from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 import onnx
 CWD = Path(f"{Path(__file__).parent}")
 MODEL_DIR = Path(f"{Path(__file__).parent}/../benchmarks/models")
+CFG_PATH = f"{CWD}/../codelets/examples/genesys/configs"
 FUSION_NAME_MAPPING = {
     'conv': 'conv_bias',
     'relu': 'relu',
@@ -174,10 +175,10 @@ def compile_benchmark(model_name,
 
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
+    cfg_path = f"{CFG_PATH}/{cfg_name}"
     graph = pm.from_onnx(model_path)
     print(f"TRAINING: {arch_config['TRAINING']}")
-    program, _ = compile_full_model(model_name,
-                                 cfg_name,
+    program, _ = compile_full_model(model_name, cfg_path,
                                  store_compile=False,
                                  dir_ext=None,
                                  added_constr=None,
