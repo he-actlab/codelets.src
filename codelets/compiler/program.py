@@ -74,7 +74,7 @@ class CodeletProgram(object):
         self._program_flex_templates = {"start": [], "end": []}
         self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
-        self._relocatables = RelocationTable(hag.get_off_chip_storage())
+        self._relocatables = RelocationTable(hag.get_off_chip_storage(), addr_alignment=hag.meta_cfg['ADDR_ALIGNMENT'])
         self._compilation_pipeline = defaultdict(list)
         self._preproc_stages = defaultdict(list)
         self._template_stages = defaultdict(list)
@@ -101,7 +101,7 @@ class CodeletProgram(object):
         self._program_flex_templates = {"start": [], "end": []}
         self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
-        self._relocatables = RelocationTable(self.hag.get_off_chip_storage())
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage(), addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
         self._compilation_pipeline = defaultdict(list)
         self._preproc_stages = defaultdict(list)
         self._template_stages = defaultdict(list)
@@ -201,7 +201,8 @@ class CodeletProgram(object):
             offsets = {k: v*nbanks*width for k, v in offsets.items()}
         self._relocatables = RelocationTable(self.hag.get_off_chip_storage(),
                                              mem_layout=mem_layout,
-                                             offsets=offsets)
+                                             offsets=offsets,
+                                             addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
 
     def update_side_effect_param(self, name, scope, value, codelet_id=None, operation_id=None):
         if scope == 'program':
@@ -212,6 +213,9 @@ class CodeletProgram(object):
 
     def extract_bits(self, value: int, num_bits: int, pos: int):
         return ((((1 << num_bits) - 1) << pos) & value) >> pos
+
+    def print_memory_layout(self):
+        self.relocatables.print_layout()
 
     def add_codelet(self, cdlt: Codelet):
         self._codelets.append(cdlt)
@@ -244,13 +248,15 @@ class CodeletProgram(object):
         cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
         return self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start//8
 
-
     def get_input_operand_offset(self, operand: str):
-
-        return self.relocatables.get_relocation('INPUTS', operand).start + (self.get_instr_mem_end())
+        return self.relocatables.get_relocation_base("INPUTS", operand)
 
     def get_output_operand_offset(self, operand: str):
-        return self.relocatables.get_relocation('OUTPUTS', operand).start
+        # Outputs and inputs are in separate namespaces, so subtract the base from this
+        base = self.relocatables.get_namespace_offset("OUTPUTS")
+        addr = self.relocatables.get_relocation_base("OUTPUTS", operand)
+        return addr - base
+        # return self.relocatables.get_relocation_base("OUTPUTS", operand)
 
     def save(self, output_path=None, save_format="json"):
         if output_path:
@@ -950,6 +956,7 @@ class CodeletProgram(object):
                     assert ml not in o.mem_locations
                     o.mem_locations[ml] = {"index": locs[ml], "offset": loc_sizes[ml]}
                     locs[ml] += 1
+
                     loc_sizes[ml] += o.dtype.bits()*np.prod(list(o.tiling[ml].values()))
 
                     if loc_sizes[ml] > mem_node.size:
@@ -1027,10 +1034,8 @@ class CodeletProgram(object):
                     print(f"Skipping NOOP codelet {cdlt.op_name}{cdlt.instance_id}")
                 continue
             num_instr = self.cdlt_num_instr(cdlt)
-            instr_mem_align = self.hag.instr_mem_align
             end_instr_addr = num_instr * self.hag.instr_length
-            instr_offset = end_instr_addr - (end_instr_addr % instr_mem_align) + instr_mem_align
-            self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid, instr_offset)
+            self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid, end_instr_addr)
 
     def finalize_flex_params(self, node_sequence, codelets, verbose=False):
         if verbose:

@@ -189,6 +189,9 @@ def set_defaults(cfg):
     if 'INSTR_MEM_ALIGN' not in cfg:
         cfg['INSTR_MEM_ALIGN'] = 4096*8
 
+    if 'ADDR_ALIGNMENT' not in cfg:
+        cfg['ADDR_ALIGNMENT'] = 4096*8
+
     return cfg
 
 def load_config(fpath):

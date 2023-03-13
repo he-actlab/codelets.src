@@ -234,7 +234,6 @@ def compile_benchmark(model_name,
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         if check_layer_count:
             check_fused_layer_count(model_path, program)
-
     if stop_stage is None and store_results:
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
@@ -359,8 +358,8 @@ if __name__ == "__main__":
         # config = "simd_paper64x64_dse.json"
         # config = "simd_paper128x128_dse.json"
         # config = "paper_fpga16x16.json"
-        config = "fpga16x16.json"
-        # config = "neuro_cfg_8x8.json"
+        # config = "fpga16x16.json"
+        config = "neuro_cfg_8x8.json"
 
         # dir_ext = "neuro_"
         dir_ext = ""
@@ -390,18 +389,19 @@ if __name__ == "__main__":
                       'ppo_model', # 23,
                       'conv_benchmark_v1', # 24
                       'ddpg_model-opt', # 25
-                      'my_sac_model', # 26,
-                      'div_test', # 27,
-                      'conv_lrelu_add_v1-opt', # 28
-                      'conv_add_relu_v0-opt', # 29
-                      "conv_benchmark_v1"
+                      'sac_model', # 26,
+                      'ppo_model', # 27
+                      'div_test', # 28,
+                      'conv_lrelu_add_v1-opt', # 29
+                      'conv_add_relu_v0-opt', # 30
+                      "conv_benchmark_v1" # 31
                       ]
         # neuro_benchmarks()
-        compile_benchmark(benchmarks[0],
+        compile_benchmark(benchmarks[26],
                           config,
                           only_systolic=False,
                           verbose=True,
                           skip_broken_layers=False,
-                          # filtered_layers=[52],
+                          # filtered_layers=[0],
                           dir_ext=dir_ext,
-                          identifier=5)
+                          identifier=2)
