@@ -78,8 +78,8 @@ def simd_start_template(hag: ComputeNode):
     p1 = f"program.extract_bits(({SIMD_BASE_ADDR})["
 
     if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
-        ld_base_addr = f"program.get_input_operand_offset(operand.node_name)"
-        st_base_addr = f"program.get_output_operand_offset(operand.node_name)"
+        ld_base_addr = f"program.get_input_operand_offset(operand)"
+        st_base_addr = f"program.get_output_operand_offset(operand)"
     else:
         ld_base_addr = f"({SIMD_BASE_ADDR})['LD_' + (operand.get_ld_storage_location(cdlt, 1))]"
         st_base_addr = f"({SIMD_BASE_ADDR})['ST_' + (operand.get_ld_storage_location(cdlt, 1))]"

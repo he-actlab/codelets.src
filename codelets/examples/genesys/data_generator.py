@@ -372,6 +372,14 @@ class DataGen(object):
                 except OSError as e:
                     raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
             self.generate_whole_program_data()
+        elif self.generate_data:
+            base_path = f"{output_location}/data"
+            if not Path(base_path).exists():
+                try:
+                    os.makedirs(base_path)
+                except OSError as e:
+                    raise RuntimeError(f"Creation of directory {output_location} failed:\n {e}")
+            self.generate_whole_program_data_unshared()
 
     def generate_operand_storage_info(self, cdlt, operand, operand_type, offset, path):
         is_shuffled = False
@@ -391,7 +399,7 @@ class DataGen(object):
         if is_shuffled:
             assert 'IBUF' in operand.tiling or 'WBUF' in operand.tiling
         dram_shape = operand.tiling['DRAM']
-        operand_size = operand.dtype.bits() * np.prod(list(dram_shape.values()))
+        operand_size = operand.dtype.bytes() * np.prod(list(dram_shape.values()))
         buffer = [k for k in operand.tiling.keys() if k not in ['DRAM', 'pe_array', 'SIMD']]
         assert len(buffer) > 0
         buffer = buffer[0]
@@ -411,7 +419,7 @@ class DataGen(object):
         input_offset = self.program.get_instr_mem_end()
 
         output_offset = 0
-        info_map = {"inputs": {}, "outputs": {}}
+        info_map = {"inputs": {}, "outputs": {}, "instructions": {}}
 
         def check_operand_info(prev_info, new_info, operand_type):
             pretty_prev = json.dumps(prev_info, indent=2, cls=NPEncoder)
@@ -434,10 +442,20 @@ class DataGen(object):
                                    f"New: {pretty_new}")
 
         for layer_id, cdlt in enumerate(self.program.codelets):
-            cdlt_path = f"{self.output_dir}/layer{layer_id}_{cdlt.cdlt_uid}/data/"
+            base_cdlt_path = f"{self.output_dir}/layer{layer_id}_{cdlt.cdlt_uid}"
+            cdlt_path = f"{base_cdlt_path}/data/"
+            instr_offset = self.program.get_codelet_instr_offset(cdlt.instance_id)
+            info_map['instructions'][cdlt.cdlt_uid] = {
+                "path": f"{base_cdlt_path}/{cdlt.cdlt_uid}_string_final.txt",
+                "bitwidth": 32,
+                "size_in_bytes": self.program.cdlt_num_instr(cdlt) * 4,
+                "offset": instr_offset
+            }
             for i in cdlt.inputs:
                 input_path = f"{cdlt_path}{i.node_name}"
-                info_blob = self.generate_operand_storage_info(cdlt, i, "input", input_offset, input_path)
+                # offset = self.program.
+                inp_offset = self.program.get_input_operand_offset(i)
+                info_blob = self.generate_operand_storage_info(cdlt, i, "input", inp_offset, input_path)
 
                 if i.node_name in info_map['inputs']:
                     check_operand_info(info_map['inputs'][i.node_name], info_blob, 'input')
@@ -447,7 +465,9 @@ class DataGen(object):
 
             for o in cdlt.outputs:
                 output_path = f"{cdlt_path}{o.node_name}"
-                info_blob = self.generate_operand_storage_info(cdlt, o, "output", output_offset, output_path)
+                out_offset = self.program.get_output_operand_offset(o)
+
+                info_blob = self.generate_operand_storage_info(cdlt, o, "output", out_offset, output_path)
 
                 if o.node_name in info_map['outputs']:
                     check_operand_info(info_map['outputs'][o.node_name], info_blob, 'output')
@@ -463,6 +483,57 @@ class DataGen(object):
         with open(f"{output_location}/{self.program.name}_operand_storage_info.json", "w") as outfile:
             outfile.write(res)
 
+
+    def generate_whole_program_data_unshared(self):
+        last_cdlt_id = len(self.program.codelets)
+        input_offset = self.program.get_instr_mem_end()
+
+        output_offset = 0
+        info_map = {}
+
+
+        for layer_id, cdlt in enumerate(self.program.codelets):
+            if cdlt.is_noop():
+                continue
+            layer_key = f"layer{layer_id}_{cdlt.cdlt_uid}"
+            base_cdlt_path = f"{self.output_dir}/{layer_key}"
+            cdlt_path = f"{base_cdlt_path}/data/"
+            instr_offset = self.program.get_codelet_instr_offset(cdlt.instance_id)
+            info_map[layer_key] = {
+                'inputs': {},
+                'outputs': {}
+            }
+            info_map[layer_key]['instructions'] = {
+                "path": f"{base_cdlt_path}/{cdlt.cdlt_uid}_string_final.txt",
+                "bitwidth": 32,
+                "size_in_bytes": self.program.cdlt_num_instr(cdlt) * 4,
+                "offset": instr_offset
+            }
+            for i in cdlt.inputs:
+                input_path = f"{cdlt_path}{i.node_name}"
+                # offset = self.program.
+                inp_offset = self.program.get_input_operand_offset(i)
+                info_blob = self.generate_operand_storage_info(cdlt, i, "input", inp_offset, input_path)
+
+                info_map[layer_key]["inputs"][i.node_name] = info_blob
+                input_offset += info_blob['size_in_bytes']
+
+            for o in cdlt.outputs:
+                output_path = f"{cdlt_path}{o.node_name}"
+                out_offset = self.program.get_output_operand_offset(o)
+
+                info_blob = self.generate_operand_storage_info(cdlt, o, "output", out_offset, output_path)
+
+                info_map[layer_key]["outputs"][o.node_name] = info_blob
+                output_offset += info_blob['size_in_bytes']
+
+
+        output_location = f"{self.output_dir}/program"
+        if not Path(output_location).exists():
+            raise RuntimeError("directory for storying whole program does not exist!")
+        res = json.dumps(info_map, indent=2, cls=NPEncoder)
+        with open(f"{output_location}/{self.program.name}_operand_storage_info.json", "w") as outfile:
+            outfile.write(res)
 
 
     def generate(self):

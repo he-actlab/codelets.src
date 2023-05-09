@@ -61,7 +61,13 @@ LOOP_ITER_ENUM = ('loop_op', f'enumerate(cdlt.get_ops_by_type("loop"))')
 
 # Stride calculation
 MVMT_TYPE = f"'up' if operand.data_path[0] == 'DRAM' else 'down'"
+RD_WRITE_OPERAND_TEMPLATE = "(True if {OPERAND} in op.dests else False)"
 RD_WRITE_OPERAND = f"(True if operand in op.dests else False)"
+
+LOOP_STRIDE_TEMPLATE = "{OPERAND}.get_offset(cdlt," \
+              "loop_op.loop_id," \
+              "hag, op.op_str, 'SIMD', write={RD_WRITE}, " \
+              "outer_loop=False)"
 
 LOOP_STRIDE = f"operand.get_offset(cdlt," \
               f"loop_op.loop_id," \
@@ -969,6 +975,149 @@ def obuf_mv_vmem_test(op_name, hag):
 
     return instructions
 
+def single_base_sign_ext(operand, hag: ArchitectureNode, cond=None):
+    instructions = []
+    operand_loc = f"op.get_operand_location({operand}.name)"
+    ns_idx = f"(loop_op.loop_level % {ALL_LOOP_ID}) + ({operand}.get_mem_index({operand_loc}) * {ALL_LOOP_ID}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+    base_sign_ext = BASE_SIGN_EXT_TEMPLATE.format(OPERAND=operand, OP_LOC=operand_loc)
+    base_sign_ext_low = f"program.extract_bits({base_sign_ext}, 16, 0)"
+    base_sign_ext_high = f"program.extract_bits({base_sign_ext}, 16, 16)"
+    rd_write_operand = RD_WRITE_OPERAND_TEMPLATE.format(OPERAND=operand)
+    loop_stride = LOOP_STRIDE_TEMPLATE.format(OPERAND=operand, RD_WRITE=rd_write_operand)
+    bitwidth = f"len(np.binary_repr({base_sign_ext})) + int(np.signbit({base_sign_ext}))"
+    bitwidth_cond = f"{bitwidth} <= 16"
+    single_base_ext_conds = LOOP_CONDS + [bitwidth_cond]
+    multi_base_ext_conds = LOOP_CONDS + [f"not {bitwidth_cond}"]
+    cond = cond or "True"
+    assert isinstance(cond, str)
+    ## First, instructions for sign ext lower than 16 bits
+    macro_instr = hag.get_primitive_template("BASE_SIGN_EXT")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_iterable(*LOOP_ITER)
+    macro_instr.add_condition(" and ".join([cond] + single_base_ext_conds))
+    macro_instr.set_field_flex_param('NS_ID', operand_loc)
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    macro_instr.set_field_flex_param('IMM', base_sign_ext)
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_iterable(*LOOP_ITER)
+    sub_instr.add_condition(" and ".join([cond] + single_base_ext_conds))
+    sub_instr.set_field_flex_param('NS_ID', operand_loc)
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    sub_instr.set_field_flex_param('IMM', loop_stride)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    ## NExt, instructions for sign ext greater than 16 bits
+    macro_instr = hag.get_primitive_template("BASE_LOW")
+    macro_instr.set_print_tabs(ALL_LOOP_ID)
+    macro_instr.add_iterable(*LOOP_ITER)
+    macro_instr.add_condition(" and ".join([cond] + multi_base_ext_conds))
+    macro_instr.set_field_flex_param('NS_ID', operand_loc)
+    macro_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    macro_instr.set_field_flex_param('IMM', base_sign_ext_low)
+
+    sub_instr = hag.get_primitive_template("BASE_HIGH")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_iterable(*LOOP_ITER)
+    sub_instr.add_condition(" and ".join([cond] + multi_base_ext_conds))
+    sub_instr.set_field_flex_param('NS_ID', operand_loc)
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    sub_instr.set_field_flex_param('IMM', base_sign_ext_high)
+    macro_instr.add_base_instruction(sub_instr)
+
+    sub_instr = hag.get_primitive_template("STRIDE_SIGN_EXT")
+    sub_instr.set_print_tabs(ALL_LOOP_ID)
+    sub_instr.add_iterable(*LOOP_ITER)
+    sub_instr.add_condition(" and ".join([cond] + multi_base_ext_conds))
+    sub_instr.set_field_flex_param('NS_ID', operand_loc)
+    sub_instr.set_field_flex_param('NS_INDEX_ID', ns_idx)
+    sub_instr.set_field_flex_param('IMM', loop_stride)
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+    return instructions
+
+def single_operand_noop(op_name, operand, hag: ArchitectureNode, cond=None):
+    instructions = []
+    loop_idx_offset = 0 if op_name != "POW" else 1
+    cond = cond or "True"
+    other_constr = LOOP_CONDS + ["loop_op.op_str in op.dependencies"]
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs("loop_op.loop_level")
+    macro_instr.add_iterable(*LOOP_ITER)
+    macro_instr.add_condition(" and ".join(other_constr + [cond]))
+    macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_level % {ALL_LOOP_ID}) + {loop_idx_offset}")
+    macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]")
+
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    set_index_fmt = "(loop_op.loop_level % {all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+
+    sub_instr.set_print_tabs("loop_op.loop_level")
+    sub_instr.add_iterable(*LOOP_ITER)
+    sub_instr.add_condition(" and ".join(other_constr + [cond]))
+    sub_instr.set_field_flex_param("DST_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("DST_INDEX_ID",
+                                   set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand=operand,
+                                                        op_loc=f"op.get_operand_location({operand}.name)"))
+    sub_instr.set_field_flex_param("SRC1_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", "0")
+    sub_instr.set_field_flex_param("SRC2_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", "0")
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    instr = hag.get_primitive_template("SET_INST")
+    instr.add_condition(cond)
+    instr.set_field_flex_param("SINGLE_NESTED", "0")
+    instr.set_field_flex_param("NUM_INSTR", "1")
+    instructions.append(instr)
+    noop_instr = hag.get_primitive_template("NOP")
+    noop_instr.add_condition(cond)
+    noop_instr.set_print_tabs("op.loop_level")
+    instructions.append(noop_instr)
+    return instructions
+
+def ld_st_overhead(op_name, hag: ArchitectureNode):
+    first_read_cond = "{OPERAND}.get_first_read('SIMD') == op.op_str and ({OPERAND} in cdlt.inputs or op.get_operand_location({OPERAND}.name) == 'OBUF')"
+    first_write_cond = "{OPERAND}.get_first_write('SIMD') == op.op_str and {OPERAND} in cdlt.outputs"
+    instructions = []
+    op0 = "op.sources[0]"
+    instructions += single_base_sign_ext(op0, hag, cond=first_read_cond.format(OPERAND=op0))
+    instructions += single_operand_noop(op_name, op0, hag, first_read_cond.format(OPERAND=op0))
+
+    op1 = f"op.sources[1]"
+    op1_cond = first_read_cond.format(OPERAND=op1)
+    op1_cond = "len(op.sources) > 1 and op.get_operand_location(op.sources[1].name) != 'IMM' and " + op1_cond
+    instructions += single_base_sign_ext(op1, hag, cond=op1_cond)
+    instructions += single_operand_noop(op_name, op1, hag, cond=op1_cond)
+
+    dst = f"op.dests[0]"
+    dst_cond = first_write_cond.format(OPERAND=dst)
+    instructions += single_base_sign_ext(dst, hag, cond=dst_cond)
+    instructions += single_operand_noop(op_name, dst, hag, cond=dst_cond)
+    return instructions
+
+def obuf_read_overhead(hag):
+    instructions = []
+    obuf_read_cond = "op.get_operand_location({OPERAND}.name) == 'OBUF'"
+    op0 = "op.sources[0]"
+    op0_cond = obuf_read_cond.format(OPERAND=op0)
+    instructions += single_base_sign_ext(op0, hag, cond=op0_cond)
+    instructions += single_operand_noop("ADD", op0, hag, op0_cond)
+    instructions += single_base_sign_ext(op0, hag, cond=op0_cond)
+    instructions += single_operand_noop("ADD", op0, hag, op0_cond)
+
+    op1 = "op.sources[1]"
+    op1_cond = "len(op.sources) > 1 and " + obuf_read_cond.format(OPERAND=op1)
+    instructions += single_base_sign_ext(op1, hag, cond=op1_cond)
+    instructions += single_operand_noop("ADD", op1, hag, op1_cond)
+    instructions += single_base_sign_ext(op1, hag, cond=op1_cond)
+    instructions += single_operand_noop("ADD", op1, hag, op1_cond)
+    return instructions
+
+
 def simd_alu_template(op_name, hag: ArchitectureNode):
     if op_name == "TRANSPOSE":
         return simd_transpose(hag)
@@ -1070,6 +1219,12 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
         instructions += loop_overhead(op_name, hag)
     elif hag.meta_cfg['OBUF_TO_VMEM_TEST']:
         instructions += obuf_mv_vmem_test(op_name, hag)
+    elif hag.meta_cfg['LD_ST_OVERHEAD']:
+        instructions += ld_st_overhead(op_name, hag)
+    elif hag.meta_cfg['TPU_TEST']:
+        instructions += loop_overhead(op_name, hag)
+        instructions += ld_st_overhead(op_name, hag)
+        instructions += obuf_read_overhead(hag)
 
     return instructions
 

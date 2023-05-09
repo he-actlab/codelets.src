@@ -30,10 +30,10 @@ FXP_CONFIGS = {
     "FXP16": {"signed": True, "n_int": 7, "n_frac": 8, "overflow": "saturate", "n_word": 16},
     "FXP4": {"signed": True, "n_int": 1, "n_frac": 2, "overflow": "saturate", "n_word": 4},
 }
-QUANT_SCALE = 0.6
-SIGN_SHIFT = 30
-QUANT_SCALE = Fxp(QUANT_SCALE, **FXP_CONFIGS['FXP32']).val.item()
-SIGN_SHIFT = Fxp(SIGN_SHIFT, **FXP_CONFIGS['FXP32']).val.item()
+QUANT_SCALE_FP = 0.6
+SIGN_SHIFT_FP = 30
+QUANT_SCALE = Fxp(QUANT_SCALE_FP, **FXP_CONFIGS['FXP32']).val.item()
+SIGN_SHIFT = Fxp(SIGN_SHIFT_FP, **FXP_CONFIGS['FXP32']).val.item()
 
 BIT = 1
 BYTE = 8

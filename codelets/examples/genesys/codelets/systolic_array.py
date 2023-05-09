@@ -726,9 +726,9 @@ def conv2d_bias(hag: ArchitectureNode):
         cdlt.set_outputs([out])
 
         cdlt.configure("start", "systolic_array")
+        cdlt.configure("start", "IBUF")
         cdlt.configure("start", "WBUF")
         cdlt.configure("start", "BBUF")
-        cdlt.configure("start", "IBUF")
         cdlt.configure("start", "OBUF")
         with cdlt.loop(OC) as oc:
             with cdlt.loop(N) as n:

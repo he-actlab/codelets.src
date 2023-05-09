@@ -186,6 +186,14 @@ def set_defaults(cfg):
     else:
         assert isinstance(cfg['SINGLE_PROGRAM_COMPILATION'], bool)
 
+    if 'LD_ST_OVERHEAD' not in cfg:
+        cfg['LD_ST_OVERHEAD'] = False
+
+    if 'TPU_TEST' not in cfg:
+        cfg['TPU_TEST'] = False
+
+    assert not (cfg['TPU_TEST'] and cfg['LD_ST_OVERHEAD'])
+
     if 'INSTR_MEM_ALIGN' not in cfg:
         cfg['INSTR_MEM_ALIGN'] = 4096*8
 

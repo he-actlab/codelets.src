@@ -436,8 +436,8 @@ class Codelet(object):
             else:
                 perm_loops.append(filtered[i])
 
-        if len(perm_dims) > 2:
-            raise RuntimeError("Unable to perform transpose operation on more than two dimensions at a time")
+        # if len(perm_dims) > 2:
+        #     raise RuntimeError("Unable to perform transpose operation on more than two dimensions at a time")
         for i in perm_dims:
             perm_loops.append(filtered[i[0]])
 

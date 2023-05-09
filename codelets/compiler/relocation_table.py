@@ -42,7 +42,9 @@ class Relocation:
 
 
 class RelocationTable(object):
-    MEM_LAYOUT = ['INPUTS', 'INSTR_MEM', 'OUTPUTS']
+    MEM_NS_MAPPING = {'VMEM1': 'VMEM', 'VMEM2': 'VMEM', 'IBUF': 'SA_INPUTS', 'WBUF': 'SA_INPUTS',
+                      'BBUF': 'SA_INPUTS', 'OBUF': 'SA_OUTPUTS', 'INSTR_MEM': 'INSTR_MEM'}
+    MEM_LAYOUT = ['SA_INPUTS', 'INSTR_MEM', 'SA_OUTPUTS', 'VMEM']
 
     # MEM_LAYOUT = ['INSTR_MEM',  'OUTPUTS', 'STATE', 'INTERMEDIATE', 'INPUTS']
     def __init__(self, storage_node: StorageNode, mem_layout=None, offsets=None, addr_alignment=1):
@@ -108,10 +110,11 @@ class RelocationTable(object):
             ref_end = self.get_namespace_offset(ns) / 8
             assert ref_end == base, f"Unequal offset and computed offset for {ns}:" \
                                             f"\n{ref_end} != {base}"
-
+            if len(reloc.bases.keys()) == 0:
+                continue
             print(f"{ns}: {base} --> {aligned_end}=============================")
             for key, item in reloc.bases.items():
-                byte_start, byte_end = item.start / 8 + base, item.end / 8 + base
+                byte_start, byte_end = item.start / 8, item.end / 8
                 print(f"\t{key}[size={item.size/8}]: {byte_start} --> {byte_end}")
             print(f"====================================================")
             base += aligned_size
@@ -170,16 +173,16 @@ class RelocationTable(object):
         return reloc.total_length()
 
 
-    def get_relocation_base(self, namespace: str, item_id: Union[str, int]):
-        namespace_offset = self.get_namespace_offset(namespace)
-        object_offset = self.get_relocation(namespace, item_id).start
-        total_bit_offset = (namespace_offset + object_offset)
+    def get_relocation_base(self, operand: "Operand"):
+        namespace = self.get_operand_namespace(operand)
+        object_offset = self.get_relocation(namespace, operand.node_name).start
 
-        assert total_bit_offset % self.storage_node.width == 0, f"Invalid offset for address retrieval:\n" \
+        assert object_offset % self.storage_node.width == 0, f"Invalid offset for address retrieval:\n" \
                                                            f"Storage width: {self.storage_node.width}\n" \
-                                                           f"Namespace {namespace} offset: {namespace_offset}\n" \
-                                                           f"Object {item_id} offset: {object_offset}"
-        return self.storage_node.address_from_bits(namespace_offset + object_offset)
+                                                           f"Namespace {namespace} offset: {object_offset}\n" \
+                                                           f"Object {operand.node_name} offset: {object_offset}"
+
+        return self.storage_node.address_from_bits(object_offset)
 
     def get_aligned_sized(self, size, as_bytes=True):
         if as_bytes:
@@ -200,8 +203,8 @@ class RelocationTable(object):
         if offset_id not in self.relocatables[offset_type].bases:
             relocatable.bases[offset_id] = Fragment(offset_id, size, current_offset, current_offset + aligned_size)
         elif offset_type in ['INPUTS', 'OUTPUTS']:
-            return
-            # raise RuntimeError(f"Existing relocation offset for offset type {offset_type} for operand {offset_id} found")
+            # return
+            raise RuntimeError(f"Existing relocation offset for offset type {offset_type} for operand {offset_id} found")
         else:
             # TODO: Need to add back in error handling here for the same data with different datatypes
 
@@ -211,16 +214,24 @@ class RelocationTable(object):
                 relocatable.bases[offset_id] = Fragment(offset_id, size, prev_fragment.start, prev_fragment.start + aligned_size)
         self.update_namespace_offsets()
 
+    def get_operand_namespace(self, operand):
+        for mem_loc in operand.data_path:
+            if mem_loc in RelocationTable.MEM_NS_MAPPING:
+                return RelocationTable.MEM_NS_MAPPING[mem_loc]
+        raise RuntimeError(f"Unable to find namespace for operand {operand.node_name} with path {operand.data_path}")
+
     def add_data_relocation(self, node: pm.Node, cdlt: Codelet):
+
         for idx, operand in enumerate(cdlt.inputs):
             i = node.inputs[idx]
             data_size = np.prod(operand.shape)*operand.dtype.bits()
-
-            self.update_relocation_offset('INPUTS', i.name, data_size)
+            ns = self.get_operand_namespace(operand)
+            self.update_relocation_offset(ns, i.name, data_size)
 
         for idx, operand in enumerate(cdlt.outputs):
             o = node.outputs[idx]
             data_size = np.prod(operand.shape)*operand.dtype.bits()
-            self.update_relocation_offset('OUTPUTS', o.name, data_size)
+            ns = self.get_operand_namespace(operand)
+            self.update_relocation_offset(ns, o.name, data_size)
 
         self.update_namespace_offsets()

@@ -512,16 +512,19 @@ def softmax(hag):
                 cdlt.compute("SUB", [data[n, c], mx[n]], [out[n, c]], target="SIMD")
 
                 # Now, Comptue exp
-                cdlt.compute("DIV", [out[n, c], qln2], [z[n, c]], target="SIMD")
-                cdlt.compute("MUL", [z[n, c], neg_one], [z[n, c]], target="SIMD")
-                cdlt.compute("MUL", [z[n, c], qln2], [y[n, c]], target="SIMD")
-                cdlt.compute("ADD", [out[n, c], y[n, c]], [y[n, c]], target="SIMD")
-                cdlt.compute("ADD", [out[n, c], qb], [out[n, c]], target="SIMD")
-                cdlt.compute("MOVE", [out[n, c]], [b[n, c]], target="SIMD")
-                cdlt.compute("MUL", [out[n, c], b[n, c]], [out[n, c]], target="SIMD")
-                cdlt.compute("ADD", [out[n, c], qc], [out[n, c]], target="SIMD")
-                cdlt.compute("FLOOR", [z[n, c]], [b[n, c]], target="SIMD")
-                cdlt.compute("SHIFTR", [out[n, c], b[n, c]], [out[n, c]], target="SIMD")
+                if hag.meta_cfg['TPU_TEST']:
+                    cdlt.compute("MUL", [out[n, c], qln2], [out[n, c]], target="SIMD")
+                else:
+                    cdlt.compute("DIV", [out[n, c], qln2], [z[n, c]], target="SIMD")
+                    cdlt.compute("MUL", [z[n, c], neg_one], [z[n, c]], target="SIMD")
+                    cdlt.compute("MUL", [z[n, c], qln2], [y[n, c]], target="SIMD")
+                    cdlt.compute("ADD", [out[n, c], y[n, c]], [y[n, c]], target="SIMD")
+                    cdlt.compute("ADD", [out[n, c], qb], [out[n, c]], target="SIMD")
+                    cdlt.compute("MOVE", [out[n, c]], [b[n, c]], target="SIMD")
+                    cdlt.compute("MUL", [out[n, c], b[n, c]], [out[n, c]], target="SIMD")
+                    cdlt.compute("ADD", [out[n, c], qc], [out[n, c]], target="SIMD")
+                    cdlt.compute("FLOOR", [z[n, c]], [b[n, c]], target="SIMD")
+                    cdlt.compute("SHIFTR", [out[n, c], b[n, c]], [out[n, c]], target="SIMD")
 
 
                 # Next, compute sum for denominator
@@ -595,27 +598,33 @@ def softmax4d(hag):
                         cdlt.transfer(data, ["DRAM", "VMEM1"])
                         mx.start_location = "VMEM2"
                         mx.set_write_destination("VMEM2")
-                        b.start_location = "VMEM2"
-                        b.set_write_destination("VMEM2")
-                        out.set_write_destination("VMEM1")
+                        if not hag.meta_cfg['TPU_TEST']:
+                            b.start_location = "VMEM2"
+                            b.set_write_destination("VMEM2")
                         z.set_write_destination("VMEM1")
                         y.set_write_destination("VMEM2")
+                        out.set_write_destination("VMEM1")
+
                         # First, compute the max value by setting memory to the minimum possible value and subtracting
                         cdlt.compute("MOVE", [min_op], [mx[n, c, w]], target="SIMD")
                         cdlt.compute("MAX", [data[n, c, h, w], mx[n, c, w]], [mx[n, c, w]], target="SIMD")
                         cdlt.compute("SUB", [data[n, c, h, w], mx[n, c, w]], [out[n, c, h, w]], target="SIMD")
 
                         # Now, Comptue exp
-                        cdlt.compute("DIV", [out[n, c, h, w], qln2], [z[n, c, h, w]], target="SIMD")
-                        cdlt.compute("MUL", [z[n, c, h, w], neg_one], [z[n, c, h, w]], target="SIMD")
-                        cdlt.compute("MUL", [z[n, c, h, w], qln2], [y[n, c, h, w]], target="SIMD")
-                        cdlt.compute("ADD", [out[n, c, h, w], y[n, c, h, w]], [y[n, c, h, w]], target="SIMD")
-                        cdlt.compute("ADD", [out[n, c, h, w], qb], [out[n, c, h, w]], target="SIMD")
-                        cdlt.compute("MOVE", [out[n, c, h, w]], [b[n, c, h, w]], target="SIMD")
-                        cdlt.compute("MUL", [out[n, c, h, w], b[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
-                        cdlt.compute("ADD", [out[n, c, h, w], qc], [out[n, c, h, w]], target="SIMD")
-                        cdlt.compute("FLOOR", [z[n, c, h, w]], [b[n, c, h, w]], target="SIMD")
-                        cdlt.compute("RSHIFT", [out[n, c, h, w], b[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
+                        if hag.meta_cfg['TPU_TEST']:
+                            cdlt.compute("DIV", [out[n, c, h, w], qln2], [out[n, c, h, w]], target="SIMD")
+                        else:
+                            cdlt.compute("DIV", [out[n, c, h, w], qln2], [z[n, c, h, w]], target="SIMD")
+                            cdlt.compute("MUL", [z[n, c, h, w], neg_one], [z[n, c, h, w]], target="SIMD")
+                            cdlt.compute("MUL", [z[n, c, h, w], qln2], [y[n, c, h, w]], target="SIMD")
+                            cdlt.compute("ADD", [out[n, c, h, w], y[n, c, h, w]], [y[n, c, h, w]], target="SIMD")
+                            cdlt.compute("ADD", [out[n, c, h, w], qb], [out[n, c, h, w]], target="SIMD")
+                            cdlt.compute("MOVE", [out[n, c, h, w]], [b[n, c, h, w]], target="SIMD")
+                            cdlt.compute("MUL", [out[n, c, h, w], b[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
+                            cdlt.compute("ADD", [out[n, c, h, w], qc], [out[n, c, h, w]], target="SIMD")
+                            cdlt.compute("FLOOR", [z[n, c, h, w]], [b[n, c, h, w]], target="SIMD")
+                            cdlt.compute("RSHIFT", [out[n, c, h, w], b[n, c, h, w]], [out[n, c, h, w]], target="SIMD")
+
                         #
                         # # Next, compute sum for denominator
                         cdlt.compute("MOVE", [one], [mx[n, c, w]], target="SIMD")

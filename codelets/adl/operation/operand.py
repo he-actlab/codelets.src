@@ -1240,6 +1240,18 @@ class Operand:
             raise TypeError(f"Unable to support output type for operand: {output_type}")
         return blob
 
+    def get_first_read(self, compute_node: str):
+        for d in self.data_moves:
+            if "compute" in d.op_name and d.dst_node == compute_node:
+                return d.op_name
+        raise RuntimeError(f"Operand {self.name} is never use with {compute_node}")
+
+    def get_first_write(self, compute_node: str):
+        for d in self.data_moves:
+            if "compute" in d.op_name and d.src_node == compute_node:
+                return d.op_name
+        raise RuntimeError(f"Operand {self.name} is never used with {compute_node}")
+
 @dataclass
 class IndexedOperandTemplate:
     operand_template: Operand
@@ -1276,6 +1288,7 @@ class IndexedOperandTemplate:
             if isinstance(o, Basic):
                 offs += [str(off) for off in o.atoms(Idx)]
         return offs
+
 
 
 

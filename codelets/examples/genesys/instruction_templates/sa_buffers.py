@@ -8,7 +8,7 @@ def ibuf_start_template(hag: ComputeNode):
     instructions = []
     if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
         operand = "cdlt.get_operand_by_location('IBUF')"
-        base_addr = f"program.get_input_operand_offset({operand}.node_name)"
+        base_addr = f"program.get_input_operand_offset({operand})"
     else:
         base_addr = f"{SA_BASE_ADDR}['IBUF']"
     instr = hag.get_primitive_template("SET_BASE_ADDR")
@@ -37,7 +37,7 @@ def ibuf_start_template(hag: ComputeNode):
 def bbuf_start_template(hag: ComputeNode):
     if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
         operand = "cdlt.get_operand_by_location('BBUF')"
-        base_addr = f"program.get_input_operand_offset({operand}.node_name)"
+        base_addr = f"program.get_input_operand_offset({operand})"
     else:
         base_addr = f"{SA_BASE_ADDR}['BBUF']"
     instructions = []
@@ -68,7 +68,7 @@ def bbuf_start_template(hag: ComputeNode):
 def obuf_start_template(hag: ComputeNode):
     if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
         operand = "cdlt.get_operand_by_location('OBUF')"
-        base_addr_off = f"program.get_output_operand_offset({operand}.node_name)"
+        base_addr_off = f"program.get_output_operand_offset({operand})"
         base_addr = f"({base_addr_off}) if cdlt.is_operand_location_used('OBUF') else 0"
     else:
         base_addr = f"{SA_BASE_ADDR}['OBUF']"
@@ -100,7 +100,7 @@ def obuf_start_template(hag: ComputeNode):
 def wbuf_start_template(hag: ComputeNode):
     if hag.meta_cfg['SINGLE_PROGRAM_COMPILATION']:
         operand = "cdlt.get_operand_by_location('WBUF')"
-        base_addr = f"program.get_input_operand_offset({operand}.node_name)"
+        base_addr = f"program.get_input_operand_offset({operand})"
     else:
         base_addr = f"{SA_BASE_ADDR}['WBUF']"
     instructions = []

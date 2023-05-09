@@ -244,19 +244,21 @@ class CodeletProgram(object):
         offset = self.relocatables.get_namespace_size('INSTR_MEM') // 8
         return offset
 
+
     def get_codelet_instr_offset(self, cdlt_id: int) -> int:
+        # Codelet instructions are a special case, where all instruction are located at the
+        # end of the namespace, but we store them separate from the other namespace items
+        # to allow extensibility of instruction addresses
+        input_size = self.relocatables.get_namespace_size("SA_INPUTS")
         cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
-        return self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start//8
+        instr_addr = self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start
+        return (input_size + instr_addr)//8
 
-    def get_input_operand_offset(self, operand: str):
-        return self.relocatables.get_relocation_base("INPUTS", operand)
+    def get_input_operand_offset(self, operand: Operand):
+        return self.relocatables.get_relocation_base(operand)
 
-    def get_output_operand_offset(self, operand: str):
-        # Outputs and inputs are in separate namespaces, so subtract the base from this
-        base = self.relocatables.get_namespace_offset("OUTPUTS")
-        addr = self.relocatables.get_relocation_base("OUTPUTS", operand)
-        return addr - base
-        # return self.relocatables.get_relocation_base("OUTPUTS", operand)
+    def get_output_operand_offset(self, operand: Operand):
+        return self.relocatables.get_relocation_base(operand)
 
     def save(self, output_path=None, save_format="json"):
         if output_path:
@@ -514,6 +516,7 @@ class CodeletProgram(object):
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
+            op_str['tile_splits'] = {k: cdlt.required_params[k].value//cdlt.param_tiling[1][k] for k in loop_order}
             op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
@@ -533,7 +536,9 @@ class CodeletProgram(object):
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
+            op_str['tile_splits'] = {k: cdlt.required_params[k].value//cdlt.param_tiling[1][k] for k in loop_order}
             op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
+
             op_str['operation_parameters'] = op_params
             op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
             op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]

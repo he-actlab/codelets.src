@@ -380,7 +380,7 @@ def load_fusion_op_info_impl(cfg):
     FUSION_OP_INFO = {
             'div_add': {
                 'cdlt': partial(FusionOp, 'div_add'),
-                'dfg' : DFG('add', [DFG('div', [0, 'mul_rhs']),
+                'dfg': DFG('add', [DFG('div', [0, 'mul_rhs']),
                                     1]),
                 'seq': ["Div",
                         "Add"]

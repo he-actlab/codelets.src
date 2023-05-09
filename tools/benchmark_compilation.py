@@ -177,7 +177,6 @@ def compile_benchmark(model_name,
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
     cfg_path = f"{CFG_PATH}/{cfg_name}"
     graph = pm.from_onnx(model_path)
-    print(f"TRAINING: {arch_config['TRAINING']}")
     program, _ = compile_full_model(model_name, cfg_path,
                                  store_compile=False,
                                  dir_ext=None,
@@ -234,6 +233,12 @@ def compile_benchmark(model_name,
         program.compile(verbose=verbose, finalize=True, stop_stage=stop_stage)
         if check_layer_count:
             check_fused_layer_count(model_path, program)
+
+    # cdlt = program.codelets[0]
+    # for o in cdlt.all_operands:
+    #     print(f"{o.name} - {o.data_moves[0].src_node} - {o.data_moves[0].op_name}")
+    # print(f"{cdlt.cdlt_uid}")
+
     if stop_stage is None and store_results:
         sys_array_size = arch_config['ARRAY_M']
         dgen = DataGen(program,
@@ -246,7 +251,6 @@ def compile_benchmark(model_name,
                        out_path=f"{CWD}/compilation_output",
                         store_whole_program=arch_config['SINGLE_PROGRAM_COMPILATION'])
         dgen.generate()
-
     def print_attr(name):
         print(f"{name} depth: {program.hag.get_subgraph_node(name).depth}")
         print(f"{name} width: {program.hag.get_subgraph_node(name).width}")
@@ -256,15 +260,6 @@ def compile_benchmark(model_name,
         print(f"{name} indirection: {program.hag.get_subgraph_node(name).indirection}")
         print(f"")
 
-    # print_attr("DRAM")
-    # print_attr("IMM")
-    # print_attr("INSTR_MEM")
-    # print_attr("VMEM1")
-    # print_attr("IBUF")
-    # print_attr("WBUF")
-    # print_attr("BBUF")
-    # print_attr("OBUF")
-    # print_attr("OBUF")
 
     if count_compute:
         count_compute_ops(program)
@@ -359,10 +354,18 @@ if __name__ == "__main__":
         # config = "simd_paper128x128_dse.json"
         # config = "paper_fpga16x16.json"
         # config = "fpga16x16.json"
-        config = "neuro_cfg_8x8.json"
+        config = "fpga4x4.json"
+        # config = "neuro_cfg_8x8.json"
 
-        # dir_ext = "neuro_"
+        # dir_ext = "_default"
+        # dir_ext = "_tpu_test"
+        # dir_ext = "_ld_st"
+        # dir_ext = "_addr_gen"
+        # dir_ext = "_loop_overhead"
+        # dir_ext = "_sw_pipeline"
+        # dir_ext = "unfused_"
         dir_ext = ""
+
         benchmarks = ['resnet18', # 0
                       'resnet50', # 1
                       'efficientnet-lite4-opt-no-softmax', # 2
@@ -388,20 +391,23 @@ if __name__ == "__main__":
                       'linear_reg_test', # 22
                       'ppo_model', # 23,
                       'conv_benchmark_v1', # 24
-                      'ddpg_model-opt', # 25
-                      'sac_model', # 26,
-                      'ppo_model', # 27
-                      'div_test', # 28,
-                      'conv_lrelu_add_v1-opt', # 29
-                      'conv_add_relu_v0-opt', # 30
-                      "conv_benchmark_v1" # 31
+                      'div_test', # 25,
+                      'conv_lrelu_add_v1-opt', # 26
+                      'conv_add_relu_v0-opt', # 27
+                      "conv_benchmark_v1", # 28
+                      'ddpg_model-opt',  # 29
+                      'sac_model',  # 30
+                      'ppo_model',  # 31,
+                      'ddpg', # 32,
+                      'short-gpt2-trimmed-opt', # 33
                       ]
         # neuro_benchmarks()
-        compile_benchmark(benchmarks[26],
+        simd_paper_benches = [1, 3, 4, 2, 6, 5]
+        compile_benchmark(benchmarks[31],
                           config,
                           only_systolic=False,
                           verbose=True,
                           skip_broken_layers=False,
                           # filtered_layers=[0],
                           dir_ext=dir_ext,
-                          identifier=2)
+                          identifier=7)

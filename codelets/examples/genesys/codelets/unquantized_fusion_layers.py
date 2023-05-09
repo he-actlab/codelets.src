@@ -1,9 +1,9 @@
 from codelets.adl.graph import ArchitectureNode
 from codelets.templates.codelet_template import CodeletTemplate
-from codelets.examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, DTYPE_MAP
+from codelets.examples.genesys import OP_DTYPES, FXP_CONFIGS, QUANT_SCALE, SIGN_SHIFT, DTYPE_MAP, QUANT_SCALE_FP
 from . import add_conv_constraints, range_from_cfg, \
-    add_simd_constraint, create_immediate_with_operand, add_scale_op, \
-    add_simd_tile_constraint, add_gemm_constraints, add_scale_and_cast_op,\
+    add_simd_constraint, create_immediate_with_operand, \
+    add_simd_tile_constraint, add_gemm_constraints,\
     add_flex_simd_constraints, CAST_FUNC
 
 def create_matmul3d_args(cdlt, hag):
@@ -1243,7 +1243,6 @@ def matmul_add_add(hag):
                     out.set_write_destination('VMEM1')
                     add_lhs.set_write_destination("VMEM2")
                     indices = (b, m, p)
-                    add_scale_op(cdlt, add_lhs, add_lhs, m0, nshift, indices)
                     cdlt.compute("ADD", [gemm_out[indices], add_lhs[indices]], [out[indices]],
                                  target="SIMD")
                     cdlt.transfer(out, ["VMEM1", "DRAM"])
@@ -1272,7 +1271,7 @@ def matmul_add_gelu(hag):
 
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
-        b_s = create_immediate_with_operand(cdlt, 'b_s', CAST_FUNC(-1.769/QUANT_SCALE, acc_dtype_name), simd_size=simd_size)
+        b_s = create_immediate_with_operand(cdlt, 'b_s', CAST_FUNC(-1.769/QUANT_SCALE_FP, acc_dtype_name), simd_size=simd_size)
         aop = create_immediate_with_operand(cdlt, 'a_op',CAST_FUNC(-0.2888, acc_dtype_name), simd_size=simd_size)
         bop = create_immediate_with_operand(cdlt, 'bop', CAST_FUNC(-1.769, acc_dtype_name), simd_size=simd_size)
         cop = create_immediate_with_operand(cdlt, 'cop', 1, simd_size=simd_size)
@@ -1298,7 +1297,6 @@ def matmul_add_gelu(hag):
 
                     cdlt.compute("MUL", [gelu_out[indices], sign_val[indices]], [gelu_out[indices]],
                                  target="SIMD")
-                    # add_scale_and_cast_op(cdlt, add_lhs, out, m0, nshift, indices)
                     cdlt.compute("MUL", [gelu_out[indices], aop], [gelu_out[indices]],
                                  target="SIMD")
                     cdlt.compute("ADD", [gelu_out[indices], cop], [gelu_out[indices]],
@@ -2185,6 +2183,10 @@ def load_unquant_fusion_op_info(cfg):
             'cdlt': depthwise_conv_bias_clip,
             'seq': ['DepthwiseConvBias', 'Clip'],
         },
+        'matmul_add': {
+            'cdlt': matmul_add,
+            'seq': ["MatMul", "Add"]
+        },
         # These are layers which are failing because they have multiple (more than 2) inputs for simd execution
         # 'add_add': {
         #   'cdlt': add_add,
@@ -2213,10 +2215,10 @@ def load_unquant_fusion_op_info(cfg):
     }
 
     if not cfg['SW_PIPELINE_TEST']:
-        UNQUANT_FUSION_OP_INFO['matmul_add'] = {
-            'cdlt': matmul_add,
-            'seq': ["MatMul", "Add"]
-        }
+        # UNQUANT_FUSION_OP_INFO['matmul_add'] = {
+        #     'cdlt': matmul_add,
+        #     'seq': ["MatMul", "Add"]
+        # }
         UNQUANT_FUSION_OP_INFO['matmul_add_add'] = {
             'cdlt': matmul_add_add,
             'seq': ["MatMul", "Add", "Add"]
