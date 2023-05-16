@@ -212,8 +212,8 @@ def gemm_flatten(weights, dram_tiling, cdlt, arch_config):
         cnt = 0
         for big_tile_ic in range(0, w_dim[w_dim_inner], big_tile_size_ic):  # Tile over IC
             for big_tile_oc in range(0, w_dim[w_dim_outer], big_tile_size_oc):  # Tile over OC
-                for oc in range(0, big_tile_size_oc, tile_n * interleave_factor):  # OC
-                    for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                for ic in range(0, big_tile_size_ic, tile_m):  # IC
+                    for oc in range(0, big_tile_size_oc, tile_n * interleave_factor):  # OC
                         for n in range(tile_n):  # Rows
                             for m in range(tile_m):  # Columns
                                 for k in range(interleave_factor):
