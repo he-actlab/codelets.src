@@ -410,4 +410,4 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           # filtered_layers=[0],
                           dir_ext=dir_ext,
-                          identifier=7)
+                          identifier=8)

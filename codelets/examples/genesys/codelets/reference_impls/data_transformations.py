@@ -315,7 +315,7 @@ def conv_flatten(weights, dram_tiling, cdlt, arch_config):
 def tiled_flatten(weights, dram_tiling, cdlt, arch_config, layer_type = 'gemm'):
     if isinstance(weights, tuple):
         weights, coord_map = weights
-    if layer_type == 'gemm' or 'matmul' in layer_type:
+    if layer_type == 'gemm' or 'matmul' in layer_type or 'gemm' in layer_type:
         result = gemm_flatten(weights, dram_tiling, cdlt, arch_config)
     else:
         assert 'conv' in layer_type

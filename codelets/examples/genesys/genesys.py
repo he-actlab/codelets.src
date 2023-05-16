@@ -219,7 +219,7 @@ def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False,
         for opname, info in FUSION_OP_INFO.items():
 
             if opname != "single_layer_info":
-                assert 'seq' in info
+                assert 'seq' in info, f"'seq' not found in {opname}."
                 if any([f in info['seq'] for f in filtered_ops]):
                     continue
                 fusions.append(info['seq'])

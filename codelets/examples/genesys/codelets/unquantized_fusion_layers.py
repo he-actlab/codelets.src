@@ -88,6 +88,62 @@ def create_mamtul4d_func(cdlt, hag, params):
 
     return cdlt, gemm_out
 
+def create_gemm_args(cdlt, hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    params = {}
+    M = cdlt.dummy_op("M", cdlt.node.inputs[0].shape[0])
+    N = cdlt.dummy_op("N", cdlt.node.inputs[0].shape[1])
+    P = cdlt.dummy_op("P", cdlt.node.inputs[1].shape[1])
+
+    params['M'] = M
+    params['N'] = N
+    params['P'] = P
+
+    data = cdlt.create_operand_template("data", OP_DTYPES, [M, N], default_dtype=inpt_dtype)
+    weight = cdlt.create_operand_template("weight", OP_DTYPES, [N, P], default_dtype=inpt_dtype)
+    bias = cdlt.create_operand_template("bias", OP_DTYPES, [P], default_dtype=acc_dtype)
+    cdlt.set_inputs([data, weight, bias])
+    return cdlt, params
+
+def create_gemm_func(cdlt,hag, params):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    data = cdlt.inputs[0]
+    weight = cdlt.inputs[1]
+    bias = cdlt.inputs[2]
+    M = params['M']
+    N = params['N']
+    P = params['P']
+
+    gemm_out = cdlt.create_operand_template("gemm_out", OP_DTYPES, [M, P], default_dtype=acc_dtype)
+    cdlt.add_temp_operand(gemm_out)
+
+
+    cdlt.configure("start", "systolic_array")
+    cdlt.configure("start", "WBUF")
+    cdlt.configure("start", "IBUF")
+    cdlt.configure("start", "OBUF")
+    cdlt.configure("start", "BBUF")
+    with cdlt.loop(N) as n:
+        with cdlt.loop(M) as m:
+            with cdlt.loop(P) as p:
+                cdlt.transfer(data, ["DRAM", "IBUF"])
+                cdlt.transfer(weight, ["DRAM", "WBUF"])
+                cdlt.transfer(bias, ["DRAM", "BBUF"])
+                cdlt.transfer(gemm_out, ["DRAM", "OBUF"])
+                gemm_out.set_write_destination("OBUF")
+                cdlt.compute("MVMUL", [data[m, n], weight[n, p], bias[p], gemm_out[m, p]], [gemm_out[m, p]], target="pe_array")
+    # TODO: Add store off chip
+    cdlt.configure("end", "WBUF")
+    cdlt.configure("end", "IBUF")
+    cdlt.configure("end", "OBUF")
+    cdlt.configure("end", "BBUF")
+    cdlt.configure("end", "systolic_array")
+    return cdlt, gemm_out
+
 def create_mamtul3d_func(cdlt, hag, params):
     acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
@@ -2125,6 +2181,42 @@ def pow_mul_add_tanh_mul(hag):
     cdlt = add_simd_constraint(hag, cdlt, "H")
     return cdlt
 
+
+def gemm_tanh(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    with CodeletTemplate('gemm_tanh') as cdlt:
+        cdlt, params = create_gemm_args(cdlt, hag)
+        N, M, P = params['N'], params['M'], params['P']
+
+        cdlt, gemm_out = create_gemm_func(cdlt, hag, params)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=inpt_dtype)
+        cdlt.set_outputs([out])
+
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.configure('start', 'SIMD')
+
+        # b_s = create_immediate_with_operand(cdlt, 'b_s', CAST_FUNC(-1.769/QUANT_SCALE_FP, acc_dtype_name), simd_size=simd_size)
+        # aop = create_immediate_with_operand(cdlt, 'a_op', CAST_FUNC(-0.2888, acc_dtype_name), simd_size=simd_size)
+        # bop = create_immediate_with_operand(cdlt, 'bop', CAST_FUNC(-1.769, acc_dtype_name), simd_size=simd_size)
+        # cop = create_immediate_with_operand(cdlt, 'cop', 1, simd_size=simd_size)
+        # s_f = create_immediate_with_operand(cdlt, 's_f', QUANT_SCALE, simd_size=simd_size)
+        # m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        # nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
+
+        with cdlt.loop(M) as m:
+            with cdlt.loop(P) as p:
+                out.set_write_destination('VMEM1')
+                indices = (m, p)
+
+                cdlt.compute("TANH", [gemm_out[indices]], [out[indices]],
+                             target="SIMD")
+
+                cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure('end', 'SIMD')
+    cdlt = add_gemm_constraints(hag, cdlt)
+    return cdlt
 def load_unquant_fusion_op_info(cfg):
 
     UNQUANT_FUSION_OP_INFO = {
@@ -2277,6 +2369,10 @@ def load_unquant_fusion_op_info(cfg):
             'cdlt': conv_bias_clip_depthwise_conv_bias_clip,
             'seq': ['Conv', 'Clip', 'DepthwiseConv', 'Clip'],
 
+        }
+        UNQUANT_FUSION_OP_INFO['gemm_tanh'] = {
+            'cdlt': gemm_tanh,
+            'seq': ['Gemm', 'Tanh'],
         }
     return UNQUANT_FUSION_OP_INFO
 
