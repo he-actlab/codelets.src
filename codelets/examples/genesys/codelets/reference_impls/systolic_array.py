@@ -219,7 +219,7 @@ class Gemm(ReferenceOp):
         else:
             output = np.dot(np.int32(data), np.int32(wgt))
             if self.use_bias:
-                inouts['inputs'][2] = inouts['inputs'][2]._replace(data=np.zeros_like(inouts['inputs'][2].data))
+                # inouts['inputs'][2] = inouts['inputs'][2]._replace(data=np.zeros_like(inouts['inputs'][2].data))
                 output = output + inouts['inputs'][2].data
         inouts['outputs'] = [output]
         return inouts

@@ -614,6 +614,11 @@ def load_fusion_op_info_impl(cfg):
                 'dfg': DFG('tanh', [DFG('gemm', [0, 1, 2])]),
                 'seq': ["Gemm", "Tanh"]
             },
+            "gemm_relu": {
+                'cdlt': partial(FusionOp, 'gemm_relu'),
+                'dfg': DFG('relu', [DFG('gemm', [0, 1, 2])]),
+                'seq': ["Gemm", "Relu"]
+            },
             'conv_bias_clip_depthwise_conv_bias': {
                 'cdlt': partial(FusionOp, 'conv_bias_clip_depthwise_conv_bias_add'),
                 'dfg': DFG('bias_add',
@@ -828,6 +833,11 @@ def load_unquant_fusion_op_info_impl(cfg):
                 'cdlt': partial(FusionOp, 'gemm_tanh'),
                 'dfg': DFG('tanh', [DFG('gemm', [0,1,2])]),
                 'seq': ["Gemm", "Tanh"]
+            },
+            "gemm_relu": {
+                'cdlt': partial(FusionOp, 'gemm_relu'),
+                'dfg': DFG('relu', [DFG('gemm', [0,1,2])]),
+                'seq': ["Gemm", "Relu"]
             },
             # 'conv_relu': {
             #     'cdlt': partial(FusionOp, 'conv_relu'),

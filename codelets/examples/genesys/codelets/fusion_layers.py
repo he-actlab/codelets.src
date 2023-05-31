@@ -1534,6 +1534,45 @@ def gemm_tanh(hag):
     cdlt = add_gemm_constraints(hag, cdlt)
     return cdlt
 
+def gemm_relu(hag):
+    acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
+    inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
+    acc_dtype = DTYPE_MAP[acc_dtype_name]
+    with CodeletTemplate('gemm_relu') as cdlt:
+        cdlt, params = create_gemm_args(cdlt, hag)
+        N, M, P = params['N'], params['M'], params['P']
+
+        cdlt, gemm_out = create_gemm_func(cdlt, hag, params)
+        out = cdlt.create_operand_template("out", OP_DTYPES, [M, P], default_dtype=inpt_dtype)
+        cdlt.set_outputs([out])
+
+
+
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.configure('start', 'SIMD')
+
+        # b_s = create_immediate_with_operand(cdlt, 'b_s', CAST_FUNC(-1.769/QUANT_SCALE_FP, acc_dtype_name), simd_size=simd_size)
+        # aop = create_immediate_with_operand(cdlt, 'a_op', CAST_FUNC(-0.2888, acc_dtype_name), simd_size=simd_size)
+        # bop = create_immediate_with_operand(cdlt, 'bop', CAST_FUNC(-1.769, acc_dtype_name), simd_size=simd_size)
+        # cop = create_immediate_with_operand(cdlt, 'cop', 1, simd_size=simd_size)
+        # s_f = create_immediate_with_operand(cdlt, 's_f', QUANT_SCALE, simd_size=simd_size)
+        # m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
+        # nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
+
+        with cdlt.loop(N) as n:
+            with cdlt.loop(M) as m:
+                with cdlt.loop(P) as p:
+                    out.set_write_destination('VMEM1')
+                    indices = (m, p)
+
+                    cdlt.compute("RELU", [gemm_out[indices]], [out[indices]],
+                                 target="SIMD")
+
+                    cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure('end', 'SIMD')
+    cdlt = add_gemm_constraints(hag, cdlt)
+    return cdlt
+
 def matmul_div_add(hag):
     acc_dtype_name = f"FXP{hag.meta_cfg['ACC_WIDTH']}"
     inpt_dtype = DTYPE_MAP[f"FXP{hag.meta_cfg['DATA_WIDTH']}"]
@@ -2485,6 +2524,11 @@ def load_fusion_op_info(cfg):
         FUSION_OP_INFO['gemm_tanh'] = {
             'cdlt': gemm_tanh,
             'seq': ['Gemm', 'Tanh'],
+
+        }
+        FUSION_OP_INFO['gemm_relu'] = {
+            'cdlt': gemm_relu,
+            'seq': ['Gemm', 'Relu'],
 
         }
     return FUSION_OP_INFO
