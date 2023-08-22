@@ -350,7 +350,7 @@ if __name__ == "__main__":
                           skip_broken_layers=False,
                           # filtered_layers=[0],
                           dir_ext=extension,
-                          identifier=8)
+                          identifier=1)
 
     else:
         # config = "simd_paper32x32.json"

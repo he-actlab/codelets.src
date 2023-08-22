@@ -112,7 +112,28 @@ def gemm(hag: ArchitectureNode):
         cdlt.configure("end", "OBUF")
         cdlt.configure("end", "BBUF")
         cdlt.configure("end", "systolic_array")
-        cdlt = add_gemm_quant(cdlt, gemm_out, out, M, P)
+
+        # cdlt = add_gemm_quant(cdlt, gemm_out, out, M, P)
+
+        simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+        cdlt.configure('start', 'SIMD') 
+
+        M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 32768, simd_size=simd_size)
+        SHIFT = create_immediate_with_operand(cdlt, 'SHIFT', 17, simd_size=simd_size)
+        Z1_NEXT = create_immediate_with_operand(cdlt, 'Z1_NEXT', 0, simd_size=simd_size)
+
+        with cdlt.loop(M) as m:
+            with cdlt.loop(P) as p:
+                out.set_write_destination('VMEM1')
+                indices = (m, p)
+
+                cdlt.compute("MUL", [gemm_out[indices], M_SCALE], [out[indices]], target="SIMD")
+                cdlt.compute("RSHIFT", [out[indices], SHIFT], [out[indices]], target="SIMD")
+                cdlt.compute("ADD", [out[indices], Z1_NEXT], [out[indices]], target="SIMD")
+                cdlt.compute("32FXP_8FXP", [out[indices]], [out[indices]], target="SIMD")
+
+                cdlt.transfer(out, ["VMEM1", "DRAM"])
+        cdlt.configure('end', 'SIMD')
 
 
     cdlt = add_gemm_constraints(hag, cdlt)

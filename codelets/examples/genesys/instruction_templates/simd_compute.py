@@ -457,7 +457,8 @@ def insert_dtype_cfg_from_cast(op_name, hag):
     instructions = []
     instr = hag.get_primitive_template("DTYPE_CFG")
     instr.set_field_flex_param("DTYPE", "str(op.dests[0].dtype.bits()) + op.dests[0].dtype.type")
-    instr.set_field_flex_param("DST_BITS", "op.dests[0].dtype.exp")
+    # instr.set_field_flex_param("DST_BITS", "op.dests[0].dtype.exp")
+    instr.set_field_flex_param("DST_BITS", "8")
     instr.set_field_flex_param("SRC1_BITS", "op.sources[0].dtype.exp")
     instr.set_field_flex_param("SRC2_BITS", "op.sources[0].dtype.exp")
     instructions.append(instr)

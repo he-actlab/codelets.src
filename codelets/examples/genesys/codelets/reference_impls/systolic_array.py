@@ -221,6 +221,12 @@ class Gemm(ReferenceOp):
             if self.use_bias:
                 # inouts['inputs'][2] = inouts['inputs'][2]._replace(data=np.zeros_like(inouts['inputs'][2].data))
                 output = output + inouts['inputs'][2].data
+        
+        output = np.int8(output)
+        output = np.left_shift(output, 24)
+        output = np.right_shift(output, 16)
+        output = np.right_shift(output, 24)
+
         inouts['outputs'] = [output]
         return inouts
 
