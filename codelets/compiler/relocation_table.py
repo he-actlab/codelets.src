@@ -66,6 +66,11 @@ class RelocationTable(abc.ABC):
             self._relocatables[ml] = Relocation(ml)
 
         self._addr_alignment = addr_alignment or RelocationTable._DEFAULT_ADDR_ALIGNMENT
+    
+    def reset_reloctables(self) -> None:
+        self._relocatables.clear()
+        for ml in self.mem_layout:
+            self._relocatables[ml] = Relocation(ml)
 
     @property
     def storage_node(self) -> StorageNode:
@@ -578,11 +583,12 @@ class EndToEndRelocationTable(RelocationTable):
                 operand_location: str = self.get_operand_namespace(operand)
                 data_size: int = np.prod(operand.shape) * operand.dtype.bits() 
                 if operand_location == "ACTIVATION":
-                    current_node_activation_buffer_size += data_size
+                    current_node_activation_buffer_size += self.get_aligned_sized(data_size, as_bytes=False)
             maximum_activation_buffer_size = max(maximum_activation_buffer_size, current_node_activation_buffer_size)
         self._maximum_activation_buffer_size = 2 * self.get_aligned_sized(maximum_activation_buffer_size, as_bytes=False)
 
     def _update_relocations(self) -> None:
+        self.reset_reloctables()
         is_first_half_of_activation_buffer: bool = True
         operands_stored_at_each_layer: dict[_DataflowGraphNode, set[str]] = self._dataflow_graph._get_operands_stored_at_each_layer()
         for node in self._dataflow_graph.get_nodes():
