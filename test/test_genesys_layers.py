@@ -1,4 +1,4 @@
-from codelets.compiler.relocation_table import RelocationTable
+from codelets.compiler.relocation_table import DebugRelocationTable
 from codelets.examples import GENESYS_CFG, GENESYS_DTYPES, DTYPE_MAP, \
     compile_genesys_layer, compile_extracted_genesys_layer
 from collections import namedtuple
