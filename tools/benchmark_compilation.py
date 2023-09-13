@@ -175,18 +175,15 @@ def compile_benchmark(model_name,
 
 
     model_path = f"{MODEL_DIR}/{model_name}.onnx"
-    cfg_path = f"{CFG_PATH}/{cfg_name}"
     graph = pm.from_onnx(model_path)
-    program, _ = compile_full_model(model_name, cfg_path,
+    program = compile_full_model(model_name, arch_config,
                                  store_compile=False,
                                  dir_ext=None,
                                  added_constr=None,
                                  verbose=verbose,
                                  model_data=None,
-                                 fuse_layers=arch_config['FUSE_LAYERS'],
                                  generate_data=False,
-                                    graph=graph,
-                                    batch_size=arch_config['BATCH_SIZE'])
+                                    graph=graph)
 
     if conv_tile_constraints is not None:
         conv_layers = ["conv_bias", "conv_bias_add_relu", "conv_bias_relu"]
@@ -333,16 +330,13 @@ if __name__ == "__main__":
         extension = args.extension
         verbose = args.verbose
         arch_config = args.config
-
         compile_benchmark(fname,
                           arch_config,
                           only_systolic=False,
-                          sw_pipeline_test=False,
-                          addr_gen_test=False,
-                          custom_config=False,
-                          verbose=verbose,
+                          verbose=args.verbose,
                           skip_broken_layers=False,
-                          identifier=extension)
+                          dir_ext=args.extension,
+                          identifier=0)
 
     else:
         # config = "simd_paper32x32.json"

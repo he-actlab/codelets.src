@@ -200,6 +200,15 @@ def set_defaults(cfg):
     if 'ADDR_ALIGNMENT' not in cfg:
         cfg['ADDR_ALIGNMENT'] = 4096*8
 
+    if "GPU_SCALING" in cfg:
+        assert "TOTAL" in cfg["GPU_SCALING"]
+        total = cfg["GPU_SCALING"]["TOTAL"]
+        oc = cfg["GPU_SCALING"].get("OC", 1)
+        oh = cfg["GPU_SCALING"].get("OH", 1)
+        ow = cfg["GPU_SCALING"].get("OW", 1)
+        assert oh*oc*ow == total, f"Invalid scaling values: total={total}, oc={oc}, oh={oh}, ow={ow}"
+    else:
+        cfg["GPU_SCALING"] = None
     return cfg
 
 def load_config(fpath):

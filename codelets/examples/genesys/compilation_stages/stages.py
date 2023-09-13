@@ -64,6 +64,7 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     updated_dims = []
+    is_scaled = 'GPU_SCALING' in program.hag.meta_cfg.keys()
     if 'TRAINING' in program.hag.meta_cfg.keys() and program.hag.meta_cfg['TRAINING']:
         train = True
     else:
@@ -115,7 +116,10 @@ def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate'
         # Need to pad IC
         # Static padding
         sys_dims = program.hag.get_subgraph_node("pe_array").dimensions[0]*program.hag.meta_cfg['DATA_WIDTH'] // 8
-        bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
+        if is_scaled:
+            bandwidth = sys_dims
+        else:
+            bandwidth = program.hag.edge_map[('DRAM', 'IBUF')].bandwidth_bytes
 
         constr = np.lcm(bandwidth, sys_dims)
 

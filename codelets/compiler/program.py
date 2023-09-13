@@ -244,6 +244,25 @@ class CodeletProgram(object):
         offset = self.relocatables.get_namespace_size('INSTR_MEM') // 8
         return offset
 
+    def get_scaled_shape(self, cdlt: Codelet, operand):
+        if operand.node_name is not None:
+            op = self.graph.nodes[operand.node_name]
+            if 'base_shape' not in op.kwargs:
+                raise KeyError(f"Unable to find base shape for operand {operand.node_name} in {cdlt.op_name}, {operand.shape}")
+            return op.kwargs['base_shape']
+        else:
+            for i in (cdlt.inputs + cdlt.outputs):
+                if i.shape_list == operand.shape_list:
+                    assert i.node_name is not None
+                    op = self.graph.nodes[i.node_name]
+                    if 'base_shape' not in op.kwargs:
+                        raise KeyError(f"Unable to find base shape for operand {i.node_name} in {cdlt.op_name}")
+                    return op.kwargs['base_shape']
+            raise KeyError(f"Unable to find shape for {operand.name}")
+
+
+
+
 
     def get_codelet_instr_offset(self, cdlt_id: int) -> int:
         # Codelet instructions are a special case, where all instruction are located at the
@@ -512,6 +531,13 @@ class CodeletProgram(object):
                 if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
+            base_shapes = {}
+            for io in (cdlt.inputs + cdlt.outputs):
+                if io.node_name is not None and 'base_shape' in self.graph.nodes[io.node_name].kwargs:
+                    base_shapes[io.name] = self.graph.nodes[io.node_name].kwargs['base_shape']
+                    if not isinstance(base_shapes[io.name], list):
+                        base_shapes[io.name] = [base_shapes[io.name]]
+
 
             op_str = {}
             op_str['operation'] = cdlt.op_name
@@ -519,9 +545,9 @@ class CodeletProgram(object):
             op_str['tile_splits'] = {k: cdlt.required_params[k].value//cdlt.param_tiling[1][k] for k in loop_order}
             op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
             op_str['operation_parameters'] = op_params
-            op_str['inputs'] = [i.emit(output_type) for i in cdlt.inputs]
+            op_str['inputs'] = [i.emit(output_type, base_shape=base_shapes.get(i.name, None)) for i in cdlt.inputs]
             op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
-            op_str['outputs'] = [o.emit(output_type) for o in cdlt.outputs]
+            op_str['outputs'] = [o.emit(output_type, base_shape=base_shapes.get(o.name, None)) for o in cdlt.outputs]
             op_str['operation_sequence'] = [op.emit(output_type) for op in cdlt.ops]
         elif output_type == "json_no_ops":
             op_params = {}
@@ -532,7 +558,12 @@ class CodeletProgram(object):
                 if k not in loop_order:
                     assert isinstance(v, FlexParam)
                     op_params[k] = v.value
-
+            base_shapes = {}
+            for io in (cdlt.inputs + cdlt.outputs):
+                if io.node_name is not None and 'base_shape' in self.graph.nodes[io.node_name].kwargs:
+                    base_shapes[io.name] = self.graph.nodes[io.node_name].kwargs['base_shape']
+                    if not isinstance(base_shapes[io.name], list):
+                        base_shapes[io.name] = [base_shapes[io.name]]
             op_str = {}
             op_str['operation'] = cdlt.op_name
             op_str['instance_id'] = cdlt.instance_id
@@ -540,9 +571,9 @@ class CodeletProgram(object):
             op_str['iterable_dimensions'] = {k: cdlt.required_params[k].value for k in loop_order}
 
             op_str['operation_parameters'] = op_params
-            op_str['inputs'] = [i.emit("json") for i in cdlt.inputs]
+            op_str['inputs'] = [i.emit(output_type, base_shape=base_shapes.get(i.name, None)) for i in cdlt.inputs]
             op_str['intermediate'] = [t.emit(output_type) for t in cdlt.temps]
-            op_str['outputs'] = [o.emit("json") for o in cdlt.outputs]
+            op_str['outputs'] = [o.emit(output_type, base_shape=base_shapes.get(o.name, None)) for o in cdlt.outputs]
 
         elif output_type not in ["decimal", "binary"]:
             op_str = f""

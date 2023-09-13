@@ -123,13 +123,14 @@ Dockerfile
 
 # Data for examples
 mldata/
-
+codelets/examples/genesys/configs/gpu_scaling*.json
 # Scratch code
 test/scratch/
 test/*.txt
 test/*.zip
 test/compilation_output
 tools/compilation_output
+tools/compilation_output/*
 tools/neuroweaver
 benchmarks/compilation_output
 benchmarks/layers/srdfg
