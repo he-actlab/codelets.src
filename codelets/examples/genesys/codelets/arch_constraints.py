@@ -9,8 +9,7 @@ def add_simd_constraint(hag, cdlt, fixed_dim):
     simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
     bandwidth = simd_edge.bandwidth
     cdlt.update_compilation_param(f"{fixed_dim}_hint2", f"size == {simd_dims[0]}")
-    if  hag.meta_cfg.get('GPU_SCALING', None) is None:
-        cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0")
+    cdlt.update_compilation_param(f"{fixed_dim}_hint1", f"size*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0")
     return cdlt
 
 def add_multi_simd_constraint(hag, cdlt, fixed_dims):
@@ -31,14 +30,13 @@ def add_flex_simd_constraints(hag, cdlt, dim_options):
     simd_dims = hag.get_subgraph_node("SIMD").dimensions
     simd_edge = hag.get_subgraph_edge('DRAM', 'VMEM1')
     bandwidth = simd_edge.bandwidth
-    if hag.meta_cfg.get('GPU_SCALING', None) is None:
-        l1_constraints = [f"sizes['{i}']*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0" for i in dim_options]
-        l1_constraint = "any([" + f", ".join(l1_constraints) + "])"
-        cdlt.update_compilation_param("LEVEL1_hint", l1_constraint)
+    l1_constraints = [f"sizes['{i}']*{DTYPE_MAP[acc_dtype].bits()} % {bandwidth} == 0" for i in dim_options]
+    l1_constraint = "any([" + f", ".join(l1_constraints) + "])"
+    cdlt.update_compilation_param("LEVEL1_hint", l1_constraint)
     #
-        l2_constraints = [f"sizes['{i}'] == {simd_dims[0]}" for i in dim_options]
-        l2_constraint = "any([" + f", ".join(l2_constraints) + "])"
-        cdlt.update_compilation_param("LEVEL2_hint", l2_constraint)
+    l2_constraints = [f"sizes['{i}'] == {simd_dims[0]}" for i in dim_options]
+    l2_constraint = "any([" + f", ".join(l2_constraints) + "])"
+    cdlt.update_compilation_param("LEVEL2_hint", l2_constraint)
 
     return cdlt
 
@@ -69,18 +67,12 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     else:
         ic_tiling = f"(splits['IC'] == 1 or any([splits['KH'] > 1, splits['KW'] > 1, splits['OH'] > 1, splits['OW'] > 1]))"
 
-    if hag.meta_cfg.get('GPU_SCALING', None) is not None:
-        constraint = "True"
-    else:
-        constraint = f"{gt_one_tiles} and {ic_tiling}"
+
+    constraint = f"{gt_one_tiles} and {ic_tiling}"
     ic_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
     oc_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
-    if hag.meta_cfg.get('GPU_SCALING', None) is not None:
-        ic_hint = f"sizes['IC']*{DTYPE_MAP[inpt_dtype].bits()} <= {ic_bandwidth}"
-        oc_hint = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} <= {oc_bandwidth}"
-        # constraint = f"{constraint} and {ic_hint} and {oc_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
-        constraint = f"{constraint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
-    elif hag.meta_cfg['SA_TILE_CONSTR'] and not hag.meta_cfg['ASIC_CONFIG']:
+
+    if hag.meta_cfg['SA_TILE_CONSTR'] and not hag.meta_cfg['ASIC_CONFIG']:
         ic_hint0 = f"sizes['IC']*{DTYPE_MAP[acc_dtype].bits()} % {ic_bandwidth} == 0"
         oc_hint0 = f"sizes['OC']*{DTYPE_MAP[acc_dtype].bits()} % {oc_bandwidth} == 0"
         ic_hint1 = f"sizes['IC']*{DTYPE_MAP[inpt_dtype].bits()} % {ic_bandwidth} == 0"
@@ -97,14 +89,10 @@ def add_conv_constraints(hag, cdlt, is_fusion=False):
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 
     ## DRAM to buffers
-    if hag.meta_cfg.get('GPU_SCALING', None) is not None:
-        cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-        cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-    else:
-        cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
-        cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
-        cdlt.add_compilation_param("KH_hint1", f"split == 1")
-        cdlt.add_compilation_param("KW_hint1", f"split == 1")
+    cdlt.add_compilation_param("IC_hint1", f"size % {sys_array_dims[0]} == 0")
+    cdlt.add_compilation_param("OC_hint1", f"size % {sys_array_dims[1]} == 0")
+    cdlt.add_compilation_param("KH_hint1", f"split == 1")
+    cdlt.add_compilation_param("KW_hint1", f"split == 1")
 
     ## Buffer to systolic array
     cdlt.add_compilation_param("IC_hint0", f"size % {sys_array_dims[0]} == 0")
@@ -123,30 +111,16 @@ def add_gemm_constraints(hag, cdlt):
     obuf_elements = hag.get_subgraph_node("OBUF").num_elements
     wbuf_index_size = f"sizes['N']*sizes['P']"
     obuf_index_size = f"sizes['M']*sizes['P']"
-    if hag.meta_cfg['SA_TILE_CONSTR'] or hag.meta_cfg.get('GPU_SCALING', None) is None:
-        n_tiling = f"(splits['N'] == 1 or splits['P'] > 1)"
-        constraint = f"np.prod(list(splits.values())) > 1 and {n_tiling}"
-    else:
-        constraint = "True"
+    test = f"(splits['N'] > 1)"
+    n_tiling = f"(splits['N'] == 1 or splits['P'] > 1)"
 
+    constraint = f"np.prod(list(splits.values())) > 1 and {n_tiling}"
     # constraint = f"np.prod(list(splits.values())) > 1 and {n_tiling} and {test}"
 
     n_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
     p_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
-    if hag.meta_cfg.get('GPU_SCALING', None) is not None:
 
-        n_hint0 = f"sizes['N']*{DTYPE_MAP[acc_dtype].bits()} <= {n_bandwidth}"
-        p_hint0 = f"sizes['P']*{DTYPE_MAP[acc_dtype].bits()} <= {p_bandwidth}"
-
-        n_hint1 = f"sizes['N']*{DTYPE_MAP[inpt_dtype].bits()} <= {n_bandwidth}"
-        p_hint1 = f"sizes['P']*{DTYPE_MAP[inpt_dtype].bits()} <= {p_bandwidth}"
-
-        n_hint = f"{n_hint0} and {n_hint1}"
-        p_hint = f"{p_hint0} and {p_hint1}"
-        # constraint = f"{constraint} and {n_hint} and {p_hint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
-        constraint = f"{constraint} and {wbuf_index_size} <= {wbuf_elements} and {obuf_index_size} <= {obuf_elements}"
-
-    elif not hag.meta_cfg['ASIC_CONFIG']:
+    if not hag.meta_cfg['ASIC_CONFIG']:
         n_hint0 = f"sizes['N']*{DTYPE_MAP[acc_dtype].bits()} % {n_bandwidth} == 0"
         p_hint0 = f"sizes['P']*{DTYPE_MAP[acc_dtype].bits()} % {p_bandwidth} == 0"
 
@@ -160,9 +134,9 @@ def add_gemm_constraints(hag, cdlt):
     cdlt.update_compilation_param("LEVEL1_hint", constraint)
 
     ## DRAM to buffers
-    if hag.meta_cfg.get('GPU_SCALING', None) is None:
-        cdlt.update_compilation_param("N_hint1", f"size % {sys_array_dims[0]} == 0")
-        cdlt.update_compilation_param("P_hint1", f"size % {sys_array_dims[1]} == 0")
+    cdlt.update_compilation_param("N_hint1", f"size % {sys_array_dims[0]} == 0")
+    cdlt.update_compilation_param("P_hint1", f"size % {sys_array_dims[1]} == 0")
+
     ## Buffer to systolic array
     cdlt.update_compilation_param("N_hint0", f"size % {sys_array_dims[0]} == 0")
     cdlt.update_compilation_param("P_hint0", f"size % {sys_array_dims[1]} == 0")

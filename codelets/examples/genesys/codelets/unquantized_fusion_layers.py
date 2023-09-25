@@ -2411,10 +2411,10 @@ def load_unquant_fusion_op_info(cfg):
             'cdlt': gemm_tanh,
             'seq': ['Gemm', 'Tanh'],
         }
-        # UNQUANT_FUSION_OP_INFO['gemm_relu'] = {
-        #     'cdlt': gemm_relu,
-        #     'seq': ['Gemm', 'Relu'],
-        # }
+        UNQUANT_FUSION_OP_INFO['gemm_relu'] = {
+            'cdlt': gemm_relu,
+            'seq': ['Gemm', 'Relu'],
+        }
     return UNQUANT_FUSION_OP_INFO
 
 

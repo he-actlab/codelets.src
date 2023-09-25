@@ -464,8 +464,9 @@ def elem_pow3d(hag: ArchitectureNode):
                     cdlt.compute("POW", [op1[n, c, h], out[n, c,h ]], [out[n, c,h ]], target="SIMD")
                     cdlt.transfer(out, ["VMEM2", "DRAM"])
         cdlt.configure("end", "SIMD")
-    # cdlt = add_simd_constraint(hag, cdlt, "C")
-    cdlt = add_flex_simd_constraints(hag, cdlt, ["N", "C", "H"])
+    cdlt = add_simd_constraint(hag, cdlt, "C")
+
+
     return cdlt
 
 def tensor_transpose2d(hag: ArchitectureNode):

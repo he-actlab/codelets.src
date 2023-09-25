@@ -295,18 +295,19 @@ def generate_inputs_from_program(program):
     return model_data
 
 def compile_full_model(model_name,
-                       arch_cfg,
+                       cfg_path,
                        store_compile=False,
                        dir_ext=None,
                        added_constr=None,
                        verbose=False,
                        model_data=None,
+                       fuse_layers=False,
                        generate_data=True,
                        tile_method=None,
+                       batch_size=1,
                        graph=None
                        ):
-    batch_size = arch_cfg['BATCH_SIZE']
-    fuse_layers = arch_cfg['FUSE_LAYERS']
+
 
     tile_method = tile_method or "min_tiles"
 
@@ -315,6 +316,7 @@ def compile_full_model(model_name,
     store_tiling = False
     store_json_output = False
     json_output_filename = None
+    arch_cfg = load_config(cfg_path)
     # This function returns
     program = compile_genesys(model_name,
                               arch_cfg,
@@ -353,7 +355,7 @@ def compile_full_model(model_name,
                             model_data=model_data,
                             generate_data=generate_data)
 
-    return program
+    return program, arch_cfg
 
 
 

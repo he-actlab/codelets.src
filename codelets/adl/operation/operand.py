@@ -1225,7 +1225,7 @@ class Operand:
         op_temp.evaluated_tiling = deepcopy(self.evaluated_tiling)
         return op_temp
 
-    def emit(self, output_type, base_shape=None):
+    def emit(self, output_type):
 
         if output_type == "json":
 
@@ -1236,9 +1236,6 @@ class Operand:
                     "data_path": self.data_path,
                     "tiling": {k: v for k, v in self.tiling.items()}
                     }
-            if base_shape is not None:
-                assert isinstance(base_shape, list)
-                blob['orig_shape'] = base_shape
         else:
             raise TypeError(f"Unable to support output type for operand: {output_type}")
         return blob

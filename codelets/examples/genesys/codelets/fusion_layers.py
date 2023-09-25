@@ -2526,11 +2526,11 @@ def load_fusion_op_info(cfg):
             'seq': ['Gemm', 'Tanh'],
 
         }
-        # FUSION_OP_INFO['gemm_relu'] = {
-        #     'cdlt': gemm_relu,
-        #     'seq': ['Gemm', 'Relu'],
-        #
-        # }
+        FUSION_OP_INFO['gemm_relu'] = {
+            'cdlt': gemm_relu,
+            'seq': ['Gemm', 'Relu'],
+
+        }
     return FUSION_OP_INFO
 
 def load_fusion_cdlts(cfg):

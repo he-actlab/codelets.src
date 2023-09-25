@@ -1137,29 +1137,12 @@ def simd_alu_template(op_name, hag: ArchitectureNode):
 
     ### iters and index
     other_constr = LOOP_CONDS + ["loop_op.op_str in op.dependencies"]
-
     macro_instr = hag.get_primitive_template("SET_ITER")
     macro_instr.set_print_tabs("loop_op.loop_level")
     macro_instr.add_iterable(*LOOP_ITER)
     macro_instr.add_condition(" and ".join(other_constr))
     macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_level % {ALL_LOOP_ID}) + {loop_idx_offset}")
-    if op_name in ["MAX", "MIN"]:
-        ## Additonal check for clip depthwise
-        # other_constr = other_constr + ["(not (cdlt.op_name == 'clip_depthwise_conv' and loop_op.op_str in ['loop12', 'loop13']))"]
-
-        loop_iters = "{'loop7': 1, " \
-                     "'loop8': 1, " \
-                     "'loop9': loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]], " \
-                     "'loop10': op.sources[0].tiling['VMEM2']['IH'], " \
-                     "'loop11': op.sources[0].tiling['VMEM2']['IW'], " \
-                     "'loop12': 1, " \
-                     "'loop13': 1}"
-        clip_dw_conv_iter = f"({loop_iters})[loop_op.op_str]"
-        actual_num_iter = f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]"
-        num_iter = f"(({clip_dw_conv_iter}) if (cdlt.op_name == 'clip_depthwise_conv') else ({actual_num_iter}))"
-    else:
-        num_iter = f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]"
-    macro_instr.set_field_flex_param("NUM_ITER", num_iter)
+    macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]")
 
 
     sub_instr = hag.get_primitive_template("SET_INDEX")

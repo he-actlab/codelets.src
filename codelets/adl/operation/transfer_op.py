@@ -120,67 +120,8 @@ class Transfer(Operation):
                 break
         return rsize
 
-    def scaled_strides_iters(self, base_shape, data_width, merge_loops, divisor=1, max_bits=64, contiguous=False, gpu_scale=False, debug=False):
+    def strides_iters(self, data_width, merge_loops, divisor=1, max_bits=64, contiguous=False, debug=False):
         assert len(self.sizes) == 2
-        if isinstance(base_shape, int):
-            base_shape = [base_shape]
-        if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
-            inner_xfer_sizes = self.sizes[0]
-            inner_ref_sizes = self.sizes[1]
-        else:
-            inner_xfer_sizes = self.sizes[1]
-            inner_ref_sizes = self.sizes[0]
-        tile_iters = np.prod([r/x for x, r in zip(inner_xfer_sizes, inner_ref_sizes)])
-        xfer_sizes = ref_sizes = [np.prod(base_shape)/tile_iters]
-
-        assert all([x <= r for x, r in zip(inner_xfer_sizes, inner_ref_sizes)]), f"invalid sizes:\n" \
-                                                                                 f"Tile sizes: {inner_xfer_sizes}\n" \
-                                                                                 f"Out size: {inner_ref_sizes}"
-        idx = []
-        if 0 not in idx:
-            idx.insert(0, 0)
-
-        strides = []
-        iters = []
-
-        for p, c in zip(idx, idx[1:]):
-            iters.append(np.prod(xfer_sizes[p:c]))
-            strides.append(np.prod(ref_sizes[c:]))
-        iters.append(1)
-        strides.append(np.prod(xfer_sizes[idx[-1]:]))
-        iters = [np.int32(np.ceil(i)) for i in iters]
-        strides = [np.int32(np.ceil(s)) for s in strides]
-        # dtype_strides = [self.operand.dtype.bytes()*s for s in strides]
-        dtype_strides = [(self.operand.dtype.bits()//data_width)*s for s in strides]
-        # print(f"name: {self.operand.name}, max bits: {max_bits}, Base shape: {base_shape}, Strides: {dtype_strides}, iters: {iters}")
-
-        assert all([v != 0 and (self.operand.dtype.bits()*strides[i]) % data_width == 0 for i, v
-                    in enumerate(dtype_strides)]), f"Invalid strides: " \
-                                                   f"{dtype_strides} \n" \
-                                                   f"{strides}\n" \
-                                                   f"Datatype: {self.operand.dtype.bits()}\n" \
-                                                   f"Width: {data_width}"
-        total_req_size = dtype_strides[-1]
-        # print(f"Iters before finishing: {iters}")
-        # print(f"Strides before finishing: {dtype_strides}")
-        if np.ceil(np.log2(total_req_size/divisor)) > max_bits:
-            total_iters = iters[-1]
-            while np.ceil(np.log2(dtype_strides[-1]/divisor/total_iters)) > max_bits:
-                total_iters += 1
-            iters[-1] = total_iters
-            dtype_strides[-1] = np.ceil(dtype_strides[-1]/total_iters)
-
-        final_strides = [np.int32(s) for s in dtype_strides]
-        iters = [np.int32(i) for i in iters]
-        # if debug:
-        # print(f"Iters after finishing: {iters}")
-        # print(f"Strides after finishing: {final_strides}\n")
-        final_strides[-1] = max(final_strides[-1], divisor)
-        return final_strides, iters
-
-    def strides_iters(self, data_width, merge_loops, divisor=1, max_bits=64, contiguous=False, gpu_scale=False, debug=False):
-        assert len(self.sizes) == 2
-
         if np.prod(self.sizes[0]) < np.prod(self.sizes[1]):
             xfer_sizes = self.sizes[0]
             ref_sizes = self.sizes[1]
