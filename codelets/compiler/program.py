@@ -1078,6 +1078,7 @@ class CodeletProgram(object):
             num_instr = self.cdlt_num_instr(cdlt)
             end_instr_addr = num_instr * self.hag.instr_length
             self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid, end_instr_addr)
+        self.relocatables.finalize_memory()
 
     def finalize_flex_params(self, node_sequence, codelets, verbose=False):
         if verbose:

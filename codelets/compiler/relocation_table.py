@@ -151,6 +151,10 @@ class RelocationTable(abc.ABC):
     @abc.abstractmethod
     def get_input_namespace_size(self) -> int:
         ...
+    
+    @abc.abstractmethod
+    def finalize_memory(self) -> None:
+        ...
 
 
 class DebugRelocationTable(RelocationTable):
@@ -274,6 +278,9 @@ class DebugRelocationTable(RelocationTable):
             self.update_relocation_offset(ns, o.name, data_size)
 
         self.update_namespace_offsets()
+    
+    def finalize_memory(self) -> None:
+        pass
 
 
 class _DataflowGraphNode:
@@ -628,3 +635,19 @@ class EndToEndRelocationTable(RelocationTable):
     
     def _increment_current_aligned_offset_for_activation_buffer(self, increment: int) -> None:
         self._current_aligned_offset_for_activation_buffer += increment
+    
+    def finalize_memory(self) -> None:
+        instruction_memory_offset: int = 0
+        for fragment in self.relocatables["INSTR_MEM"].bases.values():
+            instruction_memory_offset = max(instruction_memory_offset, fragment.end)
+        for fragment in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
+            fragment.start += instruction_memory_offset
+            fragment.end += instruction_memory_offset
+
+        weight_and_bias_memory_offset: int = 0
+        for fragments in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
+            weight_and_bias_memory_offset = max(weight_and_bias_memory_offset, fragments.end)
+        for fragment in self.relocatables["ACTIVATION"].bases.values():
+            fragment.start += weight_and_bias_memory_offset
+            fragment.end += weight_and_bias_memory_offset
+
