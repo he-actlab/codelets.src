@@ -441,21 +441,38 @@ class _DataflowGraph:
                     indegree[edge.destination_node] += 1
         return indegree
 
-    def append_node(self, node: _DataflowGraphNode, inputs: list[tuple[str, Operand]], outputs: list[tuple[str, Operand]]) -> None:
-        self.add_node(node)
-        for input_name, input_operand in inputs:
+    def append_node(self, node: _DataflowGraphNode, inputs: list[tuple[str, Operand, bool]], outputs: list[tuple[str, Operand]]) -> None:
+        for input_name, input_operand, is_output_of_other_node in inputs:
             source_node: Optional[_DataflowGraphNode] = self.get_node_operand_is_output_of(input_name)
+            """
+            This logic is pretty confusing because it is just duct tape to get this working.
+            Essentially, if the source_node is None, then we know that the input is either an input to the graph
+            or there is a missing node. This can happen because operations like flatten are not mapped to code.
+            This is handled accordingly as seen below.
+            If the source node is found, then an edge is added from that node to the current node only if there is not already
+            an empty edge there that used to be the output edge for the graph.
+            """
             if source_node is None:
-                self.add_input_edge(_DataflowGraphEdge(input_name, input_operand, node))
+                if is_output_of_other_node:
+                    most_recently_added_node: _DataflowGraphNode = self.topological_sort()[-1]
+                    self.add_edge(most_recently_added_node, _DataflowGraphEdge(input_name, input_operand, node))
+                else:
+                    self.add_input_edge(_DataflowGraphEdge(input_name, input_operand, node))
             else:
+                is_edge_added: bool = False
                 for edge in self._graph[source_node]:
-                    if edge.operand_name == input_name:
+                    if (edge.operand_name == input_name) and (edge.destination_node is None):
                         edge._destination_node = node
+                        is_edge_added = True
                         break
+                if not is_edge_added:
+                    self.add_edge(source_node, _DataflowGraphEdge(input_name, input_operand, node))
         
+        self.add_node(node)
+
         for output_name, output_operand in outputs:
             self.add_edge(node, _DataflowGraphEdge(output_name, output_operand, None))
-    
+        
     def add_node(self, node: _DataflowGraphNode) -> None:
         self._graph[node] = []
 
@@ -515,6 +532,7 @@ class EndToEndRelocationTable(RelocationTable):
     _dataflow_graph: _DataflowGraph
     _operand_name_to_operand_map: dict[str, Operand]
     _maximum_activation_buffer_size: int
+    _activation_buffer_start: int
 
     _current_aligned_offset_for_activation_buffer: int = 0
 
@@ -523,6 +541,7 @@ class EndToEndRelocationTable(RelocationTable):
         self._dataflow_graph = _DataflowGraph()
         self._operand_name_to_operand_map = {}
         self._maximum_activation_buffer_size = 0
+        self._activation_buffer_start = 0
 
         self._current_aligned_offset_for_activation_buffer = 0
 
@@ -548,12 +567,12 @@ class EndToEndRelocationTable(RelocationTable):
                 if ns == "ACTIVATION":
                     print("ACTIVATION_LOWER:") 
                     for operand_id, memory_fragment in sorted_fragments:
-                        if operand_id in operands_stored_at_each_layer[node] and memory_fragment.start < (self.maximum_activation_buffer_size // 2):
+                        if operand_id in operands_stored_at_each_layer[node] and memory_fragment.start < ((self.maximum_activation_buffer_size + self._activation_buffer_start) // 2):
                             byte_start, byte_end = memory_fragment.start // 8, memory_fragment.end // 8
                             print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}")
                     print("ACTIVATION_UPPER:") 
                     for operand_id, memory_fragment in sorted_fragments:
-                        if operand_id in operands_stored_at_each_layer[node] and memory_fragment.start >= (self.maximum_activation_buffer_size // 2):
+                        if operand_id in operands_stored_at_each_layer[node] and memory_fragment.start >= ((self.maximum_activation_buffer_size + self._activation_buffer_start) // 2):
                             byte_start, byte_end = memory_fragment.start // 8, memory_fragment.end // 8
                             print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}")
                 else:
@@ -561,14 +580,14 @@ class EndToEndRelocationTable(RelocationTable):
                     for operand_id, memory_fragment in sorted_fragments:
                         if operand_id in operands_stored_at_each_layer[node]:
                             byte_start, byte_end = memory_fragment.start // 8, memory_fragment.end // 8
-                            print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}")
+                            print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}") 
     
     def get_input_namespace_size(self) -> int:
         return self.get_namespace_size('ACTIVATION')
 
     def add_data_relocation(self, node: pm.Node, cdlt: Codelet) -> None:
         operation_node = _DataflowGraphNode(node.name)
-        self._dataflow_graph.append_node(operation_node, [(i.name, inp) for i, inp in zip(node.inputs, cdlt.inputs)], [(o.name, out) for o, out in zip(node.outputs, cdlt.outputs)])
+        self._dataflow_graph.append_node(operation_node, [(i.name, inp, isinstance(i, pm.output)) for i, inp in zip(node.inputs, cdlt.inputs)], [(o.name, out) for o, out in zip(node.outputs, cdlt.outputs)])
         for node_input, cdlt_input in zip(node.inputs, cdlt.inputs):
             self._operand_name_to_operand_map[node_input.name] = cdlt_input
         for node_output, cdlt_output in zip(node.outputs, cdlt.outputs):
@@ -576,7 +595,11 @@ class EndToEndRelocationTable(RelocationTable):
         self._update_maximum_activation_buffer_size()
         self._update_relocations()
 
+        # Debug Information
         # print("\n\nNew operation added to graph...\n\n")
+        # import pprint
+        # pprint.pprint(self._dataflow_graph._graph)
+        # print(self._dataflow_graph)
         # self.print_layout()
     
     def _update_maximum_activation_buffer_size(self) -> None:
@@ -637,17 +660,39 @@ class EndToEndRelocationTable(RelocationTable):
         self._current_aligned_offset_for_activation_buffer += increment
     
     def finalize_memory(self) -> None:
-        instruction_memory_offset: int = 0
+        instruction_memory_start: int = 0
+        instruction_memory_end: int = 0
         for fragment in self.relocatables["INSTR_MEM"].bases.values():
-            instruction_memory_offset = max(instruction_memory_offset, fragment.end)
+            instruction_memory_start = min(instruction_memory_start, fragment.start)
+            instruction_memory_end = max(instruction_memory_end, fragment.end)
+        
+        weight_and_bias_memory_start: int = self.get_aligned_sized(instruction_memory_end, as_bytes=False) 
         for fragment in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
-            fragment.start += instruction_memory_offset
-            fragment.end += instruction_memory_offset
-
-        weight_and_bias_memory_offset: int = 0
+            fragment.start += weight_and_bias_memory_start
+            fragment.end += weight_and_bias_memory_start
+        weight_and_bias_memory_end: int = 0
         for fragments in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
-            weight_and_bias_memory_offset = max(weight_and_bias_memory_offset, fragments.end)
-        for fragment in self.relocatables["ACTIVATION"].bases.values():
-            fragment.start += weight_and_bias_memory_offset
-            fragment.end += weight_and_bias_memory_offset
+            weight_and_bias_memory_end = max(weight_and_bias_memory_end, fragments.end)
 
+        activation_memory_start: int = self.get_aligned_sized(weight_and_bias_memory_end, as_bytes=False) 
+        for fragment in self.relocatables["ACTIVATION"].bases.values():
+            fragment.start += activation_memory_start
+            fragment.end += activation_memory_start
+        self._activation_buffer_start = activation_memory_start
+        
+        def print_memory_region_information(name: str, start: int, end: int) -> None:
+            def print_low_and_high(addr: int) -> None:
+                print(f"\t\tLow: {addr & 0xFFFF}")
+                print(f"\t\tHigh: {(addr >> 16) & 0xFFFF}")
+
+            print(f"{name}:")
+            print("\tStart:")
+            print_low_and_high(start)
+            print("\tEnd:")
+            print_low_and_high(end)
+            print(f"\tSize: {end - start}")
+
+        # self.print_layout()
+        # print_memory_region_information("Instruction memory", instruction_memory_start // 8, instruction_memory_end // 8)
+        # print_memory_region_information("Weight and bias memory", weight_and_bias_memory_start // 8, weight_and_bias_memory_end // 8)
+    

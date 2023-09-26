@@ -337,9 +337,9 @@ if __name__ == "__main__":
         compile_benchmark(fname,
                           arch_config,
                           only_systolic=False,
-                          sw_pipeline_test=False,
-                          addr_gen_test=False,
-                          custom_config=False,
+                        #   sw_pipeline_test=False,
+                        #   addr_gen_test=False,
+                        #   custom_config=False,
                           verbose=verbose,
                           skip_broken_layers=False,
                           identifier=extension)
