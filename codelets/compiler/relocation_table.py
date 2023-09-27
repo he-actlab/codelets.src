@@ -743,21 +743,13 @@ class EndToEndRelocationTable(RelocationTable):
             relocatable.bases[offset_id] = Fragment(offset_id, size, offset, offset + aligned_size)
     
     def finalize_memory(self) -> None:
-        instruction_memory_start: int = 0
-        instruction_memory_end: int = 0
-        for fragment in self.relocatables["INSTR_MEM"].bases.values():
-            instruction_memory_start = min(instruction_memory_start, fragment.start)
-            instruction_memory_end = max(instruction_memory_end, fragment.end)
-        
-        weight_and_bias_memory_start: int = self.get_aligned_sized(instruction_memory_end, as_bytes=False) 
+        instruction_memory_size: int = self.relocatables["INSTR_MEM"].total_length()
+        weight_and_bias_memory_start: int = self.get_aligned_sized(instruction_memory_size, as_bytes=False) 
         for fragment in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
             fragment.start += weight_and_bias_memory_start
             fragment.end += weight_and_bias_memory_start
-        weight_and_bias_memory_end: int = 0
-        for fragments in self.relocatables["WEIGHT_AND_BIAS"].bases.values():
-            weight_and_bias_memory_end = max(weight_and_bias_memory_end, fragments.end)
-
-        activation_memory_start: int = self.get_aligned_sized(weight_and_bias_memory_end, as_bytes=False) 
+        weight_and_bias_memory_size: int = self.relocatables["WEIGHT_AND_BIAS"].total_length()
+        activation_memory_start: int = self.get_aligned_sized(weight_and_bias_memory_size, as_bytes=False) 
         for fragment in self.relocatables["ACTIVATION"].bases.values():
             fragment.start += activation_memory_start
             fragment.end += activation_memory_start
