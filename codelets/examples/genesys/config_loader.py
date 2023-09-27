@@ -156,11 +156,16 @@ def set_defaults(cfg):
         assert 'ST_VMEM1' in cfg['SIMD_BASE_ADDR']
         assert 'ST_VMEM2' in cfg['SIMD_BASE_ADDR']
     else:
+        # cfg['SIMD_BASE_ADDR'] = {}
+        # cfg['SIMD_BASE_ADDR']['LD_VMEM1'] = 0
+        # cfg['SIMD_BASE_ADDR']['LD_VMEM2'] = 1024 << 10
+        # cfg['SIMD_BASE_ADDR']['ST_VMEM1'] = 1024 << 11
+        # cfg['SIMD_BASE_ADDR']['ST_VMEM2'] = 1024 << 12
         cfg['SIMD_BASE_ADDR'] = {}
         cfg['SIMD_BASE_ADDR']['LD_VMEM1'] = 0
-        cfg['SIMD_BASE_ADDR']['LD_VMEM2'] = 1024 << 10
-        cfg['SIMD_BASE_ADDR']['ST_VMEM1'] = 1024 << 11
-        cfg['SIMD_BASE_ADDR']['ST_VMEM2'] = 1024 << 12
+        cfg['SIMD_BASE_ADDR']['LD_VMEM2'] = 0
+        cfg['SIMD_BASE_ADDR']['ST_VMEM1'] = 0
+        cfg['SIMD_BASE_ADDR']['ST_VMEM2'] = 0
 
     if 'MERGE_LDST_LOOPS' not in cfg:
         cfg['MERGE_LDST_LOOPS'] = True
@@ -168,9 +173,12 @@ def set_defaults(cfg):
         assert isinstance(cfg['MERGE_LDST_LOOPS'], bool)
 
     if 'SA_BASE_ADDR' not in cfg:
+        # cfg['SA_BASE_ADDR'] = {
+        #     "INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840
+        # }
         cfg['SA_BASE_ADDR'] = {
-            "INSTR": 0, "OBUF": 0, "BBUF": 4096, "WBUF": 24576, "IBUF": 4259840
-        }
+            "INSTR": 0, "OBUF": 0, "BBUF": 0, "WBUF": 0, "IBUF": 0
+        } 
     else:
         assert "INSTR" in cfg['SA_BASE_ADDR']
         assert "OBUF" in cfg['SA_BASE_ADDR']

@@ -255,10 +255,14 @@ class CodeletProgram(object):
         # Codelet instructions are a special case, where all instruction are located at the
         # end of the namespace, but we store them separate from the other namespace items
         # to allow extensibility of instruction addresses
-        input_size = self.relocatables.get_input_namespace_size()
+        # input_size = self.relocatables.get_input_namespace_size()
+        # cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
+        # instr_addr = self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start
+        # return (input_size + instr_addr)//8
+
         cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
         instr_addr = self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start
-        return (input_size + instr_addr)//8
+        return instr_addr // 8
 
     def get_input_operand_offset(self, operand: Operand):
         return self.relocatables.get_relocation_base(operand)
@@ -1047,6 +1051,7 @@ class CodeletProgram(object):
             num_instr = self.cdlt_num_instr(cdlt)
             end_instr_addr = num_instr * self.hag.instr_length
             self.relocatables.update_relocation_offset('INSTR_MEM', cdlt.cdlt_uid, end_instr_addr)
+        self.relocatables.finalize_memory()
 
     def finalize_flex_params(self, node_sequence, codelets, verbose=False):
         if verbose:

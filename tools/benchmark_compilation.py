@@ -334,23 +334,17 @@ if __name__ == "__main__":
         verbose = args.verbose
         arch_config = args.config
 
-        # compile_benchmark(fname,
-        #                   arch_config,
-        #                   only_systolic=False,
-        #                   sw_pipeline_test=False,
-        #                   addr_gen_test=False,
-        #                   custom_config=False,
-        #                   verbose=verbose,
-        #                   skip_broken_layers=False,
-        #                   identifier=extension)
         compile_benchmark(fname,
                           arch_config,
                           only_systolic=False,
+                        #   sw_pipeline_test=False,
+                        #   addr_gen_test=False,
+                        #   custom_config=False,
                           verbose=verbose,
                           skip_broken_layers=False,
                           # filtered_layers=[0],
                           dir_ext=extension,
-                          identifier=1)
+                          identifier=extension)
 
     else:
         # config = "simd_paper32x32.json"
