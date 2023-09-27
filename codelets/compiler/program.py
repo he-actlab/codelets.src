@@ -255,6 +255,7 @@ class CodeletProgram(object):
         # Codelet instructions are a special case, where all instruction are located at the
         # end of the namespace, but we store them separate from the other namespace items
         # to allow extensibility of instruction addresses
+
         # input_size = self.relocatables.get_input_namespace_size()
         # cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
         # instr_addr = self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start
