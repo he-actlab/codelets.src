@@ -130,15 +130,13 @@ class RelocationTable(abc.ABC):
                 return k
         raise KeyError(f"Unable to find relocation for {name}")
     
-    def get_operand_namespace(self, operand: Operand) -> str:
-        for mem_loc in operand.data_path:
-            if mem_loc in self.mem_ns_mapping:
-                return self.mem_ns_mapping[mem_loc]
-        raise RuntimeError(f"Unable to find namespace for operand {operand.node_name} with path {operand.data_path}")
-    
     def get_namespace_size(self, namespace: str) -> int:
         reloc: Relocation = self.relocatables[namespace]
         return reloc.total_length()
+    
+    @abc.abstractmethod
+    def get_operand_namespace(self, operand: Operand) -> str:
+        ...
     
     @abc.abstractmethod
     def add_data_relocation(self, node: pm.Node, cdlt: Codelet) -> None:
@@ -189,6 +187,12 @@ class DebugRelocationTable(RelocationTable):
     
     def get_input_namespace_size(self) -> int:
         return self.get_namespace_size('SA_INPUTS')
+    
+    def get_operand_namespace(self, operand: Operand) -> str:
+        for mem_loc in operand.data_path:
+            if mem_loc in self.mem_ns_mapping:
+                return self.mem_ns_mapping[mem_loc]
+        raise RuntimeError(f"Unable to find namespace for operand {operand.node_name} with path {operand.data_path}")
 
     def print_layout(self):
         base = 0
@@ -355,10 +359,12 @@ class _DataflowGraphEdge:
 class _DataflowGraph:
     _inputs: list[_DataflowGraphEdge]
     _graph: dict[_DataflowGraphNode, list[_DataflowGraphEdge]]
+    _most_recently_added_node: Optional[_DataflowGraphNode]
 
     def __init__(self) -> None:
         self._inputs = []
         self._graph = {}
+        self._most_recently_added_node = None
     
     def _get_operands_stored_at_each_layer(self) -> dict[_DataflowGraphNode, list[str]]:
         operands_stored_at_each_layer: dict[_DataflowGraphNode, list[str]] = {}
@@ -424,7 +430,7 @@ class _DataflowGraph:
         top_order: list[_DataflowGraphNode] = []
         
         while queue:
-            node = queue.popleft()
+            node: _DataflowGraphNode = queue.popleft()
             top_order.append(node)
             for neighbor in self._graph.get(node, []):
                 if neighbor.destination_node is not None:
@@ -454,8 +460,7 @@ class _DataflowGraph:
             """
             if source_node is None:
                 if is_output_of_other_node:
-                    most_recently_added_node: _DataflowGraphNode = self.topological_sort()[-1]
-                    self.add_edge(most_recently_added_node, _DataflowGraphEdge(input_name, input_operand, node))
+                    self.add_edge(self._most_recently_added_node, _DataflowGraphEdge(input_name, input_operand, node))
                 else:
                     self.add_input_edge(_DataflowGraphEdge(input_name, input_operand, node))
             else:
@@ -475,6 +480,7 @@ class _DataflowGraph:
         
     def add_node(self, node: _DataflowGraphNode) -> None:
         self._graph[node] = []
+        self._most_recently_added_node = node
 
     def add_input_edge(self, edge: _DataflowGraphEdge) -> None:
         self._inputs.append(edge)
@@ -669,11 +675,13 @@ class EndToEndRelocationTable(RelocationTable):
 
     _dataflow_graph: _DataflowGraph
     _operand_name_to_operand_map: dict[str, Operand]
+    _operand_to_operand_location_map: dict[int, str]
 
     def __init__(self, storage_node: StorageNode, mem_layout: Optional[list[str]] = None, offsets=None, addr_alignment=1) -> None:
         super().__init__(storage_node, mem_layout or EndToEndRelocationTable.MEM_LAYOUT, EndToEndRelocationTable.MEM_NS_MAPPING)
         self._dataflow_graph = _DataflowGraph()
         self._operand_name_to_operand_map = {}
+        self._operand_to_operand_location_map = {}
     
     def print_layout(self) -> None:
         print("====================================================")
@@ -694,6 +702,19 @@ class EndToEndRelocationTable(RelocationTable):
                         byte_start, byte_end = memory_fragment.start // 8, memory_fragment.end // 8
                         print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}")
     
+    def get_operand_namespace(self, operand: Operand) -> str:
+        return self._operand_to_operand_location_map[id(operand)]
+    
+    def add_operand_to_operand_namespace_mapping(self, pm_operand, operand: Operand) -> None:
+        operand_name: str = pm_operand.name
+        if operand_name not in self._operand_to_operand_location_map:
+            if isinstance(pm_operand, (pm.input, pm.output)):
+                self._operand_to_operand_location_map[id(operand)] = "ACTIVATION"
+            elif isinstance(pm_operand, pm.state):
+                self._operand_to_operand_location_map[id(operand)] = "WEIGHT_AND_BIAS" 
+            else:
+                raise RuntimeError(f"Unknown operand type {type(pm_operand)}")
+    
     def get_input_namespace_size(self) -> int:
         return self.get_namespace_size('ACTIVATION')
 
@@ -701,8 +722,10 @@ class EndToEndRelocationTable(RelocationTable):
         operation_node = _DataflowGraphNode(node.name)
         self._dataflow_graph.append_node(operation_node, [(i.name, inp, isinstance(i, pm.output)) for i, inp in zip(node.inputs, cdlt.inputs)], [(o.name, out) for o, out in zip(node.outputs, cdlt.outputs)])
         for node_input, cdlt_input in zip(node.inputs, cdlt.inputs):
+            self.add_operand_to_operand_namespace_mapping(node_input, cdlt_input)
             self._operand_name_to_operand_map[node_input.name] = cdlt_input
         for node_output, cdlt_output in zip(node.outputs, cdlt.outputs):
+            self.add_operand_to_operand_namespace_mapping(node_output, cdlt_output)
             self._operand_name_to_operand_map[node_output.name] = cdlt_output
         self._update_relocations()
     
@@ -753,4 +776,6 @@ class EndToEndRelocationTable(RelocationTable):
         for fragment in self.relocatables["ACTIVATION"].bases.values():
             fragment.start += activation_memory_start
             fragment.end += activation_memory_start
+
+        self.print_layout()
  
