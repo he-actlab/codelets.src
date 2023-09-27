@@ -114,8 +114,8 @@ def simd_start_template(hag: ComputeNode):
 
 
     macro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"program.extract_bits({ld_base_addr}, 16, 0)"
-                                     )
+                                     f"program.extract_bits({ld_base_addr}, 16, 0)",
+                                     lazy_eval=True)
 
     #
     micro_instr = hag.get_primitive_template("LD_CONFIG_BASE_ADDR")
@@ -125,8 +125,8 @@ def simd_start_template(hag: ComputeNode):
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"0")
     micro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"program.extract_bits({ld_base_addr}, 16, 16)"
-                                     )
+                                     f"program.extract_bits({ld_base_addr}, 16, 16)",
+                                     lazy_eval=True)
     macro_instr.add_base_instruction(micro_instr)
     instructions.append(macro_instr)
 
@@ -137,8 +137,8 @@ def simd_start_template(hag: ComputeNode):
     macro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     macro_instr.set_field_flex_param("LOOP_INDEX_ID", f"0")
     macro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"program.extract_bits({st_base_addr}, 16, 0)"
-                                     )
+                                     f"program.extract_bits({st_base_addr}, 16, 0)",
+                                     lazy_eval=True)
     #
     micro_instr = hag.get_primitive_template("ST_CONFIG_BASE_ADDR")
     micro_instr.add_iterable('operand', f'cdlt.operands')
@@ -147,9 +147,8 @@ def simd_start_template(hag: ComputeNode):
     micro_instr.set_field_flex_param("NS_ID", "operand.get_ld_storage_location(cdlt, 1)")
     micro_instr.set_field_flex_param("LOOP_INDEX_ID", f"0")
     micro_instr.set_field_flex_param("BASE_ADDR",
-                                     f"program.extract_bits({st_base_addr}, 16, 16)"
-
-                                     )
+                                     f"program.extract_bits({st_base_addr}, 16, 16)",
+                                     lazy_eval=True)
     macro_instr.add_base_instruction(micro_instr)
 
     instructions.append(macro_instr)
