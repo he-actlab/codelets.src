@@ -16,7 +16,7 @@ def imm_start_template(hag: ComputeNode):
     instr.set_field_by_name("NS_ID", "IMM")
     instr.add_condition(bitwidth_cond)
     instr.set_field_flex_param("NS_INDEX_ID", f"op.get_config_param_value('index')")
-    instr.set_field_flex_param("IMM", imm_val)
+    instr.set_field_flex_param("IMM", f"program.extract_bits({imm_val}, 16, 0)")
     instructions.append(instr)
 
     instr = hag.get_primitive_template("SET_IMM_LOW")
