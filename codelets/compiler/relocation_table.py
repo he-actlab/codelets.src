@@ -678,7 +678,7 @@ class EndToEndRelocationTable(RelocationTable):
     _operand_to_operand_location_map: dict[int, str]
 
     def __init__(self, storage_node: StorageNode, mem_layout: Optional[list[str]] = None, offsets=None, addr_alignment=1) -> None:
-        super().__init__(storage_node, mem_layout or EndToEndRelocationTable.MEM_LAYOUT, EndToEndRelocationTable.MEM_NS_MAPPING)
+        super().__init__(storage_node, mem_layout or EndToEndRelocationTable.MEM_LAYOUT, EndToEndRelocationTable.MEM_NS_MAPPING, addr_alignment=addr_alignment)
         self._dataflow_graph = _DataflowGraph()
         self._operand_name_to_operand_map = {}
         self._operand_to_operand_location_map = {}
@@ -686,6 +686,7 @@ class EndToEndRelocationTable(RelocationTable):
     def print_layout(self) -> None:
         print("====================================================")
         print("INFORMATION:")
+        print(f"Total Size: {self.get_total_size()}")
         print("====================================================")
 
         operands_stored_at_each_layer: dict[_DataflowGraphNode, str] = self._dataflow_graph._get_operands_stored_at_each_layer()
@@ -701,6 +702,15 @@ class EndToEndRelocationTable(RelocationTable):
                     if operand_id in operands_stored_at_each_layer[node] or ns == "INSTR_MEM":
                         byte_start, byte_end = memory_fragment.start // 8, memory_fragment.end // 8
                         print(f"\t{operand_id}[size={memory_fragment.size // 8}]: {byte_start} --> {byte_end}")
+    
+    def get_total_size(self) -> int:
+        max_end: int = 0
+        for ns in self.mem_layout:
+            reloc: Relocation = self.relocatables[ns]
+            sorted_fragments: list[tuple[Union[int, str], Fragment]] = sorted(reloc.bases.items(), key=lambda x: x[1].start)
+            last_fragment: Fragment = sorted_fragments[-1][1]
+            max_end = max(max_end, last_fragment.end)
+        return max_end // 8
     
     def get_operand_namespace(self, operand: Operand) -> str:
         return self._operand_to_operand_location_map[id(operand)]
