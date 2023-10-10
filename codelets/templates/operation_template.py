@@ -351,6 +351,19 @@ class LoopTemplate(OperationTemplate):
 def loop_op(op1, op2, op_str, reflected=False):
     raise NotImplementedError(f"No implementation for loop {op_str} op {type(op1)}.")
 
+@loop_op.register(int)
+def _(op1: int, op2: LoopTemplate, op_str: str, reflected=False):
+    fp_name = f"loop_int{DummyOp.op_count}"
+    if reflected:
+        fn_body_str = f"{op1}{op_str}{op2.op_str}"
+        fp = FlexParam(fp_name, fn_args=[f"{op2.op_str}"], fn_body_str=fn_body_str)
+        dparam = DummyParam(fp, (op2,))
+    else:
+        fn_body_str = f"{op2.op_str}{op_str}{op1}"
+        fp = FlexParam(fp_name, fn_args=[f"{op2.op_str}"], fn_body_str=fn_body_str)
+        dparam = DummyParam(fp, (op2,))
+    return dparam
+
 @loop_op.register(DummyOp)
 def _(op1: DummyOp, op2: LoopTemplate, op_str: str, reflected=False):
     fp_name = f"loop_dummy{DummyOp.op_count}"

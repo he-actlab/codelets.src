@@ -32,7 +32,7 @@ LD_STORE_OFFSET_MAP = "{'LD': {'IBUF': 0, 'WBUF': 6, 'OBUF': 10, 'BBUF': 14}," \
 
 VALID_MODELS = ['resnet50', 'resnet18', 'maskrcnn', 'lenet', 'lenetbn', "my_ddpg_model", "my_ppo_model", "my_sac_model"]
 
-def define_genesys(cfg):
+def define_genesys(cfg, **kwargs):
     # TODO: Add capabilties to PE array not systolic_array
 
     with ComputeNode("Genesys", meta_cfg=cfg, instr_mem_align=cfg['INSTR_MEM_ALIGN']) as hag:
@@ -153,6 +153,11 @@ def define_genesys(cfg):
     for op_name, cdlt in GENESYS_CODELETS.items():
         cdlt_instance = cdlt(hag)
         hag.add_codelet(cdlt_instance)
+    if "custom_codelets" in kwargs:
+        assert isinstance(kwargs['custom_codelets'], dict)
+        for op_name, cdlt in kwargs['custom_codelets'].items():
+            new_cdlt = cdlt(hag)
+            hag.codelets[op_name] = new_cdlt
     hag.add_util_fn("get_loop_level_id", ["buffer_name", "loop_id", "level", "ld_st"],
                     f"(loop_id % {LOOPS_PER_LEVEL}) + {LOOPS_PER_LEVEL} * level + ({INCR_MAP})[ld_st][buffer_name]")
 
@@ -288,7 +293,8 @@ def compile_genesys(model_name,
                     tiling_search_algorithm='valid_split',
                     do_compile=True,
                     graph=None,
-                    do_srdfg_passes=True
+                    do_srdfg_passes=True,
+                    custom_codelets={}
                     ):
     MODEL_DIR = f"{benchmark_path}/models/srdfg"
     OUT_DIR = f"{benchmark_path}/compiler_outputs"
@@ -309,8 +315,7 @@ def compile_genesys(model_name,
                                  verbose=verbose,
                                  fuse_layers=fuse_layers,
                                  simd_only_fusions=def_cfg['SIMD_ONLY_FUSIONS'])
-
-    genesys = define_genesys(def_cfg)
+    genesys = define_genesys(def_cfg, custom_codelets=custom_codelets)
     if print_config:
         print(f"Compiling model with the following config:\n")
         sizes_cfg = def_cfg.copy()
@@ -626,4 +631,3 @@ def compile_extracted_genesys_layer(model_name,
     program.compile(verbose=verbose, sequence_algorithm='filtered', filtered_layers=[layer_name])
 
     return program
-
