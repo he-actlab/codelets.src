@@ -3,12 +3,12 @@ import abc
 from functools import partial
 from typing import Any, Callable, Optional, Union
 import dataclasses
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from lark import ParseTree, Lark, Token, Tree, indenter
 from lark.visitors import Interpreter
 from onnx import helper, numpy_helper
 from codelets.examples.genesys import compile_genesys, load_config, DataGen
-from codelets.templates.codelet_template import CodeletTemplate, DummyOp
+from codelets.templates.codelet_template import CodeletTemplate, DummyOp, FlexParam
 from codelets.adl.graph import ArchitectureGraph
 from codelets.examples.genesys import DTYPE_MAP, OP_DTYPES
 
@@ -97,7 +97,7 @@ class TreeIndenter(indenter.Indenter):
 def parse_stealth_codelet(codelet_string: str) -> ParseTree:
     parser = Lark(GRAMMAR, start='start', parser='lalr', postlex=TreeIndenter())
     tree = parser.parse(codelet_string)
-    print(tree.pretty())
+    # print(tree.pretty())
     return tree
 
 
@@ -1231,21 +1231,11 @@ def collect_codelet_information_from_parse_tree(tree: ParseTree, codelet_string:
     collector = CodeletInformationCollector(codelet_string)
     collector.visit(tree)
     collector.check_codelet()
-    print(collector)
+    # print(collector)
     return collector
 
 
 # ==================== Codelet Template Creator ==================== #
-# class UniqueNameGenerator:
-#     _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
-
-#     @staticmethod
-#     def get_unique_name(name: str) -> str:
-#         name_id = UniqueNameGenerator._NAME_ID[name]
-#         UniqueNameGenerator._NAME_ID[name] += 1
-#         return f"{name}_{name_id}"
-
-
 def int_to_name(i: int) -> str:
     D_TO_NAME_MAP = {
         0: "ZERO",
@@ -1330,6 +1320,10 @@ class CodeletTemplateCompute:
 
 
 class CodeletTemplateBody:
+    _COMPUTE_UNIT_LOCATION_MAP = {
+        "SIMD": "SIMD",
+        "PE_ARRAY": "pe_array"
+    }
     loads: list[CodeletTemplateTransfer]
     compute: Optional[CodeletTemplateCompute]
     stores: list[CodeletTemplateTransfer]
@@ -1422,7 +1416,7 @@ class CodeletTemplateBody:
         assert self.compute is not None, "Compute operation group is not set"
         for output, _, output_location in self.compute.outputs:
             output.set_write_destination(output_location)
-        cdlt.compute(self.compute.operation, list(map(lambda t: t[0][t[1]], self.compute.inputs)), list(map(lambda t: t[0][t[1]], self.compute.outputs)), self.compute.location)
+        cdlt.compute(self.compute.operation, list(map(lambda t: t[0][t[1]], self.compute.inputs)), list(map(lambda t: t[0][t[1]], self.compute.outputs)), self._COMPUTE_UNIT_LOCATION_MAP[self.compute.location])
         for store in self.stores:
             cdlt.transfer(store.operand, [store.source, store.destination])
 
@@ -1435,14 +1429,28 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
         acc_dtype = DTYPE_MAP[ f"FXP{hag.meta_cfg['ACC_WIDTH']}"] 
 
         with CodeletTemplate(collector.get_operation_name()) as cdlt:
+            print("begginning codelet template creation")
             # ==================== Create DummyOps for Dimensions ==================== #
             dimension_dummy_ops = {}
             def dummy_op_creation_helper(collector_operands, node_operands):
-                for stealth_codelet_operand, node_operand in zip(collector_operands, node_operands):
-                    for stealth_codelet_operand_dimension, node_operand_dimension in zip(stealth_codelet_operand.shape, node_operand.shape):
+                for i, stealth_codelet_operand in enumerate(collector_operands):
+                    for j, stealth_codelet_operand_dimension in enumerate(stealth_codelet_operand.shape):
                         dimension_name = input_output_dimension_to_name(stealth_codelet_operand_dimension)
                         if dimension_name not in dimension_dummy_ops:
-                            dimension_dummy_ops[dimension_name] = cdlt.dummy_op(dimension_name, node_operand_dimension)
+                            new_flex_param = FlexParam(
+                                name=dimension_name,
+                                fn_args=["node"],
+                                fn_body_str=f"node.inputs[{i}].shape[{j}]",
+                            )
+                            new_flex_param.create_function_from_str(["node"], f"node.inputs[{i}].shape[{j}]")
+                            new_dummy_op = DummyOp(
+                                ["NodePlaceholder"],
+                                new_flex_param,
+                                dtype=None
+                            )
+                            cdlt._dummy_ops[dimension_name] = new_dummy_op
+                            dimension_dummy_ops[dimension_name] = new_dummy_op
+                            # dimension_dummy_ops[dimension_name] = cdlt.dummy_op(dimension_name, f"node.inputs[{i}].shape[{j}]")
             dummy_op_creation_helper(collector.get_input_operands(), cdlt.node.inputs)
             dummy_op_creation_helper(collector.get_output_operands(), cdlt.node.outputs)
 
@@ -1625,19 +1633,74 @@ class StealthCodelet:
  
 
 # ==================== PolyMath Node Generation ==================== #
+class UniqueNameGenerator:
+    _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
+
+    @staticmethod
+    def get_unique_name(name: str) -> str:
+        name_id = UniqueNameGenerator._NAME_ID[name]
+        UniqueNameGenerator._NAME_ID[name] += 1
+        return f"{name}_{name_id}"
+
+
+class DummyTemplate(pm.Template):
+    def __init__(self, *args, **kwargs):
+        assert "number_of_inputs" in kwargs
+        assert "number_of_outputs" in kwargs
+        assert "custom_operation_name" in kwargs
+        self._number_of_inputs = kwargs["number_of_inputs"]
+        self._number_of_outputs = kwargs["number_of_outputs"]
+        custom_operation_name = kwargs["custom_operation_name"]
+        kwargs.pop("number_of_inputs")
+        kwargs.pop("number_of_outputs")
+        kwargs.pop("custom_operation_name")
+        super().__init__(*args, **kwargs)
+        self.op_name =custom_operation_name
+    
+    def define_graph(self, *args):
+        pass
+
+    @property
+    def inputs(self):
+        return tuple(self.args[0][i] for i in range(self._number_of_inputs))
+
+    @property
+    def outputs(self):
+        return tuple(self.args[0][self._number_of_inputs + i] for i in range(self._number_of_outputs))
+
+
 def create_dummy_polymath_node_from_codelet(codelet: StealthCodelet) -> pm.Graph:
-    with pm.Node(name=codelet._information_collector.get_operation_name()) as graph:
-        parameters = {}
-        for operand in codelet._information_collector._inputs + codelet._information_collector._outputs:
-            for dimension in operand.shape:
-                if isinstance(dimension, StealthVariableName) and dimension.name not in parameters:
-                    parameters[dimension.name] = pm.parameter(name=dimension.name)
-        inputs = {}
+    codelet_dimensions = {"N": 1, "IC": 64, "OC": 64, "IH": 28, "IW": 28, "KH": 3, "KW": 3, "OH": 26, "OW": 26}
+    with pm.Node(name="test") as graph:
+        # parameters = {}
+        # for operand in codelet._information_collector._inputs + codelet._information_collector._outputs:
+        #     for dimension in operand.shape:
+        #         if isinstance(dimension, StealthVariableName) and dimension.name not in parameters:
+        #             parameters[dimension.name] = pm.parameter(name=dimension.name)
+        top_inputs = []
         for operand in codelet._information_collector._inputs:
-            inputs[operand.name] = pm.input(name=operand.name, shape=tuple(parameters[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape))
-        outputs = {}
+            input_name = UniqueNameGenerator.get_unique_name("input")
+            top_inputs.append(pm.input(name=input_name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape)))
+        top_outputs = []
         for output_operand in codelet._information_collector._outputs:
-            outputs[output_operand.name] = pm.output(name=output_operand.name, shape=tuple(parameters[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape))
+            output_name = UniqueNameGenerator.get_unique_name("output")
+            top_outputs.append(pm.output(name=output_name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape)))
+        
+        args = top_inputs + top_outputs
+        DummyTemplate(*args, number_of_inputs=len(top_inputs), number_of_outputs=len(top_outputs), custom_operation_name=codelet._information_collector.get_operation_name())
+        
+        # with pm.Node(*(top_inputs + top_outputs), name=codelet._information_collector.get_operation_name(), graph=graph) as node:
+        #     inputs = {}
+        #     for operand in codelet._information_collector._inputs:
+        #         inputs[operand.name] = pm.input(name=operand.name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape))
+        #     outputs = {}
+        #     for output_operand in codelet._information_collector._outputs:
+        #         outputs[output_operand.name] = pm.output(name=output_operand.name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape))
+        
+    # lower_pass = pm.Lower({})
+    # graph = lower_pass(graph)
+    # shape_val_pass = pm.NormalizeGraph({"N": 1, "IC": 64, "OC": 64, "IH": 28, "IW": 28, "KH": 3, "KW": 3, "OH": 26, "OW": 26})
+    # graph, res = shape_val_pass(graph)
     return graph
 
 
@@ -1652,8 +1715,7 @@ def compile(config_path: str, layer: StealthCodelet) -> None:
         custom_codelets={layer._information_collector.get_operation_name(): layer._codelet_template},
         print_config=False,
     )
-    program.compile(finalize=True)
-    print(program.codelets)
+    # print(program.codelets)
 
     sys_array_size = cfg['ARRAY_M']
     dgen = DataGen(program,
@@ -1663,13 +1725,13 @@ def compile(config_path: str, layer: StealthCodelet) -> None:
                     identifier="stealth",
                     generate_data=False,
                     verbose=False,
-                    out_path=f"/stealth_compilation_output",
+                    out_path=f"stealth_compilation_output",
                     store_whole_program=False)
     dgen.generate()
 
 
 if __name__ == "__main__":
-    codelet_string = """def conv2d_bias(x: i8[N, IH, IW, C] @ DRAM, w: i8[KH, KW, IC, OC] @ DRAM, bias: i32[OC] @ DRAM, sx: param, sy: param, pad: param, OH: param, OW: param):
+    codelet_string = """def conv2d_bias(x: i8[N, IH, IW, IC] @ DRAM, w: i8[KH, KW, IC, OC] @ DRAM, bias: i32[OC] @ DRAM, sx: param, sy: param, pad: param, OH: param, OW: param):
     o = alloc([N, OH, OW, OC], DRAM, i32)
     for oc in loop(2, OC // 2):
         b1 = load(bias[oc], [OC // 2], BBUF)
@@ -1706,5 +1768,4 @@ if __name__ == "__main__":
     return o
 """
     codelet = StealthCodelet(codelet_string)
-    # print(codelet._information_collector.get_compute_operation_groups()[0])
     compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet)
