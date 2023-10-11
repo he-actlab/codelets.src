@@ -3,6 +3,7 @@ import abc
 from functools import partial
 from typing import Any, Callable, Optional, Union
 import dataclasses
+import random
 from collections import OrderedDict, defaultdict
 from lark import ParseTree, Lark, Token, Tree, indenter
 from lark.visitors import Interpreter
@@ -11,6 +12,16 @@ from codelets.examples.genesys import compile_genesys, load_config, DataGen
 from codelets.templates.codelet_template import CodeletTemplate, DummyOp, FlexParam
 from codelets.adl.graph import ArchitectureGraph
 from codelets.examples.genesys import DTYPE_MAP, OP_DTYPES
+
+
+class UniqueNameGenerator:
+    _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
+
+    @staticmethod
+    def get_unique_name(name: str) -> str:
+        name_id = UniqueNameGenerator._NAME_ID[name]
+        UniqueNameGenerator._NAME_ID[name] += 1
+        return f"{name}_{name_id}"
 
 
 # ==================== Codelet Parsing ==================== #
@@ -363,6 +374,7 @@ class ComputeOperationGroup:
     operations: list[StealthCompute]
     transfer_and_compute_operations: list[Union[StealthLoad, StealthStore, StealthCompute]]
     loop_index_variables: list[StealthIndex]
+    immediates: list[str]
 
     @property
     def inner_loop_index_variables(self) -> list[StealthIndex]:
@@ -381,7 +393,7 @@ class ComputeOperationGroup:
     
     @property
     def is_simd_operation(self) -> bool:
-        if all(o.location == "SIMD" for o in self.operaitons):
+        if all(o.location == "SIMD" for o in self.operations):
             return True
         else:
             return False
@@ -440,6 +452,7 @@ class CodeletInformationCollector(Interpreter):
     _inputs: list[StealthOperand]
     _outputs: list[StealthOperand]
     _params: list[StealthParameter]
+    _immediates: dict[str, StealthExpression]
     _loop_indices: list[StealthIndex]
     _statements: list[StealthStatement]
     _current_loop_stack: list[StealthLoop]
@@ -454,6 +467,7 @@ class CodeletInformationCollector(Interpreter):
         self._inputs = []
         self._outputs = []
         self._params = []
+        self._immediates = {}
         self._loop_indices = []
         self._statements = []
         self._current_loop_stack = []
@@ -567,6 +581,21 @@ class CodeletInformationCollector(Interpreter):
         
             for statement in self._statements:
                 helper3(statement)
+        
+        immediates: list[list[str]] = [[]] * len(compute_groups)
+        def helper4(statement: StealthStatement):
+            nonlocal immediates
+            if isinstance(statement, StealthLoop):
+                for loop_statement in statement.body:
+                    helper4(loop_statement)
+            elif isinstance(statement, StealthCompute):
+                for operand in statement.operands:
+                    if isinstance(operand, str) and operand not in self._operands:
+                        if operand not in immediates[-1]:
+                            immediates[-1].append(operand.name)
+        
+        for statement in self._statements:
+            helper4(statement)
 
         # Flatten transfer and compute operations
         new_transfer_and_compute_operations = []
@@ -575,7 +604,7 @@ class CodeletInformationCollector(Interpreter):
             for compute_operation_transfer_and_compute_operations in compute_group_transfer_and_compute_operations:
                 new_transfer_and_compute_operations[-1].extend(compute_operation_transfer_and_compute_operations)
         
-        return [ComputeOperationGroup(compute_group, compute_group_transfer_and_compute_operations, compute_group_loop_index_variables) for compute_group, compute_group_transfer_and_compute_operations, compute_group_loop_index_variables in zip(compute_groups, new_transfer_and_compute_operations, loop_index_variables)]
+        return [ComputeOperationGroup(compute_group, compute_group_transfer_and_compute_operations, compute_group_loop_index_variables, compute_group_immediates) for compute_group, compute_group_transfer_and_compute_operations, compute_group_loop_index_variables, compute_group_immediates in zip(compute_groups, new_transfer_and_compute_operations, loop_index_variables, immediates)]
     
     def get_outer_loop_index_variables(self) -> list[StealthIndex]:
         if len(self._loop_indices) % 2 != 0:
@@ -898,6 +927,16 @@ class CodeletInformationCollector(Interpreter):
                 raise CodeletError(f"Expected arguments of operation \"{operation_name}\" to have the same shape but instead got {operand1.shape} and {operand2.shape}")
         elif operation_name == "macc":
             raise NotImplementedError
+        elif operation_name in ["relu", "leaky_relu", "sigmoid", "tanh"]:
+            if location != "SIMD":
+                raise CodeletError(f"Operation \"{operation_name}\" is only supported on the SIMD")
+            if len(compute_arguments) != 1:
+                raise CodeletError(f"Expected 1 argument for operation \"{operation_name}\" but instead got {len(compute_arguments)}")
+            
+            operand = self._operands[compute_arguments[0]]
+
+            if len(operand.shape) != 1:
+                raise CodeletError(f"Expected argument of operation \"{operation_name}\" to be a 1D tensor but instead got a {len(operand.shape)}D tensor")
         else:
             raise NotImplementedError(f"{operation_name} is not implemented yet.")
     
@@ -1060,7 +1099,10 @@ class CodeletInformationCollector(Interpreter):
             expression_child = child.children[0]
             expression = self.get_stealth_expression_from_tree(expression_child)
             if self.is_expression_constant(expression):
-                arguments.append(expression)
+                value = evaluate_expression(expression)
+                immediate_name = UniqueNameGenerator.get_unique_name("immediate")
+                self._immediates[immediate_name] = value
+                arguments.append(immediate_name)
             elif isinstance(expression, StealthVariableName) and expression.name in self._operands:
                 arguments.append(expression.name)
             else:
@@ -1537,25 +1579,25 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
                 _cdlt.configure("end", "OBUF")
                 _cdlt.configure("end", "systolic_array")
             
-            def simd_start_config(_cdlt, immediates: list[tuple[str, int]]) -> None:
+            def simd_start_config(_cdlt, immediates: list[tuple[str, Any]]) -> None:
                 immediate_dummy_ops = []
                 for immediate_name, immediate_value in immediates:
                     immediate_dummy_ops.append(_cdlt.dummy_op(immediate_name, immediate_value))
                     temp_operand = _cdlt.create_temp_operand([SIMD_SIZE], "IMM", name=immediate_name)
                     name_to_operand[str(immediate_value)] = temp_operand
-                _cdlt.configure("start", "simd")
+                _cdlt.configure("start", "SIMD")
                 for immediate_dummy_op in immediate_dummy_ops:
                     _cdlt.configure("start", immediate_value=immediate_dummy_op)
                     
             def simd_end_config(_cdlt) -> None:
-                _cdlt.configure("end", "simd")
+                _cdlt.configure("end", "SIMD")
 
             compute_operation_index: int = 0 
             for compute_operation_group in compute_operation_groups:
                 if compute_operation_group.is_systolic_array_operation:
                     config_functions = (systolic_array_start_config, systolic_array_end_config)
                 elif compute_operation_group.is_simd_operation:
-                    config_functions = (partial(simd_start_config, immediates=[]), simd_end_config)
+                    config_functions = (partial(simd_start_config, immediates=[(immediate_name, constant_expression_to_dummy_op(collector._immediates[immediate_name])) for immediate_name in compute_operation_group.immediates]), simd_end_config)
                 else:
                     raise RuntimeError(f"Somehow got a compute operation group that is neither a systolic array operation nor a SIMD operation.")
 
@@ -1633,16 +1675,6 @@ class StealthCodelet:
  
 
 # ==================== PolyMath Node Generation ==================== #
-class UniqueNameGenerator:
-    _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
-
-    @staticmethod
-    def get_unique_name(name: str) -> str:
-        name_id = UniqueNameGenerator._NAME_ID[name]
-        UniqueNameGenerator._NAME_ID[name] += 1
-        return f"{name}_{name_id}"
-
-
 class DummyTemplate(pm.Template):
     def __init__(self, *args, **kwargs):
         assert "number_of_inputs" in kwargs
@@ -1669,44 +1701,25 @@ class DummyTemplate(pm.Template):
         return tuple(self.args[0][self._number_of_inputs + i] for i in range(self._number_of_outputs))
 
 
-def create_dummy_polymath_node_from_codelet(codelet: StealthCodelet) -> pm.Graph:
-    codelet_dimensions = {"N": 1, "IC": 64, "OC": 64, "IH": 28, "IW": 28, "KH": 3, "KW": 3, "OH": 26, "OW": 26}
+def create_dummy_polymath_node_from_codelet(codelet: StealthCodelet, dimension_sizes: dict[str, int]) -> pm.Graph:
     with pm.Node(name="test") as graph:
-        # parameters = {}
-        # for operand in codelet._information_collector._inputs + codelet._information_collector._outputs:
-        #     for dimension in operand.shape:
-        #         if isinstance(dimension, StealthVariableName) and dimension.name not in parameters:
-        #             parameters[dimension.name] = pm.parameter(name=dimension.name)
         top_inputs = []
         for operand in codelet._information_collector._inputs:
             input_name = UniqueNameGenerator.get_unique_name("input")
-            top_inputs.append(pm.input(name=input_name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape)))
+            top_inputs.append(pm.input(name=input_name, shape=tuple(dimension_sizes[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape)))
         top_outputs = []
         for output_operand in codelet._information_collector._outputs:
             output_name = UniqueNameGenerator.get_unique_name("output")
-            top_outputs.append(pm.output(name=output_name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape)))
+            top_outputs.append(pm.output(name=output_name, shape=tuple(dimension_sizes[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape)))
         
         args = top_inputs + top_outputs
-        DummyTemplate(*args, number_of_inputs=len(top_inputs), number_of_outputs=len(top_outputs), custom_operation_name=codelet._information_collector.get_operation_name())
-        
-        # with pm.Node(*(top_inputs + top_outputs), name=codelet._information_collector.get_operation_name(), graph=graph) as node:
-        #     inputs = {}
-        #     for operand in codelet._information_collector._inputs:
-        #         inputs[operand.name] = pm.input(name=operand.name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in operand.shape))
-        #     outputs = {}
-        #     for output_operand in codelet._information_collector._outputs:
-        #         outputs[output_operand.name] = pm.output(name=output_operand.name, shape=tuple(codelet_dimensions[s.name] if isinstance(s, StealthVariableName) else s.value for s in output_operand.shape))
-        
-    # lower_pass = pm.Lower({})
-    # graph = lower_pass(graph)
-    # shape_val_pass = pm.NormalizeGraph({"N": 1, "IC": 64, "OC": 64, "IH": 28, "IW": 28, "KH": 3, "KW": 3, "OH": 26, "OW": 26})
-    # graph, res = shape_val_pass(graph)
+        DummyTemplate(*args, number_of_inputs=len(top_inputs), number_of_outputs=len(top_outputs), custom_operation_name=codelet._information_collector.get_operation_name()) 
     return graph
 
 
 # ==================== Compilation ==================== #
-def compile(config_path: str, layer: StealthCodelet) -> None:
-    graph = create_dummy_polymath_node_from_codelet(layer)
+def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, int]) -> None:
+    graph = create_dummy_polymath_node_from_codelet(layer, dimension_sizes)
     cfg = load_config(config_path)
     program = compile_genesys(
         model_name=layer._information_collector.get_operation_name(),
@@ -1715,7 +1728,6 @@ def compile(config_path: str, layer: StealthCodelet) -> None:
         custom_codelets={layer._information_collector.get_operation_name(): layer._codelet_template},
         print_config=False,
     )
-    # print(program.codelets)
 
     sys_array_size = cfg['ARRAY_M']
     dgen = DataGen(program,
@@ -1730,42 +1742,278 @@ def compile(config_path: str, layer: StealthCodelet) -> None:
     dgen.generate()
 
 
+# ==================== Direct Codelet Generation ==================== #
+TAB = "    "
+
+
+def generate_conv2d_bias_codelet_from_config(stride: int, config: dict) -> str:
+    N_tiles = config["N_tiles"]
+    OC_tiles = config["OC_tiles"]
+    IC_tiles = config["IC_tiles"]
+    KH_tiles = config["KH_tiles"]
+    KW_tiles = config["KW_tiles"]
+    OH_tiles = config["OH_tiles"]
+    OW_tiles = config["OW_tiles"]
+    array_N = config["array_N"]
+    array_M = config["array_M"]
+    loop_order = config["loop_order"]
+
+    oc_outer_loop = f"for oc in loop({OC_tiles}, OC // {OC_tiles}):"
+    n_outer_loop = f"for n in loop({N_tiles}, N // {N_tiles}):"
+    ic_outer_loop = f"for ic in loop({IC_tiles}, IC // {IC_tiles}):"
+    kh_outer_loop = f"for kh in loop({KH_tiles}, KH // {KH_tiles}):"
+    kw_outer_loop = f"for kw in loop({KW_tiles}, KW // {KW_tiles}):"
+    oh_outer_loop = f"for oh in loop({OH_tiles}, OH // {OH_tiles}):"
+    ow_outer_loop = f"for ow in loop({OW_tiles}, OW // {OW_tiles}):"
+    outer_loop_statements = [oc_outer_loop, n_outer_loop, ic_outer_loop, kh_outer_loop, kw_outer_loop, oh_outer_loop, ow_outer_loop]
+
+    # Create inner loop statements
+    oc_inner_loop = f"for oc1 in loop(OC // {OC_tiles}, {array_N}):"
+    n_inner_loop = f"for n1 in loop(N // {N_tiles}):"
+    ic_inner_loop = f"for ic1 in loop(IC // {IC_tiles}, {array_N}):"
+    kh_inner_loop = f"for kh1 in loop(KH // {KH_tiles}):"
+    kw_inner_loop = f"for kw1 in loop(KW // {KW_tiles}):"
+    oh_inner_loop = f"for oh1 in loop(OH // {OH_tiles}):"
+    ow_inner_loop = f"for ow1 in loop(OW // {OW_tiles}):"
+    inner_loop_statements = [oc_inner_loop, n_inner_loop, ic_inner_loop, kh_inner_loop, kw_inner_loop, oh_inner_loop, ow_inner_loop]
+
+    # Create statements
+    output_alloc = "o = alloc([N, OH, OW, OC], DRAM, i32)"
+    bias_tile_load = f"b1 = load(bias[oc], [OC // {OC_tiles}], BBUF)"
+    weight_tile_load = f"w1 = load(w[kh, kw, ic, oc], [KH // {KH_tiles}, KW // {KW_tiles}, IC // {IC_tiles}, OC // {OC_tiles}], WBUF)"
+    data_tile_load = f"x1 = load(x[n, kh + {stride} * oh, kw + {stride} * ow, ic], [N // {N_tiles}, (OH // {OH_tiles} - 1) * {stride} + (KH // {KH_tiles} - 1) + 1, (OW // {OW_tiles} - 1) * {stride} + (KW // {KW_tiles} - 1) + 1, IC // {IC_tiles}], IBUF)"
+    output_tile_load = f"o1 = load(o[n, oh, ow, oc], [N // {N_tiles}, OH // {OH_tiles}, OW // {OW_tiles}, OC // {OC_tiles}], OBUF)"
+    bias_element_load = f"b2 = load(b1[oc1], [1, {array_N}], PE_ARRAY)"
+    weight_element_load = f"w2 = load(w1[kh1, kw1, ic1, oc1], [{array_N}, {array_M}], PE_ARRAY)"
+    data_element_load = f"x2 = load(x1[n1, kh1 + {stride} * oh1, kw1 + {stride} * ow1, ic1], [1, {array_N}], PE_ARRAY)"
+    output_element_load = f"o2 = load(o1[n1, oh1, ow1, oc1], [1, {array_N}], PE_ARRAY)"
+    compute = "o3 = mvmul_bias(x2, w2, b2, o2, PE_ARRAY)"
+    output_element_store = "store(o1[n1, oh1, ow1, oc1], o3)"
+    output_tile_store = "store(o[n, oh, ow, oc], o1)"
+    output_return = "return o"
+
+    # Put all statements together in correct order
+    header = "def conv2d_bias(x: i8[N, IH, IW, IC] @ DRAM, w: i8[KH, KW, IC, OC] @ DRAM, bias: i32[OC] @ DRAM, OH: param, OW: param):\n"
+    used_outer_loops = set()
+    outer_loops = ""
+    tabs = TAB
+    is_weight_load = False
+    is_bias_load = False
+    for o in loop_order:
+        outer_loops += tabs + outer_loop_statements[o] + "\n"
+        used_outer_loops.add(o)
+        tabs += TAB
+        if 0 in used_outer_loops and not is_bias_load:
+            outer_loops += tabs + bias_tile_load + "\n"
+            is_bias_load = True
+        if all([w_i in used_outer_loops for w_i in (0, 2, 3, 4)]) and not is_weight_load:
+            outer_loops += tabs + weight_tile_load + "\n"
+            is_weight_load = True
+    outer_loops += tabs + data_tile_load + "\n"
+    outer_loops += tabs + output_tile_load + "\n"
+
+    used_inner_loops = set()
+    inner_loops = ""
+    is_weight_load = False
+    is_bias_load = False
+    for i in loop_order:
+        inner_loops += tabs + inner_loop_statements[i] + "\n"
+        used_inner_loops.add(i)
+        tabs += TAB
+        if 0 in used_inner_loops and not is_bias_load:
+            inner_loops += tabs + bias_element_load + "\n"
+            is_bias_load = True
+        if all([w_i in used_inner_loops for w_i in (0, 2, 3, 4)]) and not is_weight_load:
+            inner_loops += tabs + weight_element_load + "\n"
+            is_weight_load = True
+    inner_loops += tabs + data_element_load + "\n"
+    inner_loops += tabs + output_element_load + "\n"
+    inner_loops += tabs + compute + "\n"
+    inner_loops += tabs + output_element_store + "\n"
+
+    conv2d_bias_codelet = header + TAB + output_alloc + "\n" + outer_loops + inner_loops + (TAB * 8) + output_tile_store + "\n" + TAB + output_return + "\n"
+    return conv2d_bias_codelet
+
+
+def generate_gemm_bias_codelet_from_config(config: dict) -> str:
+    N_tiles = config["N_tiles"]
+    M_tiles = config["M_tiles"]
+    P_tiles = config["P_tiles"]
+    array_N = config["array_N"]
+    array_M = config["array_M"]
+    loop_order = config["loop_order"]
+
+    # Create outer loop statements
+    p_outer_loop = f"for p in loop({P_tiles}, P // {P_tiles}):"
+    n_outer_loop = f"for n in loop({N_tiles}, N // {N_tiles}):"
+    m_outer_loop = f"for m in loop({M_tiles}, M // {M_tiles}):"
+    outer_loop_statements = [p_outer_loop, n_outer_loop, m_outer_loop]
+
+    # Create inner loop statements
+    p_inner_loop = f"for p1 in loop(P // {P_tiles}, {array_N}):"
+    n_inner_loop = f"for n1 in loop(N // {N_tiles}, {array_N}):"
+    m_inner_loop = f"for m1 in loop(M // {M_tiles}):"
+    inner_loop_statements = [p_inner_loop, n_inner_loop, m_inner_loop]
+
+    # Create statements
+    output_alloc = "o = alloc([M, P], DRAM, i32)"
+    bias_tile_load = f"b1 = load(bias[p], [P // {P_tiles}], BBUF)"
+    weight_tile_load = f"w1 = load(w[n, p], [N // {N_tiles}, P // {P_tiles}], WBUF)"
+    data_tile_load = f"x1 = load(x[m, n], [M // {M_tiles}, N // {N_tiles}], IBUF)"
+    output_tile_load = f"o1 = load(o[m, p], [M // {M_tiles}, P // {P_tiles}], OBUF)"
+    bias_element_load = f"b2 = load(b1[p1], [1, {array_N}], PE_ARRAY)"
+    weight_element_load = f"w2 = load(w1[n1, p1], [{array_N}, {array_M}], PE_ARRAY)"
+    data_element_load = f"x2 = load(x1[m1, n1], [1, {array_N}], PE_ARRAY)"
+    output_element_load = f"o2 = load(o1[m1, p1], [1, {array_N}], PE_ARRAY)"
+    compute = "o3 = mvmul_bias(x2, w2, b2, o2, PE_ARRAY)"
+    output_element_store = "store(o1[m1, p1], o3)"
+    output_tile_store = "store(o[m, p], o1)"
+    output_return = "return o"
+
+    # Put all statements together in correct order
+    header = "def gemm_bias(x: i8[M, N] @ DRAM, w: i8[N, P] @ DRAM, bias: i32[P] @ DRAM):\n"
+    used_outer_loops = set()
+    outer_loops = ""
+    tabs = TAB
+    is_data_load = False
+    is_weight_load = False
+    is_bias_load = False
+    is_output_load = False
+    for o in loop_order:
+        outer_loops += tabs + outer_loop_statements[o] + "\n"
+        used_outer_loops.add(o)
+        tabs += TAB
+        if 0 in used_outer_loops and not is_bias_load:
+            outer_loops += tabs + bias_tile_load + "\n"
+            is_bias_load = True
+        if all([i_i in used_outer_loops for i_i in (1, 2)]) and not is_data_load:
+            outer_loops += tabs + data_tile_load + "\n"
+            is_data_load = True
+        if all([w_i in used_outer_loops for w_i in (0, 1)]) and not is_weight_load:
+            outer_loops += tabs + weight_tile_load + "\n"
+            is_weight_load = True
+        if all([o_i in used_outer_loops for o_i in (0, 2)]) and not is_output_load:
+            outer_loops += tabs + output_tile_load + "\n"
+            is_output_load = True
+
+    used_inner_loops = set()
+    inner_loops = ""
+    is_data_load = False
+    is_weight_load = False
+    is_bias_load = False
+    is_output_load = False
+    for i in loop_order:
+        inner_loops += tabs + inner_loop_statements[i] + "\n"
+        used_inner_loops.add(i)
+        tabs += TAB
+        if 0 in used_inner_loops and not is_bias_load:
+            inner_loops += tabs + bias_element_load + "\n"
+            is_bias_load = True
+        if all([i_i in used_inner_loops for i_i in (1, 2)]) and not is_data_load:
+            inner_loops += tabs + data_element_load + "\n"
+            is_data_load = True
+        if all([w_i in used_inner_loops for w_i in (0, 1)]) and not is_weight_load:
+            inner_loops += tabs + weight_element_load + "\n"
+            is_weight_load = True
+        if all([o_i in used_inner_loops for o_i in (0, 2)]) and not is_output_load:
+            inner_loops += tabs + output_element_load + "\n"
+            is_output_load = True
+
+    inner_loops += tabs + compute + "\n"
+    inner_loops += tabs + output_element_store + "\n"
+
+    gemm_bias_codelet: str = header + TAB + output_alloc + "\n" + outer_loops + inner_loops + (TAB * 4) + output_tile_store + "\n" + TAB + output_return + "\n"
+    return gemm_bias_codelet
+
+
+def generate_relu4d_codelet_from_config(config: dict) -> str:
+    N_tiles = config["N_tiles"]
+    C_tiles = config["C_tiles"]
+    H_tiles = config["H_tiles"]
+    W_tiles = config["W_tiles"]
+    array_N = config["array_N"]
+    loop_order = config["loop_order"]
+
+    # Create outer loop statements
+    n_outer_loop = f"for n in loop({N_tiles}, N // {N_tiles}):"
+    c_outer_loop = f"for c in loop({C_tiles}, C // {C_tiles}):"
+    h_outer_loop = f"for h in loop({H_tiles}, H // {H_tiles}):"
+    w_outer_loop = f"for w in loop({W_tiles}, W // {W_tiles}):"
+    outer_loop_statements = [n_outer_loop, c_outer_loop, h_outer_loop, w_outer_loop]
+
+    # Create inner loop statements
+    n_inner_loop = f"for n1 in loop(N // {N_tiles}):"
+    c_inner_loop = f"for c1 in loop(C // {C_tiles}, {array_N}):"
+    h_inner_loop = f"for h1 in loop(H // {H_tiles}):"
+    w_inner_loop = f"for w1 in loop(W // {W_tiles}):"
+    inner_loop_statements = [n_inner_loop, c_inner_loop, h_inner_loop, w_inner_loop]
+
+    # Create statements
+    output_alloc = "o = alloc([N, H, W, C], DRAM, i32)"
+    data_tile_load = f"x1 = load(x[n, h, w, c], [N // {N_tiles}, H // {H_tiles}, W // {W_tiles}, C // {C_tiles}], VMEM1)"
+    output_tile_alloc = f"o1 = alloc([N // {N_tiles}, H // {H_tiles}, W // {W_tiles}, C // {C_tiles}], VMEM1, i32)"
+    data_element_load = f"x2 = load(x1[n1, h1, w1, c1], [{array_N}], SIMD)"
+    compute = "o2 = relu(x2, SIMD)"
+    output_element_store = "store(o1[n1, h1, w1, c1], o2)"
+    output_tile_store = "store(o[n, h, w, c], o1)"
+    output_return = "return o"
+
+    # Put all statements together in correct order
+    header = "def relu4d(x: i32[N, H, W, C] @ DRAM):\n"
+
+    outer_loops = ""
+    tabs = TAB
+    for o in loop_order:
+        outer_loops += tabs + outer_loop_statements[o] + "\n"
+        tabs += TAB
+    outer_loops += tabs + output_tile_alloc + "\n"
+    outer_loops += tabs + data_tile_load + "\n"
+
+    inner_loops = ""
+    for i in loop_order:
+        inner_loops += tabs + inner_loop_statements[i] + "\n"
+        tabs += TAB
+    inner_loops += tabs + data_element_load + "\n"
+    inner_loops += tabs + compute + "\n"
+    inner_loops += tabs + output_element_store + "\n"
+
+    relu_codelet: str = header + TAB + output_alloc + "\n" + outer_loops + inner_loops + (TAB * 5) + output_tile_store + "\n" + TAB + output_return + "\n"
+    return relu_codelet
+
+# ==================== Unit Test Shape Generation ==================== #
+def get_2d_image_N() -> set[int]:
+    Ns = [1]
+    return set(Ns)
+
+
+def get_2d_image_C() -> set[int]:
+    PARAM_BUF_BW = 64
+    Cs = [PARAM_BUF_BW * i for i in range(1, 3)]
+    return set(Cs)
+
+
+def get_2d_image_H() -> set[int]:
+    Hs = [2 ** i for i in range(0, 10)]
+    Hs += [10 * i for i in range(1, 10)]
+    return set(Hs)
+
+
+def get_2d_image_W() -> set[int]:
+    Ws = [2 ** i for i in range(0, 10)]
+    Ws += [10 * i for i in range(1, 10)]
+    return set(Ws)
+
+
+def get_2d_image_kernel_size() -> set[int]:
+    kernel_sizes = [1, 3, 5, 7]
+    return set(kernel_sizes)
+
+
 if __name__ == "__main__":
-    codelet_string = """def conv2d_bias(x: i8[N, IH, IW, IC] @ DRAM, w: i8[KH, KW, IC, OC] @ DRAM, bias: i32[OC] @ DRAM, sx: param, sy: param, pad: param, OH: param, OW: param):
-    o = alloc([N, OH, OW, OC], DRAM, i32)
-    for oc in loop(2, OC // 2):
-        b1 = load(bias[oc], [OC // 2], BBUF)
-        for n in loop(1, N // 1):
-            for ic in loop(4, IC // 4):
-                for kh in loop(1, KH // 1):
-                    for kw in loop(1, KW // 1):
-                        w1 = load(w[kh, kw, ic, oc], [KH // 1, KW // 1, IC // 4, OC // 2], WBUF)
-                        for oh in loop(14, OH // 14):
-                            for ow in loop(7, OW // 7):
-                                x1 = load(x[n, kh + 2 * oh, kw + 2 * ow, ic],
-                                          [N // 1, OH // 14, OW // 7, OC // 2], IBUF)
-                                o1 = load(o[n, oh, ow, oc], [N // 1, OH // 14, OW // 7, OC // 2], OBUF)
-                                for oc1 in loop(OC // 2, 16):
-                                    b2 = load(b1[oc1], [1, 16], PE_ARRAY)
-                                    for n1 in loop(N // 1):
-                                        for ic1 in loop(IC // 4, 16):
-                                            for kh1 in loop(KH // 1):
-                                                for kw1 in loop(KW // 1):
-                                                    w2 = load(w1[kh1, kw1, ic1, oc1],
-                                                              [16, 16],
-                                                              PE_ARRAY)
-                                                    for oh1 in loop(OH // 14):
-                                                        for ow1 in loop(OW // 7):
-                                                            x2 = load(
-                                                                x1[n1, kh1 + 2 * oh1, kw1 + 2 * ow1, ic1],
-                                                                [1, 16], PE_ARRAY)
-                                                            o2 = load(o1[n1, oh1, ow1, oc1], [16, 1],
-                                                                      PE_ARRAY)
-                                                            # We need to load the pre-existing obuf data, then generate new data
-                                                            o3 = mvmul_bias(x2, w2, b2, o2, PE_ARRAY)
-                                                            store(o1[n1, oh1, ow1, oc1], o3)
-                                store(o[n, oh, ow, oc], o1)
-    return o
-"""
+    # codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 1, "OC_tiles": 1, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 1, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
+    # codelet_string = generate_gemm_bias_codelet_from_config({"N_tiles": 1, "M_tiles": 1, "P_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2]})
+    codelet_string = generate_relu4d_codelet_from_config({"N_tiles": 1, "C_tiles": 1, "H_tiles": 1, "W_tiles": 1, "array_N": 16, "loop_order": [0, 1, 2, 3]})
+    print(codelet_string)
     codelet = StealthCodelet(codelet_string)
-    compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet)
+    compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "W": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
+
