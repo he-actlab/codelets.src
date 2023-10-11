@@ -1,9 +1,12 @@
 import polymath as pm
 import abc
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Iterator, Optional, Union
 import dataclasses
 import random
+import math
+import tqdm
+import itertools
 import json
 from collections import OrderedDict, defaultdict
 from lark import ParseTree, Lark, Token, Tree, indenter
@@ -2014,6 +2017,7 @@ def generate_relu4d_codelet_from_config(config: dict) -> str:
     relu_codelet: str = header + TAB + output_alloc + "\n" + outer_loops + inner_loops + (TAB * 5) + output_tile_store + "\n" + TAB + output_return + "\n"
     return relu_codelet
 
+
 # ==================== Unit Test Shape Generation ==================== #
 def get_2d_image_N() -> set[int]:
     Ns = [1]
@@ -2026,16 +2030,10 @@ def get_2d_image_C() -> set[int]:
     return set(Cs)
 
 
-def get_2d_image_H() -> set[int]:
+def get_2d_image_H_W() -> set[int]:
     Hs = [2 ** i for i in range(0, 10)]
     Hs += [10 * i for i in range(1, 10)]
     return set(Hs)
-
-
-def get_2d_image_W() -> set[int]:
-    Ws = [2 ** i for i in range(0, 10)]
-    Ws += [10 * i for i in range(1, 10)]
-    return set(Ws)
 
 
 def get_2d_image_kernel_size() -> set[int]:
@@ -2043,11 +2041,430 @@ def get_2d_image_kernel_size() -> set[int]:
     return set(kernel_sizes)
 
 
+# ==================== Codelet Search Space Creation ==================== #
+class SearchSpacePoint(abc.ABC):
+    @abc.abstractmethod
+    def __hash__(self) -> int:
+        ...
+    
+    @abc.abstractmethod
+    def __eq__(self, other: Any) -> bool:
+        ...
+
+
+class SearchSpace(abc.ABC):
+    _cache: dict[Any, set[SearchSpacePoint]] = {}
+
+    _iter_index: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._iter_index = 0
+
+    @abc.abstractmethod
+    def get_space(self) -> set[SearchSpacePoint]:
+        ...
+    
+    @abc.abstractmethod
+    def get_cache_key(self) -> Any:
+        ...
+    
+    @abc.abstractmethod
+    def get_random_point(self) -> SearchSpacePoint:
+        ...
+    
+    def __len__(self) -> int:
+        return len(self.get_space())
+    
+    def __iter__(self):
+        self._iter_index = 0
+        return self
+    
+    def __next__(self) -> SearchSpacePoint:
+        if self.get_cache_key() in self._cache:
+            space = self._cache[self.get_cache_key()]
+        else:
+            space = self.get_space()
+        
+        if self._iter_index >= len(space):
+            self._iter_index = 0
+            raise StopIteration
+        value = list(space)[self._iter_index]
+        self._iter_index += 1
+        return value
+
+
+class IntegerSpacePoint(SearchSpacePoint):
+    _value: int
+
+    def __init__(self, value: int) -> None:
+        super().__init__()
+        self._value = value
+    
+    @property
+    def value(self) -> int:
+        return self._value
+    
+    def __hash__(self) -> int:
+        return hash(self._value)
+    
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, IntegerSpacePoint):
+            return False
+        return self._value == other._value
+
+    def __repr__(self) -> str:
+        return str(self._value)
+
+
+class IntegerSpace(SearchSpace):
+    _min_value: int
+    _max_value: int
+
+    def __init__(self, min_value: int, max_value: int) -> None:
+        super().__init__()
+        self._min_value = min_value
+        self._max_value = max_value
+    
+    def get_space(self) -> set[IntegerSpacePoint]:
+        return set(IntegerSpacePoint(i) for i in range(self._min_value, self._max_value + 1))
+    
+    def get_random_point(self) -> IntegerSpacePoint:
+        return IntegerSpacePoint(random.randint(self._min_value, self._max_value))
+
+    def get_cache_key(self) -> Any:
+        return (self._min_value, self._max_value)
+
+
+class DimensionSizeSpacePoint(IntegerSpacePoint):
+    def __init__(self, dimension_size: int) -> None:
+        super().__init__(dimension_size) 
+    
+    @property
+    def dimension_size(self) -> int:
+        return self.value
+
+
+class DimensionSizeSpace(SearchSpace):
+    _generating_functions: tuple[Callable[[], set[int]], ...]
+
+    def __init__(self, generating_functions: tuple[Callable[[], set[int]], ...]) -> None:
+        super().__init__()
+        self._generating_functions = generating_functions
+
+    def get_space(self) -> set[DimensionSizeSpacePoint]:
+        space = set()
+        for generating_function in self._generating_functions:
+            space.update(DimensionSizeSpacePoint(i) for i in generating_function())
+        return space
+    
+    def get_random_point(self) -> DimensionSizeSpacePoint:
+        generating_function = random.choice(self._generating_functions) 
+        return DimensionSizeSpacePoint(random.choice(list(generating_function())))
+
+    def get_cache_key(self) -> Any:
+        return self._generating_functions
+
+
+class TileSpacePoint(SearchSpacePoint):
+    _number_of_tiles: int
+    _tile_size: int
+
+    def __init__(self, number_of_tiles: int, tile_size: int) -> None:
+        super().__init__()
+        self._number_of_tiles = number_of_tiles
+        self._tile_size = tile_size
+    
+    @property
+    def number_of_tiles(self) -> int:
+        return self._number_of_tiles
+    
+    @property
+    def tile_size(self) -> int:
+        return self._tile_size
+    
+    def __hash__(self) -> int:
+        return hash((self._number_of_tiles, self._tile_size))
+    
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, TileSpacePoint):
+            return False
+        return self._number_of_tiles == other._number_of_tiles and self._tile_size == other._tile_size
+
+    def __repr__(self) -> str:
+        return f"({self._number_of_tiles}, {self._tile_size})"
+
+
+class TileSpace(SearchSpace):
+    _dimension_size: int
+
+    def __init__(self, dimension_size: int) -> None:
+        super().__init__()
+        self._dimension_size = dimension_size
+    
+    def get_space(self) -> set[TileSpacePoint]:
+        space = set()
+        for i in range(1, self._dimension_size + 1):
+            if self._dimension_size % i == 0:
+                space.add(TileSpacePoint(self._dimension_size // i, i))
+        return space
+    
+    def get_random_point(self) -> TileSpacePoint:
+        possible_number_of_tiles = list(range(1, self._dimension_size + 1))
+        random.shuffle(possible_number_of_tiles)
+        for i in possible_number_of_tiles:
+            if self._dimension_size % i == 0:
+                return TileSpacePoint(self._dimension_size // i, i)
+        raise Exception("No valid tile size found")
+
+    def get_cache_key(self) -> Any:
+        return self._dimension_size
+
+
+class LoopOrderSpacePoint(SearchSpacePoint):
+    _loop_order: tuple[int, ...]
+
+    def __init__(self, loop_order: tuple[int, ...]) -> None:
+        super().__init__()
+        self._loop_order = loop_order
+    
+    @property
+    def loop_order(self) -> tuple[int, ...]:
+        return self._loop_order
+    
+    def __hash__(self) -> int:
+        return hash(self._loop_order)
+    
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, LoopOrderSpacePoint):
+            return False
+        return self._loop_order == other._loop_order
+
+    def __repr__(self) -> str:
+        return str(self._loop_order)
+
+
+class LoopOrderSearchSpace(SearchSpace):
+    _number_of_loops: int
+
+    def __init__(self, number_of_loops: int) -> None:
+        super().__init__()
+        self._number_of_loops = number_of_loops
+    
+    def get_space(self) -> set[LoopOrderSpacePoint]:
+        space = set()
+        for permutation in itertools.permutations(range(self._number_of_loops)):
+            space.add(LoopOrderSpacePoint(permutation))
+        return space
+    
+    def get_random_point(self) -> LoopOrderSpacePoint:
+        loop_order = list(range(self._number_of_loops))
+        random.shuffle(loop_order)
+        return LoopOrderSpacePoint(tuple(l for l in loop_order))
+
+    def get_cache_key(self) -> Any:
+        return self._number_of_loops
+
+
+class Searcher(abc.ABC):
+    _search_spaces: tuple[SearchSpace]
+
+    def __init__(self, search_spaces: tuple[SearchSpace]) -> None:
+        super().__init__()
+        self._search_spaces = search_spaces
+    
+    @abc.abstractmethod
+    def get_next_search_space_point(self) -> Optional[tuple[SearchSpacePoint, ...]]:
+        ...
+
+    @abc.abstractmethod
+    def reset(self) -> None:
+        ...
+    
+    def get_size_of_search_space(self) -> int:
+        return math.prod(len(search_space) for search_space in self._search_spaces)
+
+    def __iter__(self):
+        return self
+    
+    def __next__(self) -> tuple[SearchSpacePoint, ...]:
+        ret = self.get_next_search_space_point()
+        if ret is None:
+            raise StopIteration
+        return ret
+
+
+class ExhaustiveSearcher(Searcher):
+    _search_space_contents: list[list[SearchSpacePoint]]
+    _search_space_iterators: list[Iterator[SearchSpacePoint]]
+    _current_output: Optional[list[SearchSpacePoint]]
+
+    def __init__(self, search_spaces: list[SearchSpace]) -> None:
+        super().__init__(search_spaces)
+        self._search_space_contents = [list(search_space.get_space()) for search_space in self._search_spaces]
+        self._search_space_iterators = [iter(search_space) for search_space in self._search_space_contents]
+        self._current_output = None
+    
+    def reset(self):
+        self._search_space_iterators = [iter(search_space) for search_space in self._search_space_contents]
+
+    def get_next_search_space_point(self) -> Optional[tuple[SearchSpacePoint, ...]]:
+        if self._current_output is None:
+            self._current_output = [next(iterator) for iterator in self._search_space_iterators]
+        else:
+            i = 0
+            while i < len(self._search_space_contents):
+                try:
+                    self._current_output[i] = next(self._search_space_iterators[i])
+                    break
+                except StopIteration:
+                    self._search_space_iterators[i] = iter(self._search_space_contents[i])
+                    self._current_output[i] = next(self._search_space_iterators[i])
+                    i += 1
+            if i == len(self._search_space_contents):
+                return None
+        return tuple(o for o in self._current_output)
+
+
+class RandomSearcher(Searcher):
+    _allow_repeats: bool
+    _seen_points: set[tuple[SearchSpacePoint, ...]]
+    _max_attempts: int
+
+    def __init__(self, search_spaces: list[SearchSpace], allow_repeats=False, max_attempts=100) -> None:
+        super().__init__(search_spaces)
+        self._allow_repeats = allow_repeats
+        self._seen_points = set()
+        self._max_attempts = max_attempts
+    
+    def reset(self):
+        self._seen_points = set()
+    
+    def get_next_search_space_point(self) -> Optional[tuple[SearchSpacePoint, ...]]:
+        for _ in range(self._max_attempts):
+            point = tuple(search_space.get_random_point() for search_space in self._search_spaces)
+            if not self._is_point_seen(point):
+                self._seen_points.add(point)
+                return point
+        return None
+    
+    def _is_point_seen(self, point: tuple[SearchSpacePoint, ...]) -> bool:
+        if self._allow_repeats:
+            return False
+        else:
+            return point in self._seen_points
+
+
+# ==================== Running Codelets ==================== #
+def run_layer(layer_directory: str):
+    from simulator.genesys_sim.genesys import run_single_test
+    config_path = f"simulator/configs/"
+    test_path_components = layer_directory.split("/")
+    test_path = layer_directory
+    test_name = test_path_components[-1]
+    mode = "perf"
+    test_output = run_single_test(config_path, mode, {"name": test_name, "path": test_path})
+    return test_output
+
+
+def get_simulator_output_field(simulator_output, field):
+    return simulator_output[2][simulator_output[1].index("totCycles")]
+
+
+def get_relevant_simulator_outputs(simulator_output):
+    return {
+        "total_cycles": int(get_simulator_output_field(simulator_output, "totCycles")),
+        "sa_cycles": int(get_simulator_output_field(simulator_output, "systotalCycles")),
+        "sa_compute_cycles_per_tile": float(get_simulator_output_field(simulator_output, "sysComputeCyclesPerTile")),
+        "sa_load_cycles_per_tile": float(get_simulator_output_field(simulator_output, "sysLoadCyclesPerTile")),
+        "sa_store_cycles_per_tile": float(get_simulator_output_field(simulator_output, "sysStoreCyclesPerTile")),
+        "sa_ibuf_util_per_tile": float(get_simulator_output_field(simulator_output, "perTileIbufUtil")),
+        "sa_obuf_util_per_tile": float(get_simulator_output_field(simulator_output, "perTileObufUtil")),
+        "sa_wbuf_util_per_tile": float(get_simulator_output_field(simulator_output, "perTileWbufUtil")),
+        "sa_bbuf_util_per_tile": float(get_simulator_output_field(simulator_output, "perTileBbufUtil")),
+        "sa_compute_util_per_tile": float(get_simulator_output_field(simulator_output, "perTileComputeUtils")),
+        "simd_cycles": int(get_simulator_output_field(simulator_output, "simdtotalCycles")),
+        "simd_compute_cycles_per_tile": int(get_simulator_output_field(simulator_output, "simdComputeCyclesPerTile")),
+        "simd_load_cycles": float(get_simulator_output_field(simulator_output, "simdLoadCycles")),
+        "simd_store_cycles": float(get_simulator_output_field(simulator_output, "simdStoreCycles")),
+    }
+
+
+# ==================== Codelet Generation for 2D Images ==================== #
+def generate_relu_codelets_for_2d_images(num_configs: int = 100):
+    LOOP_ORDER_MAP = {
+        0: "N",
+        1: "C",
+        2: "H",
+        3: "W"
+    }
+    N_space = DimensionSizeSpace((get_2d_image_N,))
+    C_space = DimensionSizeSpace((get_2d_image_C,))
+    H_W_space = DimensionSizeSpace((get_2d_image_H_W,))
+    dimension_searcher = ExhaustiveSearcher((N_space, C_space, H_W_space))
+    unit_test_dimensions = [p for p in dimension_searcher]
+
+    max_dimension_sizes = [0, 0, 0]
+    for unit_test_dimension in unit_test_dimensions:
+        for i in range(3):
+            max_dimension_sizes[i] = max(max_dimension_sizes[i], unit_test_dimension[i].dimension_size)
+    
+    N_tile_space = TileSpace(max_dimension_sizes[0])
+    C_tile_space = TileSpace(max_dimension_sizes[1])
+    H_tile_space = TileSpace(max_dimension_sizes[2])
+    W_tile_space = TileSpace(max_dimension_sizes[2])
+    loop_order_space = LoopOrderSearchSpace(4)
+
+    config_searcher = RandomSearcher((N_tile_space, C_tile_space, H_tile_space, W_tile_space, loop_order_space))
+    output = {"data": []}
+    for _ in tqdm.tqdm(range(num_configs)):
+        current_config_output = {}
+        N_tiles, C_tiles, H_tiles, W_tiles, loop_order = config_searcher.get_next_search_space_point()
+        codelet_string = generate_relu4d_codelet_from_config({"N_tiles": N_tiles.number_of_tiles, "C_tiles": C_tiles.number_of_tiles, "H_tiles": H_tiles.number_of_tiles, "W_tiles": W_tiles.number_of_tiles, "array_N": 16, "loop_order": loop_order.loop_order})
+        current_config_output["codelet"] = codelet_string
+        current_config_output["N_tiles"] = N_tiles.number_of_tiles
+        current_config_output["C_tiles"] = C_tiles.number_of_tiles
+        current_config_output["H_tiles"] = H_tiles.number_of_tiles
+        current_config_output["W_tiles"] = W_tiles.number_of_tiles
+        current_config_output["loop_order"] = [LOOP_ORDER_MAP[l] for l in loop_order.loop_order]
+        codelet = StealthCodelet(codelet_string)
+        
+        unit_test_outputs = []
+        for N, C, H_W in dimension_searcher: 
+            N_value = N.dimension_size
+            C_value = C.dimension_size
+            H_W_value = H_W.dimension_size
+
+            if ((N_tiles.number_of_tiles * N_tiles.tile_size) > N_value) or ((C_tiles.number_of_tiles * C_tiles.tile_size) > C_value) or ((H_tiles.number_of_tiles * H_tiles.tile_size) > H_W_value) or ((W_tiles.number_of_tiles * W_tiles.tile_size) > H_W_value):
+                print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tile split is too large.")
+                continue
+            if (N_value % N_tiles.number_of_tiles != 0) or (C_value % C_tiles.number_of_tiles != 0) or (H_W_value % H_tiles.number_of_tiles != 0) or (H_W_value % W_tiles.number_of_tiles != 0):
+                print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tile split does not divide dimension size.")
+                continue
+            try:
+                compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": N_value, "C": C_value, "H": H_W_value, "W": H_W_value})
+            except Exception as e:
+                print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tiling does not satisfy constraints:")
+                print(e)
+                continue
+            simulator_outputs = run_layer("stealth_outputs/compilation_output/test_benchmark16x16_stealth")
+            relevant_simulator_outputs = get_relevant_simulator_outputs(simulator_outputs)
+            relevant_simulator_outputs["input_dimensions"] = [N_value, C_value, H_W_value, H_W_value],
+            unit_test_outputs.append(get_relevant_simulator_outputs(simulator_outputs))
+
+        current_config_output["unit_test_outputs"] = unit_test_outputs
+        output["data"].append(current_config_output)
+    
+    with open("stealth_outputs/dataset_files/relu4d.json", "w") as f:
+        json.dump(output, f, indent=4)
+
+
 if __name__ == "__main__":
-    codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 4, "OC_tiles": 4, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 2, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
+    generate_relu_codelets_for_2d_images()
+    # codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 4, "OC_tiles": 4, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 2, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
     # codelet_string = generate_gemm_bias_codelet_from_config({"N_tiles": 1, "M_tiles": 1, "P_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2]})
     # codelet_string = generate_relu4d_codelet_from_config({"N_tiles": 1, "C_tiles": 1, "H_tiles": 1, "W_tiles": 1, "array_N": 16, "loop_order": [0, 1, 2, 3]})
-    print(codelet_string)
-    codelet = StealthCodelet(codelet_string)
-    compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "IH": 16, "W": 16, "IW": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
+    # print(codelet_string)
+    # codelet = StealthCodelet(codelet_string)
+    # compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "IH": 16, "W": 16, "IW": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
 
