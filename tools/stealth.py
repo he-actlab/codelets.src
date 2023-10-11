@@ -4,6 +4,7 @@ from functools import partial
 from typing import Any, Callable, Optional, Union
 import dataclasses
 import random
+import json
 from collections import OrderedDict, defaultdict
 from lark import ParseTree, Lark, Token, Tree, indenter
 from lark.visitors import Interpreter
@@ -354,7 +355,7 @@ class StealthCompute(StealthStatement):
 @dataclasses.dataclass
 class StealthLoop(StealthStatement):
     loop_index_variable_name: str
-    number_of_iterations: StealthExpression
+    end: StealthExpression
     stride: StealthExpression
     body: list[StealthStatement]
 
@@ -490,7 +491,7 @@ class CodeletInformationCollector(Interpreter):
             elif isinstance(statement, StealthCompute):
                 ret += TABS + f"{statement.destination_operand_name} = {statement.operation_name}({', '.join(map(str, statement.operands))}, {statement.location})\n"
             elif isinstance(statement, StealthLoop):
-                ret += TABS + f"for {statement.loop_index_variable_name} in loop({statement.number_of_iterations}, {statement.stride}):\n"
+                ret += TABS + f"for {statement.loop_index_variable_name} in loop({statement.end}, {statement.stride}):\n"
                 ret += self._print_body(statement.body, indentation_level + 1)
             else:
                 raise TypeError(f"Unknown statement type: {type(statement)}")
@@ -513,6 +514,29 @@ class CodeletInformationCollector(Interpreter):
     
     def get_operand_name_to_operand_map(self) -> dict[str, StealthOperand]:
         return self._operands.copy()
+    
+    def get_number_of_tiles_for_each_dimension(self) -> dict[str, int]:
+        loop_counter = 0
+        loop_to_number_of_tiles = {}
+        outer_loop_index_variables = self.get_outer_loop_index_variables()
+
+        def helper(statement: StealthStatement):
+            nonlocal loop_counter
+            if isinstance(statement, StealthLoop):
+                if statement.loop_index_variable_name in map(lambda i: i.name, outer_loop_index_variables):
+                    number_of_tiles = evaluate_expression(statement.end)
+                    assert isinstance(number_of_tiles, StealthLiteral)
+                    stride = evaluate_expression(statement.stride)
+                    assert isinstance(stride, StealthBinaryExpression) and stride.operation == "//" and isinstance(stride.lhs, StealthVariableName)
+                    loop_to_number_of_tiles[stride.lhs.name] = number_of_tiles.value
+                    loop_counter += 1
+                for loop_statement in statement.body:
+                    helper(loop_statement)
+            
+        for statement in self._statements:
+            helper(statement)
+        
+        return loop_to_number_of_tiles
     
     def get_compute_operation_groups(self) -> list[ComputeOperationGroup]:
         compute_groups: list[list[StealthCompute]] = [[]] 
@@ -574,7 +598,7 @@ class CodeletInformationCollector(Interpreter):
                             for offset in offsets:
                                 loop_index_variables_in_offset.update(self.get_loop_index_variable_names_from_expression(offset))
                             if statement.loop_index_variable_name in loop_index_variables_in_offset and statement.loop_index_variable_name not in map(lambda l: l.name, compute_operation_loop_index_variables):
-                                compute_operation_loop_index_variables.append(StealthIndex(statement.loop_index_variable_name, statement.number_of_iterations, statement.stride))
+                                compute_operation_loop_index_variables.append(StealthIndex(statement.loop_index_variable_name, statement.end, statement.stride))
 
                     for loop_statement in statement.body:
                         helper3(loop_statement) 
@@ -1197,7 +1221,7 @@ class CodeletInformationCollector(Interpreter):
     def _check_codelet_number_of_inner_and_outer_loops_is_same(self, statement: StealthStatement):
         if isinstance(statement, StealthLoop):
             # Outer loops must have a constant first argument which is the number of tiles set by the LLM
-            if isinstance(evaluate_expression(statement.number_of_iterations), StealthLiteral):
+            if isinstance(evaluate_expression(statement.end), StealthLiteral):
                 self._number_of_outer_loops += 1
             else:
                 self._number_of_inner_loops += 1
@@ -1671,7 +1695,14 @@ class StealthCodelet:
         self._codelet_string = codelet_string
         self._codelet_ast = parse_stealth_codelet(codelet_string)
         self._information_collector = collect_codelet_information_from_parse_tree(self._codelet_ast, codelet_string)
+        self.write_tiling("stealth_outputs/tiling_info/tiling.json")
         self._codelet_template = create_codelet_template_from_codelet_information_collector(self._information_collector)
+    
+    def write_tiling(self, tiling_path: str) -> None:
+        tiling = self._information_collector.get_number_of_tiles_for_each_dimension()
+        with open(tiling_path, "w") as f:
+            file_contents = {self._information_collector.get_operation_name() + "1": {"1": tiling}}
+            json.dump(file_contents, f, indent=4) 
  
 
 # ==================== PolyMath Node Generation ==================== #
@@ -1727,6 +1758,9 @@ def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, 
         genesys_cfg=cfg,
         custom_codelets={layer._information_collector.get_operation_name(): layer._codelet_template},
         print_config=False,
+        benchmark_path="stealth_outputs",
+        # store_tiling=True,
+        tiling_path="tiling.json"
     )
 
     sys_array_size = cfg['ARRAY_M']
@@ -1737,7 +1771,7 @@ def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, 
                     identifier="stealth",
                     generate_data=False,
                     verbose=False,
-                    out_path=f"stealth_compilation_output",
+                    out_path=f"stealth_outputs/compilation_output",
                     store_whole_program=False)
     dgen.generate()
 
@@ -2010,10 +2044,10 @@ def get_2d_image_kernel_size() -> set[int]:
 
 
 if __name__ == "__main__":
-    # codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 1, "OC_tiles": 1, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 1, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
+    codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 4, "OC_tiles": 4, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 2, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
     # codelet_string = generate_gemm_bias_codelet_from_config({"N_tiles": 1, "M_tiles": 1, "P_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2]})
-    codelet_string = generate_relu4d_codelet_from_config({"N_tiles": 1, "C_tiles": 1, "H_tiles": 1, "W_tiles": 1, "array_N": 16, "loop_order": [0, 1, 2, 3]})
+    # codelet_string = generate_relu4d_codelet_from_config({"N_tiles": 1, "C_tiles": 1, "H_tiles": 1, "W_tiles": 1, "array_N": 16, "loop_order": [0, 1, 2, 3]})
     print(codelet_string)
     codelet = StealthCodelet(codelet_string)
-    compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "W": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
+    compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "IH": 16, "W": 16, "IW": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
 
