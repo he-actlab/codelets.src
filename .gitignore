@@ -131,6 +131,8 @@ test/*.zip
 test/compilation_output
 tools/compilation_output
 tools/neuroweaver
+tools/simulator
+tools/stealth_outputs
 benchmarks/compilation_output
 benchmarks/layers/srdfg
 benchmarks/*.srdfg
