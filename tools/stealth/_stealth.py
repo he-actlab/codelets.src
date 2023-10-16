@@ -7,10 +7,13 @@ import random
 import math
 import tqdm
 import itertools
+import os
 import json
 from collections import OrderedDict, defaultdict
 from lark import ParseTree, Lark, Token, Tree, indenter
 from lark.visitors import Interpreter
+from .parse import parse_stealth_codelet
+from .utils import UniqueNameGenerator
 from onnx import helper, numpy_helper
 from codelets.examples.genesys import compile_genesys, load_config, DataGen
 from codelets.templates.codelet_template import CodeletTemplate, DummyOp, FlexParam
@@ -18,359 +21,7 @@ from codelets.adl.graph import ArchitectureGraph
 from codelets.examples.genesys import DTYPE_MAP, OP_DTYPES
 
 
-class UniqueNameGenerator:
-    _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
-
-    @staticmethod
-    def get_unique_name(name: str) -> str:
-        name_id = UniqueNameGenerator._NAME_ID[name]
-        UniqueNameGenerator._NAME_ID[name] += 1
-        return f"{name}_{name_id}"
-
-
-# ==================== Codelet Parsing ==================== #
-GRAMMAR = """
-start: function
-
-function: "def " NAME "(" parameters ")" ":" suite
-
-parameters: parameter ("," parameter)*
-parameter: NAME ":" type ["@" location]
-
-suite: _NEWLINE _INDENT stmt+ _DEDENT
-stmt: "assert" expr _NEWLINE -> assert
-    | (one_split | multiple_split) _NEWLINE -> split
-    | [NAME "="] NAME "(" call_args ")" _NEWLINE -> call
-    | "for" NAME "in" "loop" "(" expr ["," expr] ")" ":" suite -> for_loop
-    | "return" NAME _NEWLINE -> return_output
-
-one_split: split_pair "=" split_call
-multiple_split: "(" split_pair ")" ("," "(" split_pair ")")+ "=" split_call ("," split_call)+
-split_pair: dimension "," dimension
-split_call: "split" "(" dimension ")"
-
-call_args: call_arg ("," call_arg)*
-call_arg: indexed_variable | size | NAME | INT
-
-indexed_variable: NAME "[" expr ("," expr)* "]"
-
-size: "[" expr ("," expr)* "]"
-
-type: NAME "[" dimensions "]" | NAME
-dtype: NAME
-
-dimensions: dimension ("," dimension)*
-dimension: NAME | INT
-
-location: NAME
-
-expr: "(" expr ")"
-    | expr "or" expr  -> or_expr
-    | expr "and" expr -> and_expr
-    | expr "==" expr    -> eq_expr
-    | expr "!=" expr    -> ne_expr
-    | expr "<" expr     -> lt_expr
-    | expr "<=" expr    -> le_expr
-    | expr ">" expr     -> gt_expr
-    | expr ">=" expr    -> ge_expr
-    | expr "*" expr     -> mul_expr
-    | expr "/" expr     -> div_expr
-    | expr "//" expr    -> floordiv_expr
-    | expr "+" expr     -> add_expr
-    | expr "-" expr     -> sub_expr
-    | NAME
-    | "True"
-    | "False"
-    | INT
-
-NAME: CNAME | CNAME ("." CNAME)+
-
-_NEWLINE: ( /\\r?\\n[ \\t]*/ | COMMENT )+
-COMMENT: /#[^\\n]*/
-
-%import common.LETTER
-%import common.DIGIT
-%import common.INT
-%import common.CNAME
-%import common.WS
-%import common.WS_INLINE
-%declare _INDENT _DEDENT
-%ignore WS
-%ignore WS_INLINE
-%ignore COMMENT
-"""
-
-class TreeIndenter(indenter.Indenter):
-    NL_type = '_NEWLINE'
-    OPEN_PAREN_types = ["LPAR"]
-    CLOSE_PAREN_types = ["RPAR"]
-    INDENT_type = '_INDENT'
-    DEDENT_type = '_DEDENT'
-    tab_len = 4
-
-
-def parse_stealth_codelet(codelet_string: str) -> ParseTree:
-    parser = Lark(GRAMMAR, start='start', parser='lalr', postlex=TreeIndenter())
-    tree = parser.parse(codelet_string)
-    # print(tree.pretty())
-    return tree
-
-
 # ==================== Codelet Information Collection ==================== #
-class CodeletParseError(Exception):
-    pass
-
-
-class CodeletError(Exception):
-    pass
-
-
-def _raise_codelet_parse_error(message, obj, input_text):    
-    def get_line(lines, index):
-        return lines[index] if 0 <= index < len(lines) else None
-    
-    if isinstance(obj, Token):
-        line = input_text.splitlines()[obj.line - 1]
-        indicator = ' ' * obj.column + '^'
-        full_message = (f"{message} at line {obj.line}, column {obj.column}:\n"
-                        f"{obj.line:4} | {line}\n"
-                        f"     | {indicator}")
-    elif isinstance(obj, Tree):
-        min_leaf = None
-        max_leaf = None
-        
-        # Recursive function to find the min and max positions in a tree
-        def traverse_tree(tree):
-            nonlocal min_leaf, max_leaf
-            for child in tree.children:
-                if isinstance(child, Token):
-                    if min_leaf is None:
-                        min_leaf = child
-                    if max_leaf is None:
-                        max_leaf = child
-                    
-                    if child.start_pos < min_leaf.start_pos:
-                        min_leaf = child
-                    if child.end_pos > max_leaf.end_pos:
-                        max_leaf = child
-                else:
-                    traverse_tree(child)
-        
-        traverse_tree(obj)
-
-        lines = input_text.splitlines()
-        start_line = obj.children[0].line if isinstance(obj.children[0], Token) else min_leaf.line 
-        end_line = obj.children[-1].line if isinstance(obj.children[-1], Token) else max_leaf.line
-        
-        num_initial_chars_to_remove = None
-        for i in range(start_line - 3, end_line + 2):
-            line = get_line(lines, i)
-            if line is not None:
-                if num_initial_chars_to_remove is None:
-                    num_initial_chars_to_remove = len(line) - len(line.lstrip())
-                else:
-                    num_initial_chars_to_remove = min(num_initial_chars_to_remove, len(line) - len(line.lstrip()))
-        
-        context_lines = []
-        for i in range(start_line - 3, end_line + 2):
-            line = get_line(lines, i)
-            if line is not None:
-                line_str = line[num_initial_chars_to_remove:]
-                context_lines.append(f"{i + 1:4} | {line_str}")
-        context = "\n".join(line for line in context_lines if line is not None)
-        
-        if start_line == end_line:
-            full_message = f"{message} at line {start_line}:\n\n{context}"
-        else:
-            full_message = f"{message} between lines {start_line} and {end_line}:\n\n{context}"
-    else:
-        full_message = f"{message}. Unable to determine exact location."
-    
-    raise CodeletParseError(full_message)
-
-
-class StealthExpression(abc.ABC):
-    @abc.abstractmethod
-    def __str__(self) -> str:
-        pass
-
-
-@dataclasses.dataclass
-class StealthVariableName(StealthExpression):
-    name: str
-
-    def __str__(self) -> str:
-        if isinstance(self.name, StealthVariableName):
-            print(self.name.name)
-        return self.name
-
-
-@dataclasses.dataclass
-class StealthLiteral(StealthExpression):
-    value: Union[int, bool]
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-@dataclasses.dataclass
-class StealthBinaryExpression(StealthExpression):
-    lhs: StealthExpression
-    rhs: StealthExpression
-    operation: str
-
-    def __str__(self) -> str:
-        return f"({self.lhs} {self.operation} {self.rhs})"
-
-
-@dataclasses.dataclass
-class StealthUnaryExpression(StealthExpression):
-    operand: StealthExpression
-    operation: str
-
-    def __str__(self) -> str:
-        return f"{self.operation}{self.operand}"
-
-
-def evaluate_expression(expression: StealthExpression):
-    if isinstance(expression, (StealthLiteral, StealthVariableName)):
-        return expression
-    elif isinstance(expression, StealthBinaryExpression):
-        if isinstance(expression.lhs, StealthLiteral) and isinstance(expression.rhs, StealthLiteral):
-            if expression.operation == "+":
-                return StealthLiteral(expression.lhs.value + expression.rhs.value)
-            elif expression.operation == "-":
-                return StealthLiteral(expression.lhs.value - expression.rhs.value)
-            elif expression.operation == "*":
-                return StealthLiteral(expression.lhs.value * expression.rhs.value)
-            elif expression.operation == "/":
-                return StealthLiteral(expression.lhs.value / expression.rhs.value)
-            elif expression.operation == "//":
-                return StealthLiteral(expression.lhs.value // expression.rhs.value)
-            elif expression.operation == "==":
-                return StealthLiteral(expression.lhs.value == expression.rhs.value)
-            elif expression.operation == "!=":
-                return StealthLiteral(expression.lhs.value != expression.rhs.value)
-            elif expression.operation == "<":
-                return StealthLiteral(expression.lhs.value < expression.rhs.value)
-            elif expression.operation == "<=":
-                return StealthLiteral(expression.lhs.value <= expression.rhs.value)
-            elif expression.operation == ">":
-                return StealthLiteral(expression.lhs.value > expression.rhs.value)
-            elif expression.operation == ">=":
-                return StealthLiteral(expression.lhs.value >= expression.rhs.value)
-            elif expression.operation == "and":
-                return StealthLiteral(expression.lhs.value and expression.rhs.value)
-            elif expression.operation == "or":
-                return StealthLiteral(expression.lhs.value or expression.rhs.value)
-            else:
-                raise RuntimeError(f"Unknown binary operation: {expression.operation}")
-        elif isinstance(expression.lhs, StealthLiteral) and expression.lhs.value == 0:
-            if expression.operation in ["/", "//", "*"]:
-                return StealthLiteral(0)
-            elif expression.operation == "+":
-                return expression.rhs
-            elif expression.operation == "-":
-                return StealthUnaryExpression(expression.rhs, "-")
-            else:
-                return expression
-        elif isinstance(expression.rhs, StealthLiteral) and expression.rhs.value == 0:
-            if expression.operation in ["/", "//"]:
-                raise ZeroDivisionError
-            elif expression.operation == "*":
-                return StealthLiteral(0)
-            elif expression.operation in ["+", "-"]:
-                return expression.lhs
-            else:
-                return expression
-        else:
-            return expression
-    elif isinstance(expression, StealthUnaryExpression):
-        if isinstance(expression.operand, StealthLiteral):
-            if expression.operation == "-":
-                return StealthLiteral(-expression.operand.value)
-            elif expression.operation == "not":
-                return StealthLiteral(not expression.operand.value)
-            else:
-                raise RuntimeError(f"Unknown unary operation: {expression.operation}")
-        else:
-            return expression
-    else:
-        raise TypeError(f"Unknown expression type: {type(expression)}")
-
-
-@dataclasses.dataclass
-class StealthOperand:
-    name: str
-    shape: list[StealthExpression]
-    dtype: str
-    location: str
-
-    def __str__(self) -> str:
-        return f"{self.name}: {self.dtype}[{', '.join(map(str, self.shape))}] @ {self.location}"
-
-
-@dataclasses.dataclass
-class StealthParameter:
-    name: str
-    shape: list[StealthExpression]
-    
-    def __str__(self) -> str:
-        return f"{self.name}: param[{', '.join(map(str, self.shape))}]"
-
-
-class StealthStatement(abc.ABC):
-    pass
-
-
-@dataclasses.dataclass
-class StealthAllocation(StealthStatement):
-    operand_name: str
-    size: list[StealthExpression]
-    location: str
-    dtype: str
-
-
-@dataclasses.dataclass
-class StealthLoad(StealthStatement):
-    destination_operand_name: str
-    source_operand_name: str
-    source_operand_offset: list[StealthExpression]
-    size: list[StealthExpression]
-    location: str
-
-
-@dataclasses.dataclass
-class StealthStore(StealthStatement):
-    destination_operand_name: str
-    destination_operand_offset: list[StealthExpression]
-    source_operand_name: str
-
-
-@dataclasses.dataclass
-class StealthCompute(StealthStatement):
-    destination_operand_name: str
-    operation_name: str
-    operands: list[Union[str, StealthExpression]]
-    location: str
-
-
-@dataclasses.dataclass
-class StealthLoop(StealthStatement):
-    loop_index_variable_name: str
-    end: StealthExpression
-    stride: StealthExpression
-    body: list[StealthStatement]
-
-
-@dataclasses.dataclass
-class StealthIndex:
-    name: str
-    end: StealthExpression
-    stride: StealthExpression
-
-    def __str__(self) -> str:
-        return f"{self.name}(start=0, high={self.end}, stride={self.stride})"
 
 
 @dataclasses.dataclass
@@ -409,9 +60,8 @@ class ComputeOperationGroup:
         for operation in self.operations:
             ret += f"\t\t{operation}\n"
         ret += "\tTransfer and Compute Operations:\n"
-        for transfer_and_compute_operations in self.transfer_and_compute_operations:
-            for operation in transfer_and_compute_operations:
-                ret += f"\t\t{operation}\n"
+        for operation in self.transfer_and_compute_operations:
+            ret += f"\t\t{operation}\n"
         ret += "\tLoop Index Variables:\n"
         for loop_index_variable in self.loop_index_variables:
             ret += f"\t\t{loop_index_variable}\n"
@@ -430,7 +80,13 @@ class CodeletInformationCollector(Interpreter):
         "sub": "SUB",
         "mul": "MUL",
         "div": "DIV",
+        "max": "MAX",
+        "min": "MIN",
         "relu": "RELU",
+        "tanh": "TANH",
+        "sigmoid": "SIGMOID",
+        "sqrt": "SQRT",
+        "inv_sqrt": "INV_SQRT"
     }
     _OPERATION_TYPE_TO_OPERATION_STR: dict[str, str] = {
         "add_expr": "+",
@@ -475,30 +131,7 @@ class CodeletInformationCollector(Interpreter):
         self._loop_indices = []
         self._statements = []
         self._current_loop_stack = []
-    
-    def __str__(self) -> str:
-        operation_name: str = self._operation_name or "unknown"
-        header: str = f"def {operation_name}({', '.join(list(map(str, self._inputs)) + list(map(str, self._params)))}):\n"
-        return header + self._print_body(self._statements) + "\n" + f"\treturn {', '.join(map(str, self._outputs))}"
-    
-    def _print_body(self, statements: list[StealthStatement], indentation_level: int = 1) -> str:
-        ret: str = ""
-        TABS: str = "\t" * indentation_level
-        for statement in statements:
-            if isinstance(statement, StealthAllocation):
-                ret += TABS + f"{statement.operand_name} = alloc([{', '.join(map(str, statement.size))}], {statement.location}, {statement.dtype})\n"
-            elif isinstance(statement, StealthLoad):
-                ret += TABS + f"{statement.destination_operand_name} = load({statement.source_operand_name}[{', '.join(map(str, statement.source_operand_offset))}], [{', '.join(map(str, statement.size))}], {statement.location})\n"
-            elif isinstance(statement, StealthStore):
-                ret += TABS + f"store({statement.destination_operand_name}[{', '.join(map(str, statement.destination_operand_offset))}], {statement.source_operand_name})\n"
-            elif isinstance(statement, StealthCompute):
-                ret += TABS + f"{statement.destination_operand_name} = {statement.operation_name}({', '.join(map(str, statement.operands))}, {statement.location})\n"
-            elif isinstance(statement, StealthLoop):
-                ret += TABS + f"for {statement.loop_index_variable_name} in loop({statement.end}, {statement.stride}):\n"
-                ret += self._print_body(statement.body, indentation_level + 1)
-            else:
-                raise TypeError(f"Unknown statement type: {type(statement)}")
-        return ret
+
     
     # ==================== Collector Information Getters ==================== # 
     def get_operation_name(self) -> str:
@@ -552,6 +185,10 @@ class CodeletInformationCollector(Interpreter):
                 for loop_statement in statement.body:
                     helper1(loop_statement)
             elif isinstance(statement, StealthCompute):
+                if len(compute_groups[-1]) != 0 and compute_groups[-1][-1].location == "PE_ARRAY":
+                    compute_groups.append([])
+                elif len(compute_groups[-1]) != 0 and compute_groups[-1][-1].location == "SIMD" and statement.location == "PE_ARRAY":
+                    compute_groups.append([])
                 compute_groups[-1].append(statement)
         
         for statement in self._statements:
@@ -559,7 +196,7 @@ class CodeletInformationCollector(Interpreter):
         if len(compute_groups[-1]) == 0:
             compute_groups.pop()
         
-        transfer_and_compute_operations: list[list[list[Union[StealthLoad, StealthStore, StealthCompute]]]] = [[[]] * len(compute_operations) for compute_operations in compute_groups]
+        transfer_and_compute_operations: list[list[list[Union[StealthLoad, StealthStore, StealthCompute]]]] = [[[] for _ in range(len(compute_operations))] for compute_operations in compute_groups]
         compute_group_index: int = 0
         compute_operation_index: int = 0
         ready_to_move_on_to_next_operation: bool = False
@@ -572,7 +209,6 @@ class CodeletInformationCollector(Interpreter):
                 for loop_statement in statement.body:
                     helper2(loop_statement)
             elif isinstance(statement, (StealthLoad, StealthStore, StealthCompute)):
-                transfer_and_compute_operations[compute_group_index][compute_operation_index].append(statement)
                 if isinstance(statement, StealthStore):
                     ready_to_move_on_to_next_operation = True
                 if isinstance(statement, StealthLoad) and ready_to_move_on_to_next_operation:
@@ -580,13 +216,16 @@ class CodeletInformationCollector(Interpreter):
                     if compute_operation_index >= len(compute_groups[compute_group_index]):
                         compute_group_index += 1
                         compute_operation_index = 0
+                        ready_to_move_on_to_next_operation = False
+                if compute_group_index < len(compute_groups) and compute_operation_index < len(compute_groups[compute_group_index]):
+                    transfer_and_compute_operations[compute_group_index][compute_operation_index].append(statement)
         for statement in self._statements:
             helper2(statement)
         
-        loop_index_variables: list[list[StealthIndex]] = [[]] * len(compute_groups)
-        for compute_group_transfer_and_compute_operations, compute_operation_loop_index_variables in zip(transfer_and_compute_operations, loop_index_variables):
+        loop_index_variables: list[list[StealthIndex]] = [[] for _ in range(len(compute_groups))]
+        for i, compute_group_transfer_and_compute_operations in enumerate(transfer_and_compute_operations):
             def helper3(statement: StealthStatement):
-                nonlocal compute_operation_loop_index_variables
+                nonlocal loop_index_variables
                 if isinstance(statement, StealthLoop):
                     for compute_operation_transfer_and_compute_operations in compute_group_transfer_and_compute_operations:
                         for operation in compute_operation_transfer_and_compute_operations:
@@ -600,8 +239,8 @@ class CodeletInformationCollector(Interpreter):
 
                             for offset in offsets:
                                 loop_index_variables_in_offset.update(self.get_loop_index_variable_names_from_expression(offset))
-                            if statement.loop_index_variable_name in loop_index_variables_in_offset and statement.loop_index_variable_name not in map(lambda l: l.name, compute_operation_loop_index_variables):
-                                compute_operation_loop_index_variables.append(StealthIndex(statement.loop_index_variable_name, statement.end, statement.stride))
+                            if statement.loop_index_variable_name in loop_index_variables_in_offset and statement.loop_index_variable_name not in map(lambda l: l.name, loop_index_variables[i]):
+                                loop_index_variables[i].append(StealthIndex(statement.loop_index_variable_name, statement.end, statement.stride))
 
                     for loop_statement in statement.body:
                         helper3(loop_statement) 
@@ -609,7 +248,7 @@ class CodeletInformationCollector(Interpreter):
             for statement in self._statements:
                 helper3(statement)
         
-        immediates: list[list[str]] = [[]] * len(compute_groups)
+        immediates: list[list[str]] = [[] for _ in range(len(compute_groups))]
         def helper4(statement: StealthStatement):
             nonlocal immediates
             if isinstance(statement, StealthLoop):
@@ -875,10 +514,10 @@ class CodeletInformationCollector(Interpreter):
     
     def return_output(self, tree: ParseTree) -> None:
         assert isinstance(tree, Tree)
-        output_operand_name_child = tree.children[0]
-        output_operand_name: str = self.get_name(output_operand_name_child, "output operand name")
-        self.check_for_variable_name_defined(output_operand_name, output_operand_name_child)
-        self.add_output(output_operand_name)
+        for child in tree.children:
+            output_operand_name = self.get_name(child, "output operand name")
+            self.check_for_variable_name_defined(output_operand_name, child)
+            self.add_output(output_operand_name)
     
     # ==================== Collector Helper Functions ==================== #
     def raise_codelet_parse_error(self, message: str, obj):
@@ -937,7 +576,7 @@ class CodeletInformationCollector(Interpreter):
                 raise CodeletError(f"Expected fourth argument of matrix-vector multiplication operation \"mvmul\" to be a 2D tensor but instead got a {len(intermediate_output_operand.shape)}D tensor")
 
             # TODO: Check operand dimension values to ensure valid matrix-vector multiplication
-        elif operation_name in ["add", "sub", "mul", "div", "max", "min"]:
+        elif operation_name in ["add", "sub", "mul", "div", "max", "min", "rshift", "lshift"]:
             if location != "SIMD":
                 raise CodeletError(f"Operation \"{operation_name}\" is only supported on the SIMD")
             if len(compute_arguments) != 2:
@@ -954,7 +593,7 @@ class CodeletInformationCollector(Interpreter):
                 raise CodeletError(f"Expected arguments of operation \"{operation_name}\" to have the same shape but instead got {operand1.shape} and {operand2.shape}")
         elif operation_name == "macc":
             raise NotImplementedError
-        elif operation_name in ["relu", "leaky_relu", "sigmoid", "tanh"]:
+        elif operation_name in ["relu", "leaky_relu", "sigmoid", "tanh", "exp", "log2", "sqrt", "inv_sqrt"]:
             if location != "SIMD":
                 raise CodeletError(f"Operation \"{operation_name}\" is only supported on the SIMD")
             if len(compute_arguments) != 1:
@@ -1019,10 +658,10 @@ class CodeletInformationCollector(Interpreter):
     
     def get_alloc_args_from_operation_args_child(self, operation_args_child) -> tuple[list[StealthExpression], str, str]:
         if len(operation_args_child.children) != 3:
-            self.raise_codelet_parse_error(f"Expected 3 arguments for alloc operation but instead got {len(operation_args_child.children)}", tree)
+            self.raise_codelet_parse_error(f"Expected 3 arguments for alloc operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
         if any(child.data != "call_arg" and len(child.children) == 1 for child in operation_args_child.children):
-            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", tree)
+            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", operation_args_child)
 
         size_child = operation_args_child.children[0].children[0]
         location_child = operation_args_child.children[1].children[0]
@@ -1046,10 +685,10 @@ class CodeletInformationCollector(Interpreter):
     
     def get_load_args_from_operation_args_child(self, operation_args_child) -> tuple[str, list[StealthExpression], list[StealthExpression], str]:
         if len(operation_args_child.children) != 3:
-            self.raise_codelet_parse_error(f"Expected 3 arguments for load operation but instead got {len(operation_args_child.children)}", tree)
+            self.raise_codelet_parse_error(f"Expected 3 arguments for load operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
         if any(child.data != "call_arg" or len(child.children) != 1 for child in operation_args_child.children):
-            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", tree)
+            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", operation_args_child)
         if len(operation_args_child.children[0].children) != 1 or operation_args_child.children[0].children[0].data != "indexed_variable":
             self.raise_codelet_parse_error(f"Expected an indexed operand for source operand argument but instead got {len(operation_args_child.children[0].children)}", operation_args_child.children[0])
         if len(operation_args_child.children[0].children[0].children) < 1:
@@ -1085,10 +724,10 @@ class CodeletInformationCollector(Interpreter):
 
     def get_store_args_from_operation_args_child(self, operation_args_child):
         if len(operation_args_child.children) != 2:
-            self.raise_codelet_parse_error(f"Expected 2 arguments for store operation but instead got {len(operation_args_child.children)}", tree)
+            self.raise_codelet_parse_error(f"Expected 2 arguments for store operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
         if any(child.data != "call_arg" or len(child.children) != 1 for child in operation_args_child.children):
-            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", tree)
+            self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", operation_args_child)
         if len(operation_args_child.children[0].children) != 1 or operation_args_child.children[0].children[0].data != "indexed_variable":
             self.raise_codelet_parse_error(f"Expected an indexed operand for destination operand argument but instead got {len(operation_args_child.children[0].children)}", operation_args_child.children[0])
         if len(operation_args_child.children[0].children[0].children) < 1:
@@ -1122,7 +761,7 @@ class CodeletInformationCollector(Interpreter):
         arguments: list[StealthExpression] = []
         for child in operation_args_child.children[:-1]:
             if len(child.children) != 1:
-                self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", tree) 
+                self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", operation_args_child) 
             expression_child = child.children[0]
             expression = self.get_stealth_expression_from_tree(expression_child)
             if self.is_expression_constant(expression):
@@ -1168,9 +807,9 @@ class CodeletInformationCollector(Interpreter):
         if compute_operation_name in ["mvmul", "mvmul_bias"]:
             return self._operands[compute_arguments[-1]].shape
         elif compute_operation_name in ["add", "sub", "mul", "div", "max", "min",
+                                        "rshift", "lshift",
                                         "relu", "leaky_relu", "sigmoid", "tanh",
-                                        "exp", "sqrt", "inv_sqrt", "log2",
-                                        "equal", "neq", "gt", "gte", "lt", "lte"]:
+                                        "exp", "sqrt", "inv_sqrt", "log2"]:
             return self._operands[compute_arguments[0]].shape
         else:
             raise NotImplementedError(f"{compute_operation_name} is not implemented yet")
@@ -1277,10 +916,10 @@ class CodeletInformationCollector(Interpreter):
             
     
     def check_codelet_only_has_one_store_to_output(self):
-        setattr(self, "_number_of_stores_to_output", 0)
+        setattr(self, "_number_of_stores_to_output", defaultdict(lambda: 0))
         for statement in self._statements:
             self._check_codelet_has_only_one_store_to_output(statement)
-        if self._number_of_stores_to_output == 0:
+        if any(store_to_output == 0 for store_to_output in self._number_of_stores_to_output.values()):
             raise CodeletError(f"Codelet {self._operation_name} has no store to the output operand")
         delattr(self, "_number_of_stores_to_output")
 
@@ -1289,11 +928,12 @@ class CodeletInformationCollector(Interpreter):
             for loop_statement in statement.body:
                 self._check_codelet_has_only_one_store_to_output(loop_statement)
         elif isinstance(statement, StealthStore):
-            if statement.destination_operand_name in map(lambda o: o.name, self._outputs):
-                if self._number_of_stores_to_output == 1:
-                    raise CodeletError(f"Codelet {self._operation_name} has more than one store to the output operand (second store is {statement})")
-                else:
-                    self._number_of_stores_to_output += 1
+            for o in self._outputs:
+                if statement.destination_operand_name == o.name:
+                    if self._number_of_stores_to_output[o.name] == 1:
+                        raise CodeletError(f"Codelet {self._operation_name} has more than one store to an output operand (second store is {statement})")
+                    else:
+                        self._number_of_stores_to_output[o.name] += 1
 
     
 def collect_codelet_information_from_parse_tree(tree: ParseTree, codelet_string: str) -> CodeletInformationCollector:
@@ -1439,14 +1079,10 @@ class CodeletTemplateBody:
         self._staged_location = location
 
     def finalize(self, collector: CodeletInformationCollector, operands: dict, loop_indices: dict, dummy_ops: dict) -> None:
-        if len(self._staged_tile_loads) != len(self._staged_inputs):
-            raise RuntimeError(f"Expected {len(self._staged_tile_loads)} loads but instead got {len(self._staged_inputs)}")
         if len(self._staged_element_loads) != len(self._staged_inputs):
-            raise RuntimeError(f"Expected {len(self._staged_element_loads)} loads but instead got {len(self._staged_inputs)}")
-        if len(self._staged_tile_stores) != len(self._staged_outputs):
-            raise RuntimeError(f"Expected {len(self._staged_tile_stores)} stores but instead got {len(self._staged_outputs)}")
+            raise RuntimeError(f"Expected {len(self._staged_inputs)} loads for inputs {self._staged_inputs} but instead got {len(self._staged_element_loads)}")
         if len(self._staged_element_stores) != len(self._staged_outputs):
-            raise RuntimeError(f"Expected {len(self._staged_element_stores)} stores but instead got {len(self._staged_outputs)}")
+            raise RuntimeError(f"Expected {len(self._staged_outputs)} stores for outputs {self._staged_outputs} but instead got {len(self._staged_element_stores)}")
         for load in self._staged_tile_loads:
             self.loads.append(CodeletTemplateTransfer(operands[load.source_operand_name], "DRAM", load.location))
         for store in self._staged_tile_stores:
@@ -1498,20 +1134,20 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
         acc_dtype = DTYPE_MAP[ f"FXP{hag.meta_cfg['ACC_WIDTH']}"] 
 
         with CodeletTemplate(collector.get_operation_name()) as cdlt:
-            print("begginning codelet template creation")
             # ==================== Create DummyOps for Dimensions ==================== #
             dimension_dummy_ops = {}
-            def dummy_op_creation_helper(collector_operands, node_operands):
+            def dummy_op_creation_helper(collector_operands, node_operands, is_input=True):
                 for i, stealth_codelet_operand in enumerate(collector_operands):
                     for j, stealth_codelet_operand_dimension in enumerate(stealth_codelet_operand.shape):
                         dimension_name = input_output_dimension_to_name(stealth_codelet_operand_dimension)
                         if dimension_name not in dimension_dummy_ops:
+                            fn_body_str = f"node.inputs[{i}].shape[{j}]" if is_input else f"node.outputs[{i}].shape[{j}]"
                             new_flex_param = FlexParam(
                                 name=dimension_name,
                                 fn_args=["node"],
-                                fn_body_str=f"node.inputs[{i}].shape[{j}]",
+                                fn_body_str=fn_body_str,
                             )
-                            new_flex_param.create_function_from_str(["node"], f"node.inputs[{i}].shape[{j}]")
+                            new_flex_param.create_function_from_str(["node"], fn_body_str)
                             new_dummy_op = DummyOp(
                                 ["NodePlaceholder"],
                                 new_flex_param,
@@ -1519,9 +1155,8 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
                             )
                             cdlt._dummy_ops[dimension_name] = new_dummy_op
                             dimension_dummy_ops[dimension_name] = new_dummy_op
-                            # dimension_dummy_ops[dimension_name] = cdlt.dummy_op(dimension_name, f"node.inputs[{i}].shape[{j}]")
-            dummy_op_creation_helper(collector.get_input_operands(), cdlt.node.inputs)
-            dummy_op_creation_helper(collector.get_output_operands(), cdlt.node.outputs)
+            dummy_op_creation_helper(collector.get_input_operands(), cdlt.node.inputs, is_input=True)
+            dummy_op_creation_helper(collector.get_output_operands(), cdlt.node.outputs, is_input=False)
 
             # ==================== Create Input/Output Operands ==================== #
             def operand_creation_helper(collector_operands) -> list:
@@ -1558,37 +1193,56 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
                         raise RuntimeError(f"Unsupported binary operation: {_expression.operation}")
                 else:
                     raise RuntimeError(f"Cannot convert {type(_expression)} to dummy op.")
-            
-            # Create intermediate operands for complicated codelets
+             
             compute_operation_groups: list[ComputeOperationGroup] = collector.get_compute_operation_groups()
-            # compute_operation_group_output_operand_information: list[list] = []
-            # most_recent_template_operand_information = None
-            # for compute_operation_group in compute_operation_groups:
-            #     compute_operation_group_output_operand_information.append([])
-            #     for transfer_or_compute_operation in compute_operation_group.transfer_and_compute_operations:
-            #         if isinstance(transfer_or_compute_operation, StealthCompute):
-            #             compute_operation_output_operand: StealthOperand = collector._operands[transfer_or_compute_operation.destination_operand_name]
-            #             output_shape: list[StealthExpression] = compute_operation_output_operand.shape
-            #             if any(not isinstance(d, (StealthVariableName, StealthLiteral)) for d in output_shape):
-            #                 raise RuntimeError(f"Expected all output operand dimensions to be either StealthVariableName or StealthLiteral but instead got {output_shape}")
-            #             output_shape = [dimension_dummy_ops[input_output_dimension_to_name(dimension)] for dimension in output_shape]
-            #             template_operand_information = tuple(compute_operation_output_operand.name, output_shape, None)
-            #             most_recent_template_operand_information = template_operand_information
-            #             compute_operation_group_output_operand_information[-1].append(template_operand_information)
-            #         elif isinstance(transfer_or_compute_operation, StealthStore):
-            #             if most_recent_template_operand_information[0] == transfer_or_compute_operation.source_operand_name:
-            #                 most_recent_template_operand_information[-1] = collector._operands[transfer_or_compute_operation.destination_operand_name].location
-            # compute_operation_group_output_operands: list = []
-            # operand_name_that_stores_to_output: str = collector.get_compute_output_operand_that_stores_to_output_operand().name
-            # for template_operand_information in compute_operation_group_output_operand_information:
-            #     if operand_name_that_stores_to_output == template_operand_information[0]:
-            #         compute_operation_group_output_operands.append(output_operands[0])  # TODO: If there are more than one outputs, this doesn't work
-            #     else:
-            #         temp_operand = cdlt.create_operand_template(template_operand_information[0], OP_DTYPES, template_operand_information[1], default_dtype=acc_dtype)
-            #         temp_operand.start_location = template_operand_information[2]
-            #         cdlt.add_temp_operand(temp_operand)
-            #         compute_operation_group_output_operands.append(temp_operand)
-            # assert len(compute_operation_group_output_operands) == sum(map(lambda g: len(g.operations), compute_operation_groups)), f"The list of output operands for each compute operation does not match the length of the total number of compute operations"
+            for compute_operation_group in compute_operation_groups:
+                print(compute_operation_group)
+
+            # Link loaded tile and element operands to their program level counterparts
+            for compute_operation_group in compute_operation_groups:
+                for transfer_or_compute_operation in compute_operation_group.transfer_and_compute_operations:
+                    if isinstance(transfer_or_compute_operation, StealthLoad):
+                        if transfer_or_compute_operation.source_operand_name not in name_to_operand:
+                            assert all(isinstance(d, StealthVariableName) for d in collector._operands[transfer_or_compute_operation.source_operand_name].shape), f"Expected all dimensions to be StealthVariableName but instead got {collector._operands[transfer_or_compute_operation.source_operand_name].shape} for {transfer_or_compute_operation.source_operand_name}"
+                            temp_operand = cdlt.create_operand_template(transfer_or_compute_operation.source_operand_name, OP_DTYPES, list(map(lambda d: dimension_dummy_ops[d.name], collector._operands[transfer_or_compute_operation.source_operand_name].shape)), default_dtype=input_dtype)
+                            cdlt.add_temp_operand(temp_operand)
+                            name_to_operand[transfer_or_compute_operation.source_operand_name] = temp_operand
+                        name_to_operand[transfer_or_compute_operation.destination_operand_name] = name_to_operand[transfer_or_compute_operation.source_operand_name]
+
+            # Create intermediate operands for complicated codelets
+            output_operand_elements = {}
+            output_operand_tiles = {}
+            intermediate_operands = set()
+            for compute_operation_group in compute_operation_groups:
+                for transfer_or_compute_operation in reversed(compute_operation_group.transfer_and_compute_operations):
+                    if isinstance(transfer_or_compute_operation, StealthStore):
+                        for output_operand in collector.get_output_operands():
+                            if transfer_or_compute_operation.destination_operand_name == output_operand.name:
+                                output_operand_tiles[transfer_or_compute_operation.source_operand_name] = name_to_operand[output_operand.name]
+                        if transfer_or_compute_operation.destination_operand_name in output_operand_tiles:
+                            output_operand_elements[transfer_or_compute_operation.source_operand_name] = output_operand_tiles[transfer_or_compute_operation.destination_operand_name]
+                            name_to_operand[transfer_or_compute_operation.source_operand_name] = output_operand_tiles[transfer_or_compute_operation.destination_operand_name]
+                            intermediate_operands.add(transfer_or_compute_operation.source_operand_name)
+ 
+            for compute_operation_group in compute_operation_groups:
+                for transfer_or_compute_operation in compute_operation_group.transfer_and_compute_operations:
+                    if isinstance(transfer_or_compute_operation, StealthCompute):
+                        destination_operand_name = transfer_or_compute_operation.destination_operand_name
+                        if destination_operand_name not in output_operand_elements:
+                            if transfer_or_compute_operation.operation_name in ["mvmul", "mvmul_bias"]:
+                                intermediate_shape = name_to_operand[transfer_or_compute_operation.operands[-1]].shape_list
+                            elif transfer_or_compute_operation.operation_name in ["add", "sub", "mul", "div", "max", "min",
+                                                                    "rshift", "lshift",
+                                                                    "relu", "leaky_relu", "sigmoid", "tanh",
+                                                                    "exp", "sqrt", "inv_sqrt", "log2"]:
+                                intermediate_shape = name_to_operand[transfer_or_compute_operation.operands[0]].shape_list
+                            else:
+                                raise NotImplementedError(f"{transfer_or_compute_operation.operation_name} is not implemented yet")
+
+                            name_to_operand[destination_operand_name] = cdlt.create_operand_template(destination_operand_name, OP_DTYPES, intermediate_shape, default_dtype=acc_dtype) 
+                            cdlt.add_temp_operand(name_to_operand[destination_operand_name])
+                    elif isinstance(transfer_or_compute_operation, StealthStore) and transfer_or_compute_operation.source_operand_name in intermediate_operands:
+                        name_to_operand[transfer_or_compute_operation.source_operand_name].start_location = collector._operands[transfer_or_compute_operation.destination_operand_name].location
             
             SIMD_SIZE = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
             
@@ -1671,7 +1325,6 @@ def create_codelet_template_from_codelet_information_collector(collector: Codele
                 for transfer_or_compute_operation in compute_operation_group.transfer_and_compute_operations:
                     if isinstance(transfer_or_compute_operation, StealthCompute):
                         compute_operation_index += 1
-                        # name_to_operand[transfer_or_compute_operation.destination_operand_name] = compute_operation_group_output_operands[compute_operation_index]
                         body.set_compute(collector._CODELET_COMPUTE_NAME_TO_COMPUTE_OPERATION_NAME[transfer_or_compute_operation.operation_name], transfer_or_compute_operation.operands, [transfer_or_compute_operation.destination_operand_name], transfer_or_compute_operation.location)
                 body.finalize(collector, name_to_operand, loop_templates, dimension_dummy_ops)
                 body.create_body(cdlt)
@@ -1779,6 +1432,97 @@ def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, 
     dgen.generate()
 
 
+# ==================== Random Operation Generation ==================== #
+UNARY_OPS = ["relu", "sigmoid", "tanh", "exp", "sqrt", "inv_sqrt"] 
+BINARY_OPS = ["add", "sub", "mul", "div", "max", "min"]
+
+
+class ComputationGraphNode:
+    def __init__(self, operation, inputs):
+        self.operation = operation
+        self.inputs = inputs
+    
+    def __repr__(self):
+        return f"ComputationGraphNode({self.operation}, {self.inputs})"
+
+
+def generate_random_dag(num_nodes=10, num_inputs=3, max_tries=100, only_unary_ops=False):
+    unary_ops = UNARY_OPS 
+    binary_ops = BINARY_OPS
+    
+    for _ in range(max_tries):
+        nodes: list[ComputationGraphNode] = []
+        available_inputs = list(range(num_inputs)) 
+
+        for _ in range(num_nodes):
+            if only_unary_ops:
+                op_type = "unary"
+            else:
+                op_type = random.choice(["unary", "binary"])
+            
+            if op_type == "unary":
+                if len(available_inputs) == 0:
+                    if len(nodes) == 0:
+                        continue
+                    else:
+                        break
+                chosen_input = random.choice(available_inputs)
+                nodes.append(ComputationGraphNode(random.choice(unary_ops), [chosen_input]))
+                available_inputs.append(len(nodes) - 1 + num_inputs)
+            else:  
+                if len(available_inputs) < 2:
+                    if len(nodes) == 0:
+                        continue
+                    else:
+                        break
+                chosen_inputs = random.sample(available_inputs, 2)
+                nodes.append(ComputationGraphNode(random.choice(binary_ops), chosen_inputs))
+                available_inputs.append(len(nodes) - 1 + num_inputs)
+
+    if len(nodes) == 0:
+        raise RuntimeError(f"Could not generate a valid DAG for parameters: num_nodes={num_nodes}, num_inputs={num_inputs}, max_tries={max_tries}")
+    return nodes
+
+
+def generate_formula(dag, number_of_inputs):
+    SYMBOL_OPERATIONS = {
+        "add": "+",
+        "sub": "-",
+        "mul": "*",
+        "div": "/",
+        "lshift": "<<",
+        "rshift": ">>",
+    }
+    
+    def resolve_node(node_index):
+        node = dag[node_index]
+        if node.operation not in SYMBOL_OPERATIONS:
+            return f"{node.operation}({', '.join(get_input_formula(i) for i in node.inputs)})"
+        else:
+            return f"({get_input_formula(node.inputs[0])} {SYMBOL_OPERATIONS[node.operation]} {get_input_formula(node.inputs[1])})"
+    
+    def get_input_formula(inp):
+        if inp < number_of_inputs:
+            return f"x{inp}"
+        else:
+            node_index = inp - number_of_inputs
+            if node_index not in node_formulas:
+                node_formulas[node_index] = resolve_node(node_index)
+            return node_formulas[node_index]
+    
+    node_formulas = {}
+
+    output_nodes = set(range(len(dag)))
+    for i, node in enumerate(dag):
+        for inp in node.inputs:
+            if inp >= number_of_inputs:
+                output_nodes.discard(inp - number_of_inputs)
+    
+    output_formulas = [resolve_node(i) for i in output_nodes]
+    
+    return tuple(output_formulas)
+
+
 # ==================== Direct Codelet Generation ==================== #
 TAB = "    "
 
@@ -1870,6 +1614,104 @@ def generate_conv2d_bias_codelet_from_config(stride: int, config: dict) -> str:
 
     conv2d_bias_codelet = header + TAB + output_alloc + "\n" + outer_loops + inner_loops + (TAB * 8) + output_tile_store + "\n" + TAB + output_return + "\n"
     return conv2d_bias_codelet
+
+
+def generate_conv2d_bias_relu_codelet_from_config(stride: int, config: dict) -> str:
+    N_tiles = config["N_tiles"]
+    OC_tiles = config["OC_tiles"]
+    IC_tiles = config["IC_tiles"]
+    KH_tiles = config["KH_tiles"]
+    KW_tiles = config["KW_tiles"]
+    OH_tiles = config["OH_tiles"]
+    OW_tiles = config["OW_tiles"]
+    array_N = config["array_N"]
+    array_M = config["array_M"]
+    loop_order = config["loop_order"]
+
+    oc_outer_loop = f"for oc in loop({OC_tiles}, OC // {OC_tiles}):"
+    n_outer_loop = f"for n in loop({N_tiles}, N // {N_tiles}):"
+    ic_outer_loop = f"for ic in loop({IC_tiles}, IC // {IC_tiles}):"
+    kh_outer_loop = f"for kh in loop({KH_tiles}, KH // {KH_tiles}):"
+    kw_outer_loop = f"for kw in loop({KW_tiles}, KW // {KW_tiles}):"
+    oh_outer_loop = f"for oh in loop({OH_tiles}, OH // {OH_tiles}):"
+    ow_outer_loop = f"for ow in loop({OW_tiles}, OW // {OW_tiles}):"
+    outer_loop_statements = [oc_outer_loop, n_outer_loop, ic_outer_loop, kh_outer_loop, kw_outer_loop, oh_outer_loop, ow_outer_loop]
+
+    # Create inner loop statements
+    oc_inner_loop = f"for oc1 in loop(OC // {OC_tiles}, {array_N}):"
+    n_inner_loop = f"for n1 in loop(N // {N_tiles}):"
+    ic_inner_loop = f"for ic1 in loop(IC // {IC_tiles}, {array_N}):"
+    kh_inner_loop = f"for kh1 in loop(KH // {KH_tiles}):"
+    kw_inner_loop = f"for kw1 in loop(KW // {KW_tiles}):"
+    oh_inner_loop = f"for oh1 in loop(OH // {OH_tiles}):"
+    ow_inner_loop = f"for ow1 in loop(OW // {OW_tiles}):"
+    inner_loop_statements = [oc_inner_loop, n_inner_loop, ic_inner_loop, kh_inner_loop, kw_inner_loop, oh_inner_loop, ow_inner_loop]
+
+    # Create statements
+    output_alloc = "o = alloc([N, OH, OW, OC], DRAM, i32)"
+    conv_output_alloc = "conv_o = alloc([N, OH, OW, OC], DRAM, i32)"
+    bias_tile_load = f"b1 = load(bias[oc], [OC // {OC_tiles}], BBUF)"
+    weight_tile_load = f"w1 = load(w[kh, kw, ic, oc], [KH // {KH_tiles}, KW // {KW_tiles}, IC // {IC_tiles}, OC // {OC_tiles}], WBUF)"
+    data_tile_load = f"x1 = load(x[n, kh + {stride} * oh, kw + {stride} * ow, ic], [N // {N_tiles}, (OH // {OH_tiles} - 1) * {stride} + (KH // {KH_tiles} - 1) + 1, (OW // {OW_tiles} - 1) * {stride} + (KW // {KW_tiles} - 1) + 1, IC // {IC_tiles}], IBUF)"
+    relu_output_tile_alloc = "relu_o = alloc([N, OH, OW, OC], VMEM1, i32)"
+    output_tile_load = f"o1 = load(conv_o[n, oh, ow, oc], [N // {N_tiles}, OH // {OH_tiles}, OW // {OW_tiles}, OC // {OC_tiles}], OBUF)"
+    bias_element_load = f"b2 = load(b1[oc1], [1, {array_N}], PE_ARRAY)"
+    weight_element_load = f"w2 = load(w1[kh1, kw1, ic1, oc1], [{array_N}, {array_M}], PE_ARRAY)"
+    data_element_load = f"x2 = load(x1[n1, kh1 + {stride} * oh1, kw1 + {stride} * ow1, ic1], [1, {array_N}], PE_ARRAY)"
+    output_element_load = f"o2 = load(o1[n1, oh1, ow1, oc1], [1, {array_N}], PE_ARRAY)"
+    compute_1 = "o3 = mvmul_bias(x2, w2, b2, o2, PE_ARRAY)"
+    intermediate_output_element_store = "store(o1[n1, oh1, ow1, oc1], o3)"
+    intermediate_output_element_load = f"o4 = load(o1[n1, oh1, ow1, oc1], [{array_N}], SIMD)"
+    compute_2 = "o5 = relu(o4, SIMD)"
+    output_element_store = "store(relu_o[n1, oh1, ow1, oc1], o5)"
+    output_tile_store = "store(o[n, oh, ow, oc], relu_o)"
+    output_return = "return o"
+
+    # Put all statements together in correct order
+    header = "def conv2d_bias_relu(x: i8[N, IH, IW, IC] @ DRAM, w: i8[KH, KW, IC, OC] @ DRAM, bias: i32[OC] @ DRAM, OH: param, OW: param):\n"
+    used_outer_loops = set()
+    outer_loops = ""
+    tabs = TAB
+    is_weight_load = False
+    is_bias_load = False
+    for o in loop_order:
+        outer_loops += tabs + outer_loop_statements[o] + "\n"
+        used_outer_loops.add(o)
+        tabs += TAB
+        if 0 in used_outer_loops and not is_bias_load:
+            outer_loops += tabs + bias_tile_load + "\n"
+            is_bias_load = True
+        if all([w_i in used_outer_loops for w_i in (0, 2, 3, 4)]) and not is_weight_load:
+            outer_loops += tabs + weight_tile_load + "\n"
+            is_weight_load = True
+    outer_loops += tabs + data_tile_load + "\n"
+    outer_loops += tabs + relu_output_tile_alloc + "\n"
+    outer_loops += tabs + output_tile_load + "\n"
+
+    used_inner_loops = set()
+    inner_loops = ""
+    is_weight_load = False
+    is_bias_load = False
+    for i in loop_order:
+        inner_loops += tabs + inner_loop_statements[i] + "\n"
+        used_inner_loops.add(i)
+        tabs += TAB
+        if 0 in used_inner_loops and not is_bias_load:
+            inner_loops += tabs + bias_element_load + "\n"
+            is_bias_load = True
+        if all([w_i in used_inner_loops for w_i in (0, 2, 3, 4)]) and not is_weight_load:
+            inner_loops += tabs + weight_element_load + "\n"
+            is_weight_load = True
+    inner_loops += tabs + data_element_load + "\n"
+    inner_loops += tabs + output_element_load + "\n"
+    inner_loops += tabs + compute_1 + "\n"
+    inner_loops += tabs + intermediate_output_element_store + "\n"
+    inner_loops += tabs + intermediate_output_element_load + "\n"
+    inner_loops += tabs + compute_2 + "\n"
+    inner_loops += tabs + output_element_store + "\n"
+
+    conv2d_bias_relu_codelet = header + TAB + output_alloc + "\n" + TAB + conv_output_alloc + "\n" + outer_loops + inner_loops + (TAB * 8) + output_tile_store + "\n" + TAB + output_return + "\n"
+    return conv2d_bias_relu_codelet
 
 
 def generate_gemm_bias_codelet_from_config(config: dict) -> str:
@@ -2018,6 +1860,83 @@ def generate_relu4d_codelet_from_config(config: dict) -> str:
     return relu_codelet
 
 
+def generate_4d_simd_ops_codelet_from_config(config: dict) -> str:
+    N_tiles = config["N_tiles"]
+    C_tiles = config["C_tiles"]
+    H_tiles = config["H_tiles"]
+    W_tiles = config["W_tiles"]
+    array_N = config["array_N"]
+    loop_order = config["loop_order"]
+    operations: list[ComputationGraphNode] = config["operations"]
+    number_of_inputs = config["number_of_inputs"]
+    inputs_vmem_1_or_2 = config["inputs_vmem_1_or_2"]
+    outputs_vmem_1_or_2 = config["outputs_vmem_1_or_2"]
+
+    input_operand_names = [f"codelet_input_{i}" for i in range(number_of_inputs)]
+    operand_index_to_compute_output_operand = {i: f"compute_output_{i}" for i in range(number_of_inputs, number_of_inputs + len(operations))}
+    operand_index_to_compute_output_operand.update({i: f"codelet_input_{i}" for i in range(number_of_inputs)})
+    nodes_used_as_input = set()
+    for op in operations:
+        nodes_used_as_input.update(op.inputs)
+    output_operand_names = set()
+    for i, op in enumerate(operations):
+        if (i + number_of_inputs) not in nodes_used_as_input: 
+            output_operand_names.add(operand_index_to_compute_output_operand[number_of_inputs + i]) 
+    number_of_outputs = len(output_operand_names)
+    assert number_of_outputs > 0, "No outputs found for SIMD ops codelet"
+
+    # Create outer loop statements
+    n_outer_loop = f"for n in loop({N_tiles}, N // {N_tiles}):"
+    c_outer_loop = f"for c in loop({C_tiles}, C // {C_tiles}):"
+    h_outer_loop = f"for h in loop({H_tiles}, H // {H_tiles}):"
+    w_outer_loop = f"for w in loop({W_tiles}, W // {W_tiles}):"
+    outer_loop_statements = [n_outer_loop, c_outer_loop, h_outer_loop, w_outer_loop]
+
+    # Create inner loop statements
+    n_inner_loop = f"for n1 in loop(N // {N_tiles}):"
+    c_inner_loop = f"for c1 in loop(C // {C_tiles}, {array_N}):"
+    h_inner_loop = f"for h1 in loop(H // {H_tiles}):"
+    w_inner_loop = f"for w1 in loop(W // {W_tiles}):"
+    inner_loop_statements = [n_inner_loop, c_inner_loop, h_inner_loop, w_inner_loop]
+
+    # Create statements
+    output_allocs = [f"{TAB}{output_operand_name} = alloc([N, H, W, C], DRAM, i32)" for output_operand_name in output_operand_names]
+    data_tile_loads = [f"{input_operand_name}_tile = load({input_operand_name}[n, h, w, c], [N // {N_tiles}, H // {H_tiles}, W // {W_tiles}, C // {C_tiles}], VMEM{inputs_vmem_1_or_2[i]})" for i, input_operand_name in enumerate(input_operand_names)]
+    output_tile_allocs = [f"{operand_index_to_compute_output_operand[number_of_inputs + i]}_tile = alloc([N // {N_tiles}, H // {H_tiles}, W // {W_tiles}, C // {C_tiles}], VMEM{outputs_vmem_1_or_2[i]}, i32)" for i in range(len(operations))]
+    operation_statements = []
+    for i, operation in enumerate(operations):
+        compute_inputs = []
+        for input_index in operation.inputs:
+            input_name = UniqueNameGenerator.get_unique_name(operand_index_to_compute_output_operand[input_index] + "_element")
+            compute_inputs.append(input_name)
+            operation_statements.append(f"{input_name} = load({operand_index_to_compute_output_operand[input_index]}_tile[n1, h1, w1, c1], [{array_N}], SIMD)")
+        operation_statements.append(f"{operand_index_to_compute_output_operand[i + number_of_inputs]}_element = {operation.operation}({', '.join(compute_inputs)}, SIMD)")
+        operation_statements.append(f"store({operand_index_to_compute_output_operand[i + number_of_inputs]}_tile[n1, h1, w1, c1], {operand_index_to_compute_output_operand[i + number_of_inputs]}_element)")
+    output_tile_stores = [f"store({output_operand_name}[n, h, w, c], {output_operand_name}_tile)" for output_operand_name in output_operand_names]
+    output_return = "return " + ", ".join(output_operand_names)
+
+    # Put all statements together in correct order
+    operation_name = "_".join([operation.operation + "4d" for operation in operations])
+    header = "def " + operation_name + "(" + ", ".join(map(lambda n: f"{n}: i32[N, H, W, C] @ DRAM", input_operand_names)) + "):\n" 
+
+    outer_loops = ""
+    tabs = TAB
+    for o in loop_order:
+        outer_loops += tabs + outer_loop_statements[o] + "\n"
+        tabs += TAB
+    outer_loops += "\n".join(map(lambda s: tabs + s, output_tile_allocs)) + "\n"
+    outer_loops += "\n".join(map(lambda s: tabs + s, data_tile_loads)) + "\n"
+
+    inner_loops = ""
+    for i in loop_order:
+        inner_loops += tabs + inner_loop_statements[i] + "\n"
+        tabs += TAB
+    inner_loops += "\n".join(map(lambda s: tabs + s, operation_statements)) + "\n"
+
+    codelet: str = header + "\n".join(output_allocs) + "\n" + outer_loops + inner_loops + "\n".join(map(lambda s: TAB * 5 + s, output_tile_stores)) + "\n" + TAB + output_return + "\n"
+    return codelet
+
+
 # ==================== Unit Test Shape Generation ==================== #
 def get_2d_image_N() -> set[int]:
     Ns = [1]
@@ -2026,13 +1945,12 @@ def get_2d_image_N() -> set[int]:
 
 def get_2d_image_C() -> set[int]:
     PARAM_BUF_BW = 64
-    Cs = [PARAM_BUF_BW * i for i in range(1, 3)]
+    Cs = [64, 128, 256]
     return set(Cs)
 
 
 def get_2d_image_H_W() -> set[int]:
-    Hs = [2 ** i for i in range(0, 10)]
-    Hs += [10 * i for i in range(1, 10)]
+    Hs = [32, 128, 256]
     return set(Hs)
 
 
@@ -2196,29 +2114,31 @@ class TileSpacePoint(SearchSpacePoint):
 
 
 class TileSpace(SearchSpace):
-    _dimension_size: int
+    _dimension_sizes: tuple[int, ...]
 
-    def __init__(self, dimension_size: int) -> None:
+    def __init__(self, dimension_sizes: Union[int, tuple[int, ...]]) -> None:
         super().__init__()
-        self._dimension_size = dimension_size
+        self._dimension_sizes = tuple(dimension_sizes) if isinstance(dimension_sizes, (tuple, list, set)) else (dimension_sizes, )
     
     def get_space(self) -> set[TileSpacePoint]:
         space = set()
-        for i in range(1, self._dimension_size + 1):
-            if self._dimension_size % i == 0:
-                space.add(TileSpacePoint(self._dimension_size // i, i))
+        for dimension_size in self._dimension_sizes:
+            for i in range(1, dimension_size + 1):
+                if dimension_size % i == 0:
+                    space.add(TileSpacePoint(dimension_size // i, i))
         return space
     
     def get_random_point(self) -> TileSpacePoint:
-        possible_number_of_tiles = list(range(1, self._dimension_size + 1))
+        dimension_size = random.choice(self._dimension_sizes)
+        possible_number_of_tiles = list(range(1, dimension_size + 1))
         random.shuffle(possible_number_of_tiles)
         for i in possible_number_of_tiles:
-            if self._dimension_size % i == 0:
-                return TileSpacePoint(self._dimension_size // i, i)
+            if dimension_size % i == 0:
+                return TileSpacePoint(dimension_size // i, i)
         raise Exception("No valid tile size found")
 
     def get_cache_key(self) -> Any:
-        return self._dimension_size
+        return self._dimension_sizes
 
 
 class LoopOrderSpacePoint(SearchSpacePoint):
@@ -2409,10 +2329,10 @@ def generate_relu_codelets_for_2d_images(num_configs: int = 100):
         for i in range(3):
             max_dimension_sizes[i] = max(max_dimension_sizes[i], unit_test_dimension[i].dimension_size)
     
-    N_tile_space = TileSpace(max_dimension_sizes[0])
-    C_tile_space = TileSpace(max_dimension_sizes[1])
-    H_tile_space = TileSpace(max_dimension_sizes[2])
-    W_tile_space = TileSpace(max_dimension_sizes[2])
+    N_tile_space = N_tile_space = TileSpace([s.value for s in N_space.get_space()])
+    C_tile_space = TileSpace([s.value for s in C_space.get_space()])
+    H_tile_space = TileSpace([s.value for s in H_W_space.get_space()])
+    W_tile_space = TileSpace([s.value for s in H_W_space.get_space()])
     loop_order_space = LoopOrderSearchSpace(4)
 
     config_searcher = RandomSearcher((N_tile_space, C_tile_space, H_tile_space, W_tile_space, loop_order_space))
@@ -2459,12 +2379,145 @@ def generate_relu_codelets_for_2d_images(num_configs: int = 100):
         json.dump(output, f, indent=4)
 
 
+def generate_simd_unary_element_wise_operations():
+    operations: list[list[tuple[int, ComputationGraphNode]]] = []
+    for op in UNARY_OPS:
+        operations.append((1, [ComputationGraphNode(op, [0])]))
+    return operations 
+
+
+def generate_simd_binary_element_wise_operations():
+    operations: list[list[tuple[int, ComputationGraphNode]]] = []
+    for op in BINARY_OPS:
+        operations.append((2, [ComputationGraphNode(op, [0, 1])]))
+    return operations
+
+
+def generate_simd_element_wise_operations(max_num_inputs=3, max_num_nodes=5, num_operations=1000):
+    operations: list[list[tuple[int, ComputationGraphNode]]] = []
+    # operations.extend(generate_simd_unary_element_wise_operations())
+    # operations.extend(generate_simd_binary_element_wise_operations())
+    num_remaining_ops = num_operations - len(operations)
+    for num_inputs in range(1, max_num_inputs + 1):
+        for num_nodes in range(2, max_num_nodes + 1):
+            for _ in range(int(num_remaining_ops / max_num_inputs / (max_num_nodes - 1))):
+                operations.append((num_inputs, generate_random_dag(num_inputs=num_inputs, num_nodes=num_nodes, only_unary_ops=num_inputs == 1)))
+    while len(operations) < num_operations:
+        num_inputs = random.randint(2, max_num_inputs)
+        operations.append((num_inputs, generate_random_dag(num_inputs=num_inputs, num_nodes=random.randint(1, max_num_nodes))))
+    return operations
+
+
+def generate_simd_element_wise_operation_codelets_for_2d_images(operations: list[tuple[int, list[ComputationGraphNode]]], num_random_configs_per_exhaustive_config: int = 10, tag="simd_element_wise_operation_on_2d_images"):
+    LOOP_ORDER_MAP = {
+        0: "N",
+        1: "C",
+        2: "H",
+        3: "W"
+    }
+
+    N_space = DimensionSizeSpace((get_2d_image_N,))
+    C_space = DimensionSizeSpace((get_2d_image_C,))
+    H_W_space = DimensionSizeSpace((get_2d_image_H_W,))
+    dimension_searcher = ExhaustiveSearcher((N_space, C_space, H_W_space))
+    unit_test_dimensions = [p for p in dimension_searcher]
+
+    max_dimension_sizes = [0, 0, 0]
+    for unit_test_dimension in unit_test_dimensions:
+        for i in range(3):
+            max_dimension_sizes[i] = max(max_dimension_sizes[i], unit_test_dimension[i].dimension_size)
+    
+    N_tile_space = TileSpace([s.value for s in N_space.get_space()])
+    C_tile_space = TileSpace([s.value for s in C_space.get_space()])
+    H_tile_space = TileSpace([s.value for s in H_W_space.get_space()])
+    W_tile_space = TileSpace([s.value for s in H_W_space.get_space()])
+    loop_order_space = LoopOrderSearchSpace(4) 
+
+    exhaustive_config_searcher = ExhaustiveSearcher((N_tile_space, C_tile_space, H_tile_space, W_tile_space))
+
+    for operation in operations:
+        operation_name = "_".join([op.operation for op in operation[1]])
+        if operation_name in os.listdir("stealth_outputs/partial_dataset_files"):
+            continue
+        operation_output = {}
+        operation_output["tags"] = [tag]
+        operation_output["operation"] = operation_name
+        operation_output["formula"] = generate_formula(operation[1], operation[0])
+        operation_output["configs"] = []
+        print(exhaustive_config_searcher.get_size_of_search_space())
+        for N_tiles, C_tiles, H_tiles, W_tiles in tqdm.tqdm(exhaustive_config_searcher):
+            random_config_searcher = RandomSearcher((loop_order_space,))
+            for _ in range(num_random_configs_per_exhaustive_config):
+                (loop_order, ) = random_config_searcher.get_next_search_space_point()
+                current_config_output = {}
+                codelet_string = generate_4d_simd_ops_codelet_from_config(
+                    {
+                        "N_tiles": N_tiles.number_of_tiles,
+                        "C_tiles": C_tiles.number_of_tiles, 
+                        "H_tiles": H_tiles.number_of_tiles, 
+                        "W_tiles": W_tiles.number_of_tiles, 
+                        "array_N": 16, 
+                        "loop_order": loop_order.loop_order, 
+                        "number_of_inputs": operation[0],
+                        "operations": operation[1], 
+                        "inputs_vmem_1_or_2": [random.choice([1, 2]) for _ in range(operation[0])], 
+                        "outputs_vmem_1_or_2": [random.choice([1, 2]) for _ in range(len(operation[1]))]
+                      }
+                    )
+                print(codelet_string)
+                current_config_output["codelet"] = codelet_string
+                current_config_output["N_tiles"] = N_tiles.number_of_tiles
+                current_config_output["C_tiles"] = C_tiles.number_of_tiles
+                current_config_output["H_tiles"] = H_tiles.number_of_tiles
+                current_config_output["W_tiles"] = W_tiles.number_of_tiles
+                current_config_output["loop_order"] = [LOOP_ORDER_MAP[l] for l in loop_order.loop_order]
+                codelet = StealthCodelet(codelet_string)
+                
+                unit_test_outputs = []
+                for N, C, H_W in dimension_searcher: 
+                    N_value = N.dimension_size
+                    C_value = C.dimension_size
+                    H_W_value = H_W.dimension_size
+
+                    if ((N_tiles.number_of_tiles * N_tiles.tile_size) > N_value) or ((C_tiles.number_of_tiles * C_tiles.tile_size) > C_value) or ((H_tiles.number_of_tiles * H_tiles.tile_size) > H_W_value) or ((W_tiles.number_of_tiles * W_tiles.tile_size) > H_W_value):
+                        print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tile split is too large.")
+                        continue
+                    if (N_value % N_tiles.number_of_tiles != 0) or (C_value % C_tiles.number_of_tiles != 0) or (H_W_value % H_tiles.number_of_tiles != 0) or (H_W_value % W_tiles.number_of_tiles != 0):
+                        print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tile split does not divide dimension size.")
+                        continue
+                    try:
+                        compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": N_value, "C": C_value, "H": H_W_value, "W": H_W_value})
+                    except RuntimeError as e:
+                        print(f"Skipping unit test {N_value}x{C_value}x{H_W_value}x{H_W_value} because tiling does not satisfy constraints:")
+                        print(e)
+                        continue
+                    except Exception as e:
+                        print(f"Failing unit test for the following error:")
+                        raise e
+                    simulator_outputs = run_layer("stealth_outputs/compilation_output/test_benchmark16x16_stealth")
+                    relevant_simulator_outputs = get_relevant_simulator_outputs(simulator_outputs)
+                    relevant_simulator_outputs["input_dimensions"] = [N_value, C_value, H_W_value, H_W_value],
+                    unit_test_outputs.append(relevant_simulator_outputs)
+
+                current_config_output["unit_test_outputs"] = unit_test_outputs
+                if len(unit_test_outputs) > 0:
+                    operation_output["configs"].append(current_config_output)
+        
+        if len(operation_output["configs"]) > 0:
+            with open(f"stealth_outputs/partial_dataset_files/{operation_name}.json", "w") as f:
+                json.dump(operation_output, f, indent=4) 
+        else:
+            raise RuntimeError("No valid configs found for operation. Try increasing the number of tried configs")
+
+
 if __name__ == "__main__":
-    generate_relu_codelets_for_2d_images()
+    # generate_relu_codelets_for_2d_images()
     # codelet_string = generate_conv2d_bias_codelet_from_config(1, {"N_tiles": 1, "IC_tiles": 4, "OC_tiles": 4, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 2, "OW_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
+    # codelet_string = generate_conv2d_bias_relu_codelet_from_config(2, {"N_tiles": 1, "IC_tiles": 1, "OC_tiles": 1, "KH_tiles": 1, "KW_tiles": 1, "OH_tiles": 14, "OW_tiles": 7, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2, 3, 4, 5, 6]})
     # codelet_string = generate_gemm_bias_codelet_from_config({"N_tiles": 1, "M_tiles": 1, "P_tiles": 1, "array_N": 16, "array_M": 16, "loop_order": [0, 1, 2]})
     # codelet_string = generate_relu4d_codelet_from_config({"N_tiles": 1, "C_tiles": 1, "H_tiles": 1, "W_tiles": 1, "array_N": 16, "loop_order": [0, 1, 2, 3]})
     # print(codelet_string)
     # codelet = StealthCodelet(codelet_string)
-    # compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 16, "C": 16, "H": 16, "IH": 16, "W": 16, "IW": 16, "KH": 3, "KW": 3, "IC": 16, "OC": 16, "OH": 14, "OW": 14, "M": 16, "P": 16})
-
+    # compile("../codelets/examples/genesys/configs/benchmark_16x16.json", codelet, {"N": 1, "C": 64, "H": 16, "IH": 230, "W": 16, "IW": 230, "KH": 7, "KW": 7, "IC": 64, "OC": 64, "OH": 112, "OW": 112, "M": 16, "P": 16})
+    operations = generate_simd_element_wise_operations(num_operations=1) 
+    generate_simd_element_wise_operation_codelets_for_2d_images(operations, num_random_configs_per_exhaustive_config=1)
