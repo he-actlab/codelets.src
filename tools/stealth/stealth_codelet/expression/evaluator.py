@@ -66,6 +66,16 @@ class ExpressionEvaluator(ExpressionTransformer):
                 return lhs
             else:
                 return StealthBinaryExpression(lhs, rhs, expression.operation)
+        # elif isinstance(lhs, StealthLiteral) and lhs.value == 1:
+        #     if expression.operation  == "*":
+        #         return rhs
+        #     else:
+        #         return StealthBinaryExpression(lhs, rhs, expression.operation)
+        # elif isinstance(rhs, StealthLiteral) and rhs.value == 1:
+        #     if expression.operation in ["*", "//", "/"]:
+        #         return lhs
+        #     else:
+        #         return StealthBinaryExpression(lhs, rhs, expression.operation)
         else:
             return StealthBinaryExpression(lhs, rhs, expression.operation)
     

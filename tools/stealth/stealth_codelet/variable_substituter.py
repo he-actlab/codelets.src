@@ -17,7 +17,7 @@ class VariableSubstituter(StealthCodeletTransformer):
             new_operands[new_name] = new_operand
         new_inputs: list[StealthOperand] = [self.transform_operand(operand.name, operand)[1] for operand in codelet._inputs]
         new_outputs: list[StealthOperand] = [self.transform_operand(operand.name, operand)[1] for operand in codelet._outputs]
-        new_parameters: list[StealthParameter] = list(filter(lambda p: p.name not in self._name_to_value_map, codelet._params))
+        new_parameters: list[StealthParameter] = list(filter(lambda p: p.name not in self._name_to_value_map, codelet._input_params))
         new_immediates: dict[str, int] = {}
         for name, value in codelet._immediates.items():
             new_name, new_value = self.transform_immediate(name, value)
@@ -36,24 +36,24 @@ class VariableSubstituter(StealthCodeletTransformer):
         )
     
     def transform_operand(self, name: str, operand: StealthOperand) -> tuple[str, StealthOperand]:
-        return name, StealthOperand(operand.name, [evaluate_expression(dim, self._name_to_value_map) for dim in operand.shape], operand.dtype, operand.location)
+        return name, StealthOperand(operand.name, tuple(evaluate_expression(dim, self._name_to_value_map) for dim in operand.shape), operand.dtype, operand.location)
     
     def transform_loop_index(self, index: StealthIndex) -> StealthIndex:
         return StealthIndex(index.name, evaluate_expression(index.number_of_iterations, self._name_to_value_map), evaluate_expression(index.stride, self._name_to_value_map))
     
     def transform_allocation(self, statement: StealthAllocation) -> StealthAllocation:
-        return StealthAllocation(statement.operand_name, [evaluate_expression(dim, self._name_to_value_map) for dim in statement.size], statement.location, statement.dtype)
+        return StealthAllocation(statement.operand_name, tuple(evaluate_expression(dim, self._name_to_value_map) for dim in statement.size), statement.location, statement.dtype)
 
     def transform_load(self, statement: StealthLoad) -> StealthLoad:
         return StealthLoad(statement.destination_operand_name, statement.source_operand_name, [evaluate_expression(dim, self._name_to_value_map) for dim in statement.source_operand_offset], [evaluate_expression(dim, self._name_to_value_map) for dim in statement.size], statement.location)
     
     def transform_store(self, statement: StealthStore) -> StealthStore:
-        return StealthStore(statement.destination_operand_name, [evaluate_expression(dim, self._name_to_value_map) for dim in statement.destination_operand_offset], statement.source_operand_name)
+        return StealthStore(statement.destination_operand_name, tuple(evaluate_expression(dim, self._name_to_value_map) for dim in statement.destination_operand_offset), statement.source_operand_name)
     
     def transform_loop(self, statement: StealthLoop) -> StealthLoop:
         return StealthLoop(
             statement.loop_index_variable_name,
-            evaluate_expression(statement.end, self._name_to_value_map),
+            evaluate_expression(statement.number_of_iterations, self._name_to_value_map),
             evaluate_expression(statement.stride, self._name_to_value_map),
             [self.transform_statement(loop_statement) for loop_statement in statement.body],
         )
@@ -62,7 +62,7 @@ class VariableSubstituter(StealthCodeletTransformer):
         return StealthCompute(
             statement.destination_operand_name,
             statement.operation_name,
-            [evaluate_expression(expression, self._name_to_value_map) if isinstance(expression, StealthExpression) else expression for expression in statement.operands],
+            tuple(evaluate_expression(expression, self._name_to_value_map) if isinstance(expression, StealthExpression) else expression for expression in statement.operands),
             statement.location
         )
 

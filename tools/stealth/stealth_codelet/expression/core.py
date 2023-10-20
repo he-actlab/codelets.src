@@ -9,7 +9,7 @@ class StealthExpression(abc.ABC):
         pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class StealthVariableName(StealthExpression):
     name: str
 
@@ -19,7 +19,7 @@ class StealthVariableName(StealthExpression):
         return self.name
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class StealthLiteral(StealthExpression):
     value: Union[int, bool]
 
@@ -27,7 +27,7 @@ class StealthLiteral(StealthExpression):
         return str(self.value)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class StealthBinaryExpression(StealthExpression):
     lhs: StealthExpression
     rhs: StealthExpression
@@ -37,7 +37,7 @@ class StealthBinaryExpression(StealthExpression):
         return f"({self.lhs} {self.operation} {self.rhs})"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class StealthUnaryExpression(StealthExpression):
     operand: StealthExpression
     operation: str

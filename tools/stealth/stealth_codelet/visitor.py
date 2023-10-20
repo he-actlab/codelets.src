@@ -9,7 +9,7 @@ class StealthCodeletVisitor:
             self.visit_operand(input_operand)
         for output_operand in codelet._outputs:
             self.visit_operand(output_operand)
-        for parameter in codelet._params:
+        for parameter in codelet._input_params:
             self.visit_parameter(parameter)
         for immediate_name, immediate_value in codelet._immediates.items():
             self.visit_immediate(immediate_name, immediate_value)
@@ -55,9 +55,9 @@ class StealthCodeletVisitor:
 
     def visit_loop(self, statement: StealthLoop) -> None:
         for loop_statement in statement.body:
-            self.visit(loop_statement)
+            self.visit_statement(loop_statement)
     
-    def visit_compute(self, statement, StealthCompute) -> None:
+    def visit_compute(self, statement: StealthCompute) -> None:
         pass
 
 
@@ -69,7 +69,7 @@ class StealthCodeletTransformer:
             new_operands[new_name] = new_operand
         new_inputs: list[StealthOperand] = [self.transform_operand(operand.name, operand)[1] for operand in codelet._inputs]
         new_outputs: list[StealthOperand] = [self.transform_operand(operand.name, operand)[1] for operand in codelet._outputs]
-        new_parameters: list[StealthParameter] = [self.transform_parameter(parameter) for parameter in codelet._params]
+        new_parameters: list[StealthParameter] = [self.transform_parameter(parameter) for parameter in codelet._input_params]
         new_immediates: dict[str, int] = {}
         for name, value in codelet._immediates.items():
             new_name, new_value = self.transform_immediate(name, value)
@@ -114,7 +114,7 @@ class StealthCodeletTransformer:
             raise RuntimeError(f"Unknown statement type: {statement}")
     
     def transform_allocation(self, statement: StealthAllocation) -> StealthAllocation:
-        return StealthAllocation(statement.name, statement.size, statement.location, statement.dtype)
+        return StealthAllocation(statement.operand_name, statement.size, statement.location, statement.dtype)
 
     def transform_load(self, statement: StealthLoad) -> StealthLoad:
         return StealthLoad(statement.destination_operand_name, statement.source_operand_name, statement.source_operand_offset, statement.size)
@@ -125,9 +125,9 @@ class StealthCodeletTransformer:
     def transform_loop(self, statement: StealthLoop) -> StealthLoop:
         return StealthLoop(
             statement.loop_index_variable_name,
-            statement.end,
+            statement.number_of_iterations,
             statement.stride,
-            [self.transform(loop_statement) for loop_statement in statement.body],
+            [self.transform_statement(loop_statement) for loop_statement in statement.body],
         )
     
     def transform_compute(self, statement: StealthCompute) -> StealthCompute:

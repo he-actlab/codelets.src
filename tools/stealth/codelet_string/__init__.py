@@ -1,0 +1,2 @@
+from .simd_element_wise_codelet import generate_simd_element_wise_relu_codelet, \
+    generate_simd_element_wise_sigmoid_codelet, generate_simd_element_wise_tanh_codelet

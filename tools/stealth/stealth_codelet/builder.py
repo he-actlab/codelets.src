@@ -4,7 +4,7 @@ from lark.visitors import Interpreter
 from .error import CodeletError, raise_codelet_parse_error
 from .expression import *
 from .core import *
-from utils import UniqueNameGenerator
+from tools.stealth.stealth_codelet.converter.utils import UniqueNameGenerator
 
 
 class StealthCodeletBuilder(Interpreter):
@@ -104,11 +104,12 @@ class StealthCodeletBuilder(Interpreter):
                 new_param_dimensions.append(dimension)
             else:
                 raise TypeError(f"Unknown dimension type: {type(dimension)}") 
+        new_param_dimensions = tuple(new_param_dimensions)
         
         if not isinstance(param_name, str):
             raise TypeError(f"Expected parameter name to be a string but instead got {type(param_name)}")
-        if not isinstance(param_dimensions, list):
-            raise TypeError(f"Expected parameter dimensions to be a list but instead got {type(param_dimensions)}")
+        if not isinstance(new_param_dimensions, tuple):
+            raise TypeError(f"Expected parameter dimensions to be a tuple but instead got {type(param_dimensions)}")
         if any(not isinstance(dimension, StealthExpression) for dimension in new_param_dimensions):
             raise TypeError(f"Expected parameter dimensions to be a list of expressions but instead got {param_dimensions}")
         
@@ -131,11 +132,12 @@ class StealthCodeletBuilder(Interpreter):
                 new_operand_dimensions.append(dimension)
             else:
                 raise TypeError(f"Unknown dimension type: {type(dimension)}")
+        new_operand_dimensions = tuple(new_operand_dimensions)
 
         if not isinstance(operand_name, str):
             raise TypeError(f"Expected operand name to be a string but instead got {type(operand_name)}")
-        if not isinstance(operand_dimensions, list):
-            raise TypeError(f"Expected operand dimensions to be a list but instead got {type(operand_dimensions)}")
+        if not isinstance(new_operand_dimensions, tuple):
+            raise TypeError(f"Expected operand dimensions to be a tuple but instead got {type(operand_dimensions)}")
         if any(not isinstance(dimension, StealthExpression) for dimension in new_operand_dimensions):
             raise TypeError(f"Expected operand dimensions to be a list of expressions but instead got {operand_dimensions}")
         if not isinstance(operand_dtype, str):
@@ -295,14 +297,12 @@ class StealthCodeletBuilder(Interpreter):
         if variable_name in self._used_var_names:
             self.raise_codelet_parse_error(f"A variable with name \"{variable_name}\" already exists.", tree)
     
-    def check_compute_arguments(self, operation_name: str, compute_arguments: list[Union[str, StealthExpression]], location: str) -> None:
+    def check_compute_arguments(self, operation_name: str, compute_arguments: list[str], location: str) -> None:
         if operation_name == "mvmul":
             if location != "PE_ARRAY":
                 raise CodeletError("Matrix-vector multiplication operation \"mvmul\" is only supported on the PE_ARRAY")
             if len(compute_arguments) != 3:
                 raise CodeletError(f"Expected 4 arguments for operation \"mvmul\" (input, weight, intermediate output) but instead got {len(compute_arguments)}")
-            if any(isinstance(arg, StealthExpression) for arg in compute_arguments):
-                raise CodeletError("Matrix-vector multiplication operation \"mvmul\" does not support constants as arguments")
             
             input_operand = self._operands[compute_arguments[0]]
             weight_operand = self._operands[compute_arguments[1]]
@@ -322,8 +322,6 @@ class StealthCodeletBuilder(Interpreter):
                 raise CodeletError("Matrix-vector multiplication operation \"mvmul_bias\" is only supported on the PE_ARRAY")
             if len(compute_arguments) != 4:
                 raise CodeletError(f"Expected 5 arguments for operation \"mvmul_bias\" (input, weight, bias, intermediate output) but instead got {len(compute_arguments)}")
-            if any(isinstance(arg, StealthExpression) for arg in compute_arguments):
-                raise CodeletError("Matrix-vector multiplication operation \"mvmul_bias\" does not support constants as arguments")
             
             input_operand = self._operands[compute_arguments[0]]
             weight_operand = self._operands[compute_arguments[1]]
@@ -420,7 +418,7 @@ class StealthCodeletBuilder(Interpreter):
     def get_operand_location_from_operand_location_child_tree(self, operand_location_child) -> str:
         return self.get_name(operand_location_child, name_type="location")
     
-    def get_alloc_args_from_operation_args_child(self, operation_args_child) -> tuple[list[StealthExpression], str, str]:
+    def get_alloc_args_from_operation_args_child(self, operation_args_child) -> tuple[tuple[StealthExpression], str, str]:
         if len(operation_args_child.children) != 3:
             self.raise_codelet_parse_error(f"Expected 3 arguments for alloc operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
@@ -441,13 +439,13 @@ class StealthCodeletBuilder(Interpreter):
         if isinstance(dtype_child, Tree):
             self.raise_codelet_parse_error(f"Expected dtype argument but instead got {dtype_child.data}", dtype_child)
 
-        size: list[StealthExpression] = [self.get_stealth_expression_from_tree(child) for child in size_child.children]
+        size: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in size_child.children)
         location: str = self.get_name(location_child, name_type="location")
         dtype: str = self.get_name(dtype_child, name_type="dtype")
 
         return size, location, dtype
     
-    def get_load_args_from_operation_args_child(self, operation_args_child) -> tuple[str, list[StealthExpression], list[StealthExpression], str]:
+    def get_load_args_from_operation_args_child(self, operation_args_child) -> tuple[str, tuple[StealthExpression], tuple[StealthExpression], str]:
         if len(operation_args_child.children) != 3:
             self.raise_codelet_parse_error(f"Expected 3 arguments for load operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
@@ -480,13 +478,13 @@ class StealthCodeletBuilder(Interpreter):
         
         source_operand_name: str = self.get_name(source_operand_child, name_type="source operand")
         self.check_for_variable_name_defined(source_operand_name, source_operand_child)
-        source_operand_offset: list[StealthExpression] = [self.get_stealth_expression_from_tree(child) for child in source_operand_offset_children]
-        size: list[StealthExpression] = [self.get_stealth_expression_from_tree(child) for child in size_child.children]
+        source_operand_offset: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in source_operand_offset_children)
+        size: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in size_child.children)
         location: str = self.get_name(location_child, name_type="location")
 
         return source_operand_name, source_operand_offset, size, location
 
-    def get_store_args_from_operation_args_child(self, operation_args_child):
+    def get_store_args_from_operation_args_child(self, operation_args_child) -> tuple[str, tuple[StealthExpression], str]:
         if len(operation_args_child.children) != 2:
             self.raise_codelet_parse_error(f"Expected 2 arguments for store operation but instead got {len(operation_args_child.children)}", operation_args_child)
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
@@ -513,22 +511,27 @@ class StealthCodeletBuilder(Interpreter):
 
         destination_operand_name: str = self.get_name(destination_operand_child, name_type="destination operand")
         self.check_for_variable_name_defined(destination_operand_name, destination_operand_child)
-        destination_operand_offset: list[StealthExpression] = [self.get_stealth_expression_from_tree(child) for child in destination_operand_offset_children]
+        destination_operand_offset: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in destination_operand_offset_children)
         source_operand_name: str = self.get_name(source_operand_child, name_type="source operand")
         self.check_for_variable_name_defined(source_operand_name, source_operand_child)
 
         return destination_operand_name, destination_operand_offset, source_operand_name
 
-    def get_compute_args_from_operation_args_child(self, operation_args_child) -> tuple[list[StealthExpression], str]:
+    def get_compute_args_from_operation_args_child(self, operation_args_child) -> tuple[tuple[str], str]:
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
 
-        arguments: list[StealthExpression] = []
+        location_child = operation_args_child.children[-1]
+        location = self.get_name(location_child, name_type="location")
+
+        arguments: list[str] = []
         for child in operation_args_child.children[:-1]:
             if len(child.children) != 1:
                 self.raise_codelet_parse_error(f"Expected all arguments to be call arguments but instead got {operation_args_child.children}", operation_args_child) 
             expression_child = child.children[0]
             expression = self.get_stealth_expression_from_tree(expression_child)
             if is_expression_constant(expression):
+                if location == "PE_ARRAY":
+                    raise CodeletError(f"Constant expressions are not supported on the PE_ARRAY")
                 value = evaluate_expression(expression)
                 immediate_name = UniqueNameGenerator.get_unique_name("immediate")
                 self._immediates[immediate_name] = value
@@ -537,11 +540,8 @@ class StealthCodeletBuilder(Interpreter):
                 arguments.append(expression.name)
             else:
                 self.raise_codelet_parse_error(f"Expected all arguments to be either a constant or an operand but instead got {expression}", expression_child)
-        
-        location_child = operation_args_child.children[-1]
-        location = self.get_name(location_child, name_type="location")
-        
-        return arguments, location
+         
+        return tuple(arguments), location
 
     def get_stealth_expression_from_tree(self, expression_tree) -> StealthExpression:
         if isinstance(expression_tree, Tree):

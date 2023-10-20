@@ -1,0 +1,113 @@
+from typing import Any, Callable, Optional, Union
+from .header_string_generator import generate_header
+from .allocation_string_generator import generate_allocation
+from .loop_string_generator import generate_inner_for_loop, generate_outer_for_loop
+from .load_string_generator import generate_load
+from .store_string_generator import generate_store
+from .return_string_generator import generate_return
+from .compute_string_generator import generate_relu, generate_sigmoid, generate_tanh
+from .utils import TAB, order_sequence
+from tools.stealth.utils import UniqueNameGenerator, int_to_name
+
+
+def _check_tiling(tiling: tuple[int, ...], number_of_dimensions: int) -> None:
+    assert len(tiling) == number_of_dimensions
+    assert all(tile_size > 0 for tile_size in tiling)
+
+
+def _check_loop_order(loop_order: tuple[int, ...], number_of_dimensions: int) -> None:
+    assert len(loop_order) == number_of_dimensions
+    assert set(loop_order) == set(range(number_of_dimensions))
+
+
+def _check_vmem(vmem: Optional[str]) -> None:
+    assert vmem in ("VMEM1", "VMEM2")
+
+
+def _format_line(number_of_tabs: int, line: str) -> str:
+    return TAB * number_of_tabs + line + "\n"
+
+
+def _generate_simd_unary_element_wise_codelet(codelet_name: str, input_operand: tuple[str, tuple[Union[str, int], ...]], output_operand: tuple[str, tuple[Union[str, int], ...]], compute_operation_generator_function: Callable[[str, Any], str], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    input_operand_name, input_operand_shape = input_operand
+    output_operand_name, output_operand_shape = output_operand
+    assert input_operand_name != output_operand_name
+    assert len(input_operand_shape) == len(output_operand_shape)
+    assert all(in_dim == out_dim for in_dim, out_dim in zip(input_operand_shape, output_operand_shape))
+    assert all(dim.isupper() for dim in input_operand_shape)
+    assert all(dim.isupper() for dim in output_operand_shape)
+
+    if dimension_tiling is None:
+        dimension_tiling = tuple(1 for _ in range(len(input_operand_shape)))
+    _check_tiling(dimension_tiling, len(input_operand_shape))
+    dimension_tile_sizes: tuple[int, ...] = tuple(f"{dim_size} // {number_of_tiles}" for dim_size, number_of_tiles in zip(input_operand_shape, dimension_tiling))
+    if loop_order is None:
+        loop_order = tuple(range(len(input_operand_shape)))
+    _check_loop_order(loop_order, len(input_operand_shape))
+    if input_vmem is None:
+        input_vmem = "VMEM1"
+    _check_vmem(input_vmem)
+    if output_vmem is None:
+        output_vmem = "VMEM2"
+    _check_vmem(output_vmem)
+
+    input_tile_name: str = input_operand_name + "_tile"
+    output_tile_name: str = output_operand_name + "_tile"
+    input_element_name: str = input_operand_name + "_element"
+    output_element_name: str = output_operand_name + "_element"
+
+    intermediate_loop_indices: tuple[str, ...] = tuple(int_to_name(dim).lower() if isinstance(dim, int) else dim.lower() for dim in input_operand_shape) 
+    outer_loop_indices: tuple[str, ...] = tuple(loop_index + "_tile_index" for loop_index in intermediate_loop_indices)
+    inner_loop_indices: tuple[str, ...] = tuple(loop_index + "_element_index" for loop_index in intermediate_loop_indices)
+
+    dimension_in_order: tuple[Union[str, int], ...] = order_sequence(input_operand_shape, loop_order)
+    dimension_tiling_in_order: tuple[int, ...] = order_sequence(dimension_tiling, loop_order)
+    dimension_tile_size_in_order: tuple[int, ...] = order_sequence(dimension_tile_sizes, loop_order)
+    outer_loop_indices_in_order: tuple[str, ...] = order_sequence(outer_loop_indices, loop_order)
+    inner_loop_indices_in_order: tuple[str, ...] = order_sequence(inner_loop_indices, loop_order)
+    inner_loop_stride_in_order: tuple[Union[str, int], ...] = tuple(simd_width if loop_number == len(input_operand_shape) - 1 else 1 for loop_number in loop_order)
+
+    header_string: str = generate_header(codelet_name, ((input_operand_name, "i32", input_operand_shape, "DRAM"),), ())
+    output_alloc: str = generate_allocation(output_operand_name, output_operand_shape, "DRAM", "i32")
+    outer_loop_strings: tuple[str, ...] = tuple(generate_outer_for_loop(loop_index, number_of_tiles, dim_size) for loop_index, dim_size, number_of_tiles in zip(outer_loop_indices_in_order, dimension_in_order, dimension_tiling_in_order))
+    output_tile_alloc: str = generate_allocation(output_tile_name, dimension_tile_sizes, output_vmem, "i32")
+    input_tile_load: str = generate_load(input_operand_name, outer_loop_indices, input_tile_name, dimension_tile_sizes, input_vmem) 
+    inner_loop_strings: tuple[str, ...] = tuple(generate_inner_for_loop(loop_index, dim_size, number_of_tiles, loop_stride) for loop_index, dim_size, number_of_tiles, loop_stride in zip(inner_loop_indices_in_order, dimension_in_order, dimension_tiling_in_order, inner_loop_stride_in_order))
+    input_element_load: str = generate_load(input_tile_name, inner_loop_indices, input_element_name, [simd_width], "SIMD")
+    compute: str = compute_operation_generator_function(output_element_name, input_element_name)
+    output_element_store: str = generate_store(output_element_name, output_tile_name, inner_loop_indices)
+    output_tile_store: str = generate_store(output_tile_name, output_operand_name, outer_loop_indices)
+    return_statement: str = generate_return((output_operand_name,))
+
+    number_of_tabs: int = 0
+    codelet_string: str = _format_line(number_of_tabs, header_string) 
+    number_of_tabs += 1
+    codelet_string += _format_line(number_of_tabs, output_alloc)
+    for outer_loop_string in outer_loop_strings:
+        codelet_string += _format_line(number_of_tabs, outer_loop_string)
+        number_of_tabs += 1
+    codelet_string += _format_line(number_of_tabs, output_tile_alloc)
+    codelet_string += _format_line(number_of_tabs, input_tile_load)
+    for inner_loop_string in inner_loop_strings:
+        codelet_string += _format_line(number_of_tabs, inner_loop_string)
+        number_of_tabs += 1
+    codelet_string += _format_line(number_of_tabs, input_element_load)
+    codelet_string += _format_line(number_of_tabs, compute)
+    codelet_string += _format_line(number_of_tabs, output_element_store)
+    number_of_tabs -= len(inner_loop_strings)
+    codelet_string += _format_line(number_of_tabs, output_tile_store)
+    number_of_tabs -= len(outer_loop_strings)
+    codelet_string += _format_line(number_of_tabs, return_statement)
+    return codelet_string
+
+
+def generate_simd_element_wise_relu_codelet(input_operand: tuple[str, tuple[Union[str, int], ...]], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_unary_element_wise_codelet(f"relu{len(input_operand[1])}d", input_operand, output_operand, generate_relu, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_sigmoid_codelet(input_operand: tuple[str, tuple[Union[str, int], ...]], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_unary_element_wise_codelet(f"sigmoid{len(input_operand[1])}d", input_operand, output_operand, generate_sigmoid, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_tanh_codelet(input_operand: tuple[str, tuple[Union[str, int], ...]], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_unary_element_wise_codelet(f"tanh{len(input_operand[1])}d", input_operand, output_operand, generate_tanh, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)

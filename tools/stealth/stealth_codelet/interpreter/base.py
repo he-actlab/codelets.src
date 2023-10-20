@@ -179,12 +179,12 @@ class Interpreter:
         self._state.store(statement.destination_operand_name, self._locals[statement.source_operand_name], store_offset, self._operands[statement.destination_operand_name].location)
 
     def interpret_loop(self, statement: StealthLoop) -> None:
-        if not isinstance(statement.end, StealthLiteral):
-            raise RuntimeError(f"Expected a literal, but got {statement.end}")
+        if not isinstance(statement.number_of_iterations, StealthLiteral):
+            raise RuntimeError(f"Expected a literal, but got {statement.number_of_iterations}")
         if not isinstance(statement.stride, StealthLiteral):
             raise RuntimeError(f"Expected a literal, but got {statement.stride}")
          
-        self._add_loop_index(statement.loop_index_variable_name, statement.end.value, statement.stride.value)
+        self._add_loop_index(statement.loop_index_variable_name, statement.number_of_iterations.value, statement.stride.value)
         status = LoopStatus.CONTINUE
         while status == LoopStatus.CONTINUE:
             self._locals = self._locals.new_child()

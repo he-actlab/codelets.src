@@ -2,15 +2,33 @@ from collections import defaultdict
 
 
 class UniqueNameGenerator:
-    _NAME_ID: dict[str, int] = defaultdict(lambda: 0)
+    _name_id: dict[str, int]
 
-    @staticmethod
-    def get_unique_name(name: str) -> str:
-        name_id = UniqueNameGenerator._NAME_ID[name]
-        UniqueNameGenerator._NAME_ID[name] += 1
+    def __init__(self) -> None:
+        self._name_id = defaultdict(lambda: 0)
+
+    def get_unique_name(self, name: str) -> str:
+        name_id = self._name_id[name]
+        self._name_id[name] += 1
         return f"{name}_{name_id}"
-    
-    @staticmethod
-    def reset() -> None:
-        UniqueNameGenerator._NAME_ID = defaultdict(lambda: 0)
- 
+
+
+def int_to_name(i: int) -> str:
+    D_TO_NAME_MAP: dict[int, str] = {
+        0: "ZERO",
+        1: "ONE",
+        2: "TWO",
+        3: "THREE",
+        4: "FOUR",
+        5: "FIVE",
+        6: "SIX",
+        7: "SEVEN",
+        8: "EIGHT",
+        9: "NINE"
+    }
+
+    i_str = str(i)
+    ret = []
+    for c in i_str:
+        ret.append(D_TO_NAME_MAP[int(c)])
+    return "_".join(ret)
