@@ -47,6 +47,24 @@ def generate_div(destination_operand_name: str, arguments: tuple[Union[str, int]
     return _generate_simd_compute(destination_operand_name, "div", arguments)
 
 
+def generate_max(destination_operand_name: str, arguments: tuple[Union[str, int], ...]) -> str:
+    if len(arguments) != 2:
+        raise ValueError("Invalid number of arguments for max")
+    return _generate_simd_compute(destination_operand_name, "max", arguments)
+
+
+def generate_min(destination_operand_name: str, arguments: tuple[Union[str, int], ...]) -> str:
+    if len(arguments) != 2:
+        raise ValueError("Invalid number of arguments for min")
+    return _generate_simd_compute(destination_operand_name, "min", arguments)
+
+
+def generate_pow(destination_operand_name: str, arguments: tuple[Union[str, int], ...]) -> str:
+    if len(arguments) != 2:
+        raise ValueError("Invalid number of arguments for pow")
+    return _generate_simd_compute(destination_operand_name, "pow", arguments)
+
+
 def generate_relu(destination_operand_name: str, argument: Union[str, int]) -> str:
     return _generate_simd_compute(destination_operand_name, "relu", (argument,))
 
@@ -57,3 +75,7 @@ def generate_sigmoid(destination_operand_name: str, argument: Union[str, int]) -
 
 def generate_tanh(destination_operand_name: str, argument: Union[str, int]) -> str:
     return _generate_simd_compute(destination_operand_name, "tanh", (argument,))
+
+
+def generate_sqrt(destination_operand_name: str, argument: Union[str, int]) -> str:
+    return _generate_simd_compute(destination_operand_name, "sqrt", (argument,))

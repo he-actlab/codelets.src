@@ -22,6 +22,7 @@ class CodeletTemplateLoopBodyBuilder:
         "div": "DIV",
         "max": "MAX",
         "min": "MIN",
+        "pow": "POW",
         "relu": "RELU",
         "tanh": "TANH",
         "sigmoid": "SIGMOID",
