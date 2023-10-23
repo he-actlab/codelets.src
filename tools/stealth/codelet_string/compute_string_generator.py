@@ -18,7 +18,7 @@ def generate_mvmul(destination_operand_name: str, arguments: tuple[str, ...]) ->
     if len(arguments) == 3:
         return _generate_pe_array_compute(destination_operand_name, "mvmul", arguments)
     elif len(arguments) == 4:
-        return _generate_simd_compute(destination_operand_name, "mvmul_bias", arguments)
+        return _generate_pe_array_compute(destination_operand_name, "mvmul_bias", arguments)
     else:
         raise ValueError("Invalid number of arguments for mvmul")
 
