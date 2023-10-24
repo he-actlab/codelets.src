@@ -366,8 +366,8 @@ class _DataflowGraph:
         self._graph = {}
         self._most_recently_added_node = None
     
-    def _get_operands_stored_at_each_layer(self) -> dict[_DataflowGraphNode, list[str]]:
-        operands_stored_at_each_layer: dict[_DataflowGraphNode, list[str]] = {}
+    def _get_operands_stored_at_each_layer(self) -> dict[_DataflowGraphNode, set[str]]:
+        operands_stored_at_each_layer: dict[_DataflowGraphNode, set[str]] = {}
 
         topological_order: list[_DataflowGraphNode] = self.topological_sort()
         incoming_edges: list[list[_DataflowGraphEdge]] = []
@@ -411,16 +411,16 @@ class _DataflowGraph:
  
         current_residual_operands: set[str] = set()
         for node, ((node_incoming_edges, is_incoming_edge_from_previous_node), node_outgoing_edges) in zip(reversed(topological_order), zip(zip(reversed(incoming_edges), reversed(are_incoming_edges_from_previous_node)), reversed(outgoing_edges))):
-            operands_stored_at_each_layer[node] = list()
+            operands_stored_at_each_layer[node] = set()
             for edge, is_edge_from_previous_node in zip(node_incoming_edges, is_incoming_edge_from_previous_node):
                 if not is_edge_from_previous_node:
                     current_residual_operands.add(edge.operand_name)
-                operands_stored_at_each_layer[node].append(edge.operand_name)
+                operands_stored_at_each_layer[node].add(edge.operand_name)
             for edge in node_outgoing_edges:
                 if edge.operand_name in current_residual_operands:
                     current_residual_operands.remove(edge.operand_name)
-                operands_stored_at_each_layer[node].append(edge.operand_name)
-            operands_stored_at_each_layer[node].extend(current_residual_operands)
+                operands_stored_at_each_layer[node].add(edge.operand_name)
+            operands_stored_at_each_layer[node].update(current_residual_operands)
         
         return operands_stored_at_each_layer
 
@@ -571,10 +571,12 @@ class _GreedyBySizeMemoryAllocator(_MemoryAllocator):
         # Assign intermediate tensors greedily
         total_memory_consumption: int = 0
         for tensor_name, (start_layer_index, end_layer_index, size) in sorted(intermediate_tensor_usage_records.items(), key=lambda x: x[1][2], reverse=True):
+            if tensor_name in ordered_allocated_tensor_names:
+                continue
             previous_offset: int = 0
             best_offset: Optional[int] = None
             smallest_gap: Optional[int] = None
-            for allocated_tensor_name in ordered_allocated_tensor_names:
+            for allocated_tensor_name in sorted(ordered_allocated_tensor_names, key=lambda x: assigned_intermediate_tensor_offsets[x]):
                 max_first_node_index: int = max(intermediate_tensor_usage_records[allocated_tensor_name][0], start_layer_index)
                 min_last_node_index: int = min(intermediate_tensor_usage_records[allocated_tensor_name][1], end_layer_index)
                 if max_first_node_index <= min_last_node_index:
@@ -593,6 +595,8 @@ class _GreedyBySizeMemoryAllocator(_MemoryAllocator):
 
         if any(offset is None for offset in assigned_intermediate_tensor_offsets.values()):
             raise RuntimeError("Unable to allocate all intermediate tensors")
+        
+        # self.plot_memory_allocation(intermediate_tensor_usage_records, assigned_intermediate_tensor_offsets)
      
         return {k: v for k, v in assigned_intermediate_tensor_offsets.items() if v is not None}
 
@@ -786,6 +790,42 @@ class EndToEndRelocationTable(RelocationTable):
         for fragment in self.relocatables["ACTIVATION"].bases.values():
             fragment.start += activation_memory_start
             fragment.end += activation_memory_start
+        
+        self._check_for_overlapping_offsets()
 
-        self.print_layout()
+    def _check_for_overlapping_offsets(self) -> None:
+        instr_mem_start: int = sorted(self.relocatables["INSTR_MEM"].bases.values(), key=lambda x: x.start)[0].start
+        instr_mem_end: int = sorted(self.relocatables["INSTR_MEM"].bases.values(), key=lambda x: x.end)[-1].end
+        weight_and_bias_mem_start: int = sorted(self.relocatables["WEIGHT_AND_BIAS"].bases.values(), key=lambda x: x.start)[0].start
+        weight_and_bias_mem_end: int = sorted(self.relocatables["WEIGHT_AND_BIAS"].bases.values(), key=lambda x: x.end)[-1].end
+        activation_mem_start: int = sorted(self.relocatables["ACTIVATION"].bases.values(), key=lambda x: x.start)[0].start
+        activation_mem_end: int = sorted(self.relocatables["ACTIVATION"].bases.values(), key=lambda x: x.end)[-1].end
+
+        if instr_mem_start >= instr_mem_end:
+            raise RuntimeError("Instruction memory start is greater than or equal to instruction memory end")
+        if weight_and_bias_mem_start >= weight_and_bias_mem_end:
+            raise RuntimeError("Weight and bias memory start is greater than or equal to weight and bias memory end")
+        if activation_mem_start >= activation_mem_end:
+            raise RuntimeError("Activation memory start is greater than or equal to activation memory end")
+        
+        if instr_mem_end > weight_and_bias_mem_start:
+            raise RuntimeError("Instruction memory overlaps with weight and bias memory")
+        if weight_and_bias_mem_end > activation_mem_start:
+            raise RuntimeError("Weight and bias memory overlaps with activation memory")
+
+        for ns in ["INSTR_MEM", "WEIGHT_AND_BIAS"]:
+            reloc: Relocation = self.relocatables[ns]
+            sorted_fragments: list[tuple[Union[int, str], Fragment]] = sorted(reloc.bases.items(), key=lambda x: x[1].start)
+            for i in range(len(sorted_fragments) - 1):
+                if sorted_fragments[i][1].end > sorted_fragments[i + 1][1].start:
+                    raise RuntimeError(f"Memory for {sorted_fragments[i][0]} overlaps with memory for {sorted_fragments[i + 1][0]}")
+        
+        activation_reloc: Relocation = self.relocatables["ACTIVATION"]
+        for node in self._dataflow_graph.topological_sort():
+            operands_stored_at_node_layer: list[str] = self._dataflow_graph._get_operands_stored_at_each_layer()[node]
+            node_fragments: list[Fragment] = [activation_reloc.bases[operand_name] for operand_name in operands_stored_at_node_layer if self.get_operand_namespace(self._operand_name_to_operand_map[operand_name]) == "ACTIVATION"]
+            node_fragments.sort(key=lambda x: x.start)
+            for i in range(len(node_fragments) - 1):
+                if node_fragments[i].end > node_fragments[i + 1].start:
+                    raise RuntimeError(f"Memory for {node_fragments[i]} overlaps with memory for {node_fragments[i + 1]} at node {node.name}")
  
