@@ -63,6 +63,8 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
+    return template
+
     updated_dims = []
     if 'TRAINING' in program.hag.meta_cfg.keys() and program.hag.meta_cfg['TRAINING']:
         train = True
