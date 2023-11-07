@@ -1,4 +1,4 @@
-from tools.stealth.stealth_codelet.expression.core import StealthBinaryExpression, StealthExpression, StealthUnaryExpression
+from stealth.stealth_codelet.expression.core import StealthBinaryExpression, StealthExpression, StealthUnaryExpression
 from .core import *
 from .visitor import ExpressionTransformer
 

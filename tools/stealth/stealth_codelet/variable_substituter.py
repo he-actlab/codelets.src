@@ -1,4 +1,4 @@
-from tools.stealth.stealth_codelet.core import StealthAllocation, StealthCompute, StealthIndex, StealthOperand, StealthParameter, StealthStatement
+from stealth.stealth_codelet.core import StealthAllocation, StealthCompute, StealthIndex, StealthOperand, StealthParameter, StealthStatement
 from .core import *
 from .expression import evaluate_expression
 from .visitor import StealthCodeletTransformer

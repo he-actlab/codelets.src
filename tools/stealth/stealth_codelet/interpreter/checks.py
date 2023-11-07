@@ -1,6 +1,6 @@
 from typing import Optional
 
-from tools.stealth.stealth_codelet.core import StealthAllocation
+from stealth.stealth_codelet.core import StealthAllocation
 
 from ...stealth_codelet.core import *
 from ..expression import evaluate_expression, is_expression_constant, StealthExpression, StealthLiteral

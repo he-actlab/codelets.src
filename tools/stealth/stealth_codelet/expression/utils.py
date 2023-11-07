@@ -1,4 +1,4 @@
-from tools.stealth.stealth_codelet.expression.core import StealthVariableName
+from stealth.stealth_codelet.expression.core import StealthVariableName
 from .core import *
 from .visitor import ExpressionVisitor
 

@@ -1,5 +1,5 @@
 from typing import Any, Optional, Union
-from tools.stealth.utils import UniqueNameGenerator, int_to_name
+from stealth.utils import UniqueNameGenerator, int_to_name
 
 
 TAB = "    "

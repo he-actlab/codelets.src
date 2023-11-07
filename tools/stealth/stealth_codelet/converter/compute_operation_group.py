@@ -1,6 +1,6 @@
 import dataclasses
 from typing import Optional
-from tools.stealth.stealth_codelet.core import StealthCodelet, StealthLoad
+from stealth.stealth_codelet.core import StealthCodelet, StealthLoad
 from ..core import *
 from ..expression import get_loop_index_variable_names_in_expression
 from .utils import int_to_name

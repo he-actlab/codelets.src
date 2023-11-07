@@ -132,8 +132,8 @@ test/compilation_output
 tools/compilation_output
 tools/neuroweaver
 benchmarks/compilation_output
-tools/stealth/stealth_outputs
-tools/simulator
+tools/stealth_outputs
+tools/stealth/simulator
 benchmarks/layers/srdfg
 benchmarks/*.srdfg
 #benchmarks/models/srdfg

@@ -827,9 +827,10 @@ class CodeletProgram(object):
             c._domain_tiling = {}
 
             if tile_key not in tiling:
-                print(f"{tile_key} not found in tiling. Leaving tiling to empty")
+                assert f"Need tiling for {tile_key}"
             else:
                 for level, tiling_values in tiling[tile_key].items():
+                    assert level == "1"
                     c._domain_tiling[int(level)] = tiling_values
 
     def get_required_templates(self, nodes: List[pm.Node]):

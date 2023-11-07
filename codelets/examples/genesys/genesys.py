@@ -334,13 +334,9 @@ def compile_genesys(model_name,
     program = initialize_program(graph, genesys, metadata=metadata, mode=mode)
     program.add_compilation_step("template_layout_pass", template_layout_pass, template=True)
 
-    program.add_compilation_step("template_pad_pass", template_pad_pass, template=True,
-                                 )
-
     program.add_compilation_step("update_operand_dtypes", update_operand_dtypes, preproc=True,
                                  stage_kwargs={'dtype_map': dtypes})
     program.add_compilation_step("remove_unused_variables", remove_unused_variables, preproc=True, stage_kwargs={'shaped_nodes': {}})
-    program.add_compilation_step("insert_quantization", quantize_codelet, preproc=True)
     if tiling_search_algorithm == 'min_tiles':
         tile_kwargs = {
                 'factor_fn_name': factor_fn,
@@ -356,14 +352,9 @@ def compile_genesys(model_name,
                        'heuristic_fn': n_tiles_heuristic
                        }
 
-    if store_tiling:
-        tile_kwargs['checkpoint_file'] = str(Path(f"{TILING_DIR}/{graph.name}_tiling_info_checkpoint.json").absolute())
     finalize_instructions = True
-    if do_tile_stage:
-        program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
-        program.add_compilation_step("separate_ops", separate_simd_sa_ops)
-    else:
-        finalize_instructions = False
+    program.add_compilation_step("tile", tile, stage_kwargs=tile_kwargs)
+    program.add_compilation_step("separate_ops", separate_simd_sa_ops)
 
     if do_hoist_stage:
         program.add_compilation_step("hoist", hoist, dependencies=["tile"])

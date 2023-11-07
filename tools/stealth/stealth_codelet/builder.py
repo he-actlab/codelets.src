@@ -4,7 +4,7 @@ from lark.visitors import Interpreter
 from .error import CodeletError, raise_codelet_parse_error
 from .expression import *
 from .core import *
-from tools.stealth.stealth_codelet.converter.utils import UniqueNameGenerator
+from stealth.stealth_codelet.converter.utils import UniqueNameGenerator
 
 
 class StealthCodeletBuilder(Interpreter):

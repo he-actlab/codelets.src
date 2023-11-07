@@ -1,6 +1,6 @@
 from ..core import *
 from ..expression import *
-from tools.stealth.utils import int_to_name, UniqueNameGenerator
+from stealth.utils import int_to_name, UniqueNameGenerator
 
 
 def input_output_dimension_to_name(dimension: StealthExpression) -> str:

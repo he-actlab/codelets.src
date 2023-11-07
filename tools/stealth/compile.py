@@ -1,8 +1,9 @@
+import os
 import polymath as pm
 import json
-from stealth_codelet import StealthCodelet, StealthVariableName, build_codelet_template, collect_tiling
+from stealth.stealth_codelet import StealthCodelet, StealthVariableName, build_codelet_template, collect_tiling
 from codelets.examples.genesys import compile_genesys, load_config, DataGen
-from utils import UniqueNameGenerator
+from stealth.utils import UniqueNameGenerator
 
 
 class DummyTemplate(pm.Template):
@@ -49,6 +50,8 @@ def _create_dummy_polymath_node_from_codelet(codelet: StealthCodelet, dimension_
 
 
 def write_tiling(operation_name: str, tiling_path: str, tiling: dict[str, int]) -> None:
+    if not os.path.exists(tiling_path):
+        os.makedirs(os.path.dirname(tiling_path))
     with open(tiling_path, "w") as f:
         file_contents = {operation_name + "1": {"1": tiling}}
         json.dump(file_contents, f, indent=4)

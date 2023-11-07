@@ -225,16 +225,17 @@ def set_codelet_tiling(cdlt: 'Codelet',
                 continue
             level_counter[level] += 1
 
-            perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
-
-            passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
-            if not passes_hint:
-                print_info(level, p, "tile hints")
-                continue
-            valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
-            if valid_splits is None:
-                print_info(level, p, "valid splits")
-                continue
+            # Checks done elsewhere
+            # perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
+        
+            # passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
+            # if not passes_hint:
+            #     print_info(level, p, "tile hints")
+            #     continue
+            # valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
+            # if valid_splits is None:
+            #     print_info(level, p, "valid splits")
+            #     continue
             last_valid_permutation = p
             search_space[p] = heuristic_fn(p)
             stop_search = stopping_condition(search_space)
