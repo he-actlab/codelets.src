@@ -50,18 +50,18 @@ def _create_dummy_polymath_node_from_codelet(codelet: StealthCodelet, dimension_
 
 
 def write_tiling(operation_name: str, tiling_path: str, tiling: dict[str, int]) -> None:
-    if not os.path.exists(tiling_path):
+    if not os.path.exists(os.path.dirname(tiling_path)):
         os.makedirs(os.path.dirname(tiling_path))
     with open(tiling_path, "w") as f:
         file_contents = {operation_name + "1": {"1": tiling}}
         json.dump(file_contents, f, indent=4)
 
 
-def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, int]) -> None:
+def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, int], thread_id: int = 0) -> None:
     graph = _create_dummy_polymath_node_from_codelet(layer, dimension_sizes)
     cfg = load_config(config_path)
     tiling: dict[str, int] = collect_tiling(layer)
-    write_tiling(layer.operation_name, "stealth_outputs/tiling_info/tiling.json", tiling)
+    write_tiling(layer.operation_name, f"stealth_outputs/tiling_info/tiling_{thread_id}.json", tiling)
     program = compile_genesys(
         model_name=layer.operation_name,
         graph=graph,
@@ -70,14 +70,14 @@ def compile(config_path: str, layer: StealthCodelet, dimension_sizes: dict[str, 
         print_config=False,
         benchmark_path="stealth_outputs",
         # store_tiling=True,
-        tiling_path="tiling.json"
+        tiling_path=f"tiling_{thread_id}.json"
     )
 
     sys_array_size = cfg['ARRAY_M']
     dgen = DataGen(program,
                     single_codelets=False,
                     shared_datagen=False,
-                    dir_ext=f"benchmark{sys_array_size}x{sys_array_size}",
+                    dir_ext=f"benchmark{sys_array_size}x{sys_array_size}_{thread_id}",
                     identifier="stealth",
                     generate_data=False,
                     verbose=False,

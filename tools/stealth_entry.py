@@ -2,9 +2,12 @@ import argparse
 from collections import OrderedDict
 import json
 import string
+import os
 from typing import Callable, Optional
 import numpy as np
 import tqdm
+from threading import Thread, Lock
+from queue import Queue
 from stealth.codelet_string import *
 from stealth.compile import compile
 from stealth.stealth_codelet import *
@@ -43,28 +46,27 @@ def get_random_vmem() -> str:
     return f"VMEM{np.random.randint(1, 2)}"
 
 
-def generate_simd_unary_element_wise_tensor_codelet(codelet_string_generation_function: Callable, unit_tests: tuple[UnitTest, ...], number_of_dimensions: int, config_path: str, num_points: Optional[int], num_jobs: int) -> list:
-    operand_shape: tuple[str, ...] = get_shape_from_number_of_dimensions(number_of_dimensions)
+def generate_simd_unary_element_wise_tensor_codelet(start_index: int, end_index: int, thread_id: int, shared_data: dict[str, Any], output_queue: Queue, lock: Lock, **kwargs: Any) -> None:
+    assert "codelet_string_generation_function" in kwargs, "Missing codelet_string_generation_function argument."
+    codelet_string_generation_function: Callable = kwargs["codelet_string_generation_function"]
+    
+    assert "unit_tests" in kwargs, "Missing unit_tests argument."
+    unit_tests: tuple[UnitTest, ...] = kwargs["unit_tests"]
+
+    assert "config_path" in kwargs, "Missing config_path argument."
+    config_path: str = kwargs["config_path"]
 
     config = load_config(config_path)
-    simd_width = config["ARRAY_N"]
 
-    all_unit_test_dim_sizes = [[] for _ in range(len(unit_tests[0].inputs[0].shape))]
-    for unit_test in unit_tests:
-        for i, dim in enumerate(unit_test.inputs[0].shape):
-            all_unit_test_dim_sizes[i].append(dim)
-    tile_spaces: tuple[TileSpace, ...] = tuple(TileSpace(dim_sizes) for dim_sizes in all_unit_test_dim_sizes)
-    loop_order_space: LoopOrderSpace = LoopOrderSpace(len(operand_shape))
+    assert "operand_shape" in kwargs, "Missing operand_shape argument."
+    operand_shape: tuple[str, ...] = kwargs["operand_shape"]
 
-    if num_points is None:
-        searcher = ExhaustiveSearcher(tile_spaces + (loop_order_space,))
-        num_points = searcher.get_size_of_search_space()
-    else:
-        searcher = RandomSearcher(tile_spaces + (loop_order_space,))
+    assert "simd_width" in kwargs, "Missing simd_width argument."
+    simd_width: int = kwargs["simd_width"]
 
-    operation_output = []
-    for _ in tqdm.tqdm(range(num_points)):
-        search_space_point = searcher.get_next_search_space_point()
+    for _ in range(end_index - start_index):
+        with lock:
+            search_space_point = shared_data["searcher"].get_next_search_space_point()
         tiling_points = search_space_point[:len(operand_shape)]
         assert all(isinstance(tile_space_point, TileSpacePoint) for tile_space_point in tiling_points)
         dimension_tiling: tuple[int, ...] = tuple(tile_space_point.number_of_tiles for tile_space_point in tiling_points)
@@ -93,8 +95,9 @@ def generate_simd_unary_element_wise_tensor_codelet(codelet_string_generation_fu
             operand_dim_sizes = {dim_name: dim_size for dim_name, dim_size in zip(operand_shape, input_operand_shape)}
             checker_error_message = get_codelet_check_error_message(stealth_codelet, operand_dim_sizes, config)
             if checker_error_message is None:
-                compile(config_path, stealth_codelet, operand_dim_sizes)
-                simulator_outputs = run_layer(f"stealth_outputs/compilation_output/test_benchmark{simd_width}x{simd_width}_stealth")
+                with lock:
+                    compile(config_path, stealth_codelet, operand_dim_sizes, thread_id=thread_id)
+                simulator_outputs = run_layer(f"stealth_outputs/compilation_output/test_benchmark{simd_width}x{simd_width}_{thread_id}_stealth")
                 relevant_simulator_outputs = get_relevant_simulator_outputs(simulator_outputs)
                 relevant_simulator_outputs["input_dimensions"] = input_operand_shape 
                 unit_test_outputs.append(relevant_simulator_outputs)
@@ -103,8 +106,34 @@ def generate_simd_unary_element_wise_tensor_codelet(codelet_string_generation_fu
         
         current_codelet_output["unit_test_outputs"] = unit_test_outputs
         if len(unit_test_outputs) > 0:
-            operation_output.append(current_codelet_output)
+            output_queue.put(current_codelet_output)
+
+
+def run_codelet_operation_generation(thread_function: Callable, shared_data: dict[str, Any], num_points: Optional[int], num_jobs: int, **kwargs: Any):
+    os.makedirs("stealth_outputs/tiling_info", exist_ok=True)
     
+    lock = Lock()
+    output_queue = Queue()
+
+    points_per_thread = num_points // num_jobs
+    threads: list[Thread] = []
+    for job in range(num_jobs):
+        start_index = job * points_per_thread
+        end_index = start_index + points_per_thread
+        if job == num_jobs - 1:
+            end_index = num_points
+        
+        thread = Thread(target=thread_function, args=(start_index, end_index, job, shared_data, output_queue, lock), kwargs=kwargs)
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    operation_output = []
+    while not output_queue.empty():
+        operation_output.append(output_queue.get())
+
     return operation_output
 
 
@@ -124,7 +153,34 @@ def generate_simd_relu4d_dataset(operation_id: int, config_path: str, num_points
         unit_tests.append(UnitTest((input_tensor,), (output_tensor,)))
     unit_tests = tuple(unit_tests)
 
-    operation_output = generate_simd_unary_element_wise_tensor_codelet(generate_simd_element_wise_relu_codelet, unit_tests, 4, config_path, num_points, num_jobs)
+
+
+    operand_shape: tuple[str, ...] = get_shape_from_number_of_dimensions(4)
+
+    config = load_config(config_path)
+    simd_width = config["ARRAY_N"]
+
+    all_unit_test_dim_sizes = [[] for _ in range(len(unit_tests[0].inputs[0].shape))]
+    for unit_test in unit_tests:
+        for i, dim in enumerate(unit_test.inputs[0].shape):
+            all_unit_test_dim_sizes[i].append(dim)
+    tile_spaces: tuple[TileSpace, ...] = tuple(TileSpace(dim_sizes) for dim_sizes in all_unit_test_dim_sizes)
+    loop_order_space: LoopOrderSpace = LoopOrderSpace(len(operand_shape))
+
+    if num_points is None:
+        searcher = ExhaustiveSearcher(tile_spaces + (loop_order_space,))
+        num_points = searcher.get_size_of_search_space()
+    else:
+        searcher = RandomSearcher(tile_spaces + (loop_order_space,))
+    
+    shared_data: dict[str, Any] = {
+        "searcher": searcher
+    }
+
+
+
+    operation_output = run_codelet_operation_generation(generate_simd_unary_element_wise_tensor_codelet, shared_data, num_points, num_jobs, codelet_string_generation_function=generate_simd_element_wise_relu_codelet, unit_tests=unit_tests, config_path=config_path, operand_shape=operand_shape, simd_width=simd_width)
+    # operation_output = generate_simd_unary_element_wise_tensor_codelet(generate_simd_element_wise_relu_codelet, unit_tests, 4, config_path, num_points, num_jobs)
     if len(operation_output) > 0:
         with open(f"relu4d.json", "w") as f:
             json.dump({"data": operation_output}, f, indent=4) 
@@ -151,29 +207,6 @@ def main() -> None:
     else:
         raise RuntimeError("Dataset not supported.")
     
-    # codelet_string = generate_simd_element_wise_div_codelet(
-    #     ("input_1_activation", ("N", "H", "C")),
-    #     ("input_2_activation", ("N", "H", "C",)),
-    #     ("output_activation", ("N", "H", "C")),
-    #     16,
-    #     dimension_tiling=(1, 5, 2),
-    #     loop_order=(2, 1, 0),
-    #     input_1_vmem="VMEM1",
-    #     input_2_vmem="VMEM1",
-    #     output_vmem="VMEM1",
-    # )
-    # codelet_string = generate_systolic_array_matmul_codelet(
-    #     ("input_1_activation", ("A", "B", "M", "N")),
-    #     ("weight", ("N", "K")),
-    #     ("bias", ("K",)),
-    #     ("output_activation", ("A", "B", "M", "K")),
-    #     16, 16,
-    # )
-    # print(codelet_string)
-    # parsed_codelet = parse_stealth_codelet(codelet_string)
-    # stealth_codelet = build_codelet_from_parse_tree(parsed_codelet, codelet_string)
-    # compile("../../codelets/examples/genesys/configs/benchmark_16x16.json", stealth_codelet, {"A": 2, "B": 3, "M": 64, "N": 64, "K": 64})
-
 
 if __name__ == "__main__":
     main()

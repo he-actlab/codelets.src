@@ -1,14 +1,22 @@
 import numpy as np
-from stealth_codelet.builder import build_codelet_from_parse_tree
-from stealth_codelet.interpreter import interpret
-from parse import parse_stealth_codelet
-from stealth_codelet.variable_substituter import substitute_variables
+from stealth.stealth_codelet.builder import build_codelet_from_parse_tree
+from stealth.stealth_codelet.interpreter import interpret
+from stealth.parse import parse_stealth_codelet
+from stealth.stealth_codelet.variable_substituter import substitute_variables
 
 
 MAX_INT32 = 2 ** 31 - 1
 MIN_INT32 = -2 ** 31
 MAX_INT8 = 2 ** 7 - 1
 MIN_INT8 = -2 ** 7
+
+
+def reverse_weight_matrix(weight_matrix: np.ndarray) -> np.ndarray:
+    return np.flip(weight_matrix, axis=(0, 1))
+
+
+def floating_point_max_error_to_32_bit_fixed_point_max_error(floating_point_max_error: float, fixed_point_bits: int) -> int:
+    return int(floating_point_max_error * 2 ** fixed_point_bits)
 
 
 def run_codelet(codelet_string: str, input_arrays: tuple[np.ndarray, ...], name_to_variable_map: dict[str, int], verbose: bool = False) -> tuple[np.ndarray, ...]:
@@ -19,7 +27,19 @@ def run_codelet(codelet_string: str, input_arrays: tuple[np.ndarray, ...], name_
     return output_arrays
 
 
-def do_relu4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_tiles: int, W_tiles: int, C_tiles: int, simd_width: int, verbose: bool = False) -> None:
+def check_output_arrays(output_arrays: tuple[np.ndarray, ...], expected_output_arrays: tuple[np.ndarray, ...], max_error: int = 0) -> None:
+    assert len(output_arrays) == len(expected_output_arrays)
+    for output_array, expected_output_array in zip(output_arrays, expected_output_arrays):
+        if max_error == 0:
+            assert np.equal(output_array, expected_output_array).all(), f"Expected output array:\n{expected_output_array}\nActual output array:\n{output_array}"
+        else:
+            # error_matrix = np.abs(np.subtract(output_array, expected_output_array))
+            # output_error = np.sum(error_matrix)
+            max_output_error = np.max(np.abs(np.subtract(output_array, expected_output_array)))
+            assert max_output_error <= max_error, f"Max single-element error {max_output_error} exceeds max single-element error {max_error} where expected output array:\n{expected_output_array}\nActual output array:\n{output_array}"
+
+
+def do_relu4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_tiles: int, W_tiles: int, C_tiles: int, simd_width: int, max_error: int = 0, verbose: bool = False) -> None:
     np.random.seed(0)
     input_array = np.random.randint(MIN_INT32, MAX_INT32, dtype=np.int32, size=input_shape)
     expected_output_array = np.maximum(input_array, 0)
@@ -44,10 +64,9 @@ def do_relu4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_
     name_to_variable_map = {"N": input_shape[0], "H": input_shape[1], "W": input_shape[2], "C": input_shape[3]}
     output_arrays = run_codelet(codelet_string, (input_array,), name_to_variable_map, verbose=verbose)
     assert len(output_arrays) == 1
-    assert np.equal(output_arrays[0], expected_output_array).all(), f"Expected output array:\n{expected_output_array}\nActual output array:\n{output_arrays[0]}"
+    check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
 
-
-def unit_test_codelet_interpreter_on_relu4d(only_fast: bool = True, verbose: bool = False) -> None:
+def unit_test_codelet_interpreter_on_relu4d(only_fast: bool = True, max_error: int = 0, verbose: bool = False) -> None:
     inputs = [
         {"fast": True, "input_shape": (1, 4, 4, 16), "N_tiles": (1,), "H_tiles": (1, 2, 4), "W_tiles": (1, 2, 4), "C_tiles": (1,)},
         {"fast": False, "input_shape": (1, 224, 224, 64), "N_tiles": (1,), "H_tiles": (1, 2, 4, 7, 8, 14, 16, 28, 32, 56, 112, 224), "W_tiles": (1, 2, 4, 7, 8, 14, 16, 28, 32, 56, 112, 224), "C_tiles": (1, 2, 4)}
@@ -62,12 +81,12 @@ def unit_test_codelet_interpreter_on_relu4d(only_fast: bool = True, verbose: boo
                     for C_tiles in input_config["C_tiles"]:
                         if verbose:
                             print(f"Running relu4d test with input shape {input_shape}, N_tiles={N_tiles}, H_tiles={H_tiles}, W_tiles={W_tiles}, C_tiles={C_tiles}")
-                        do_relu4d_unit_test(input_shape, N_tiles, H_tiles, W_tiles, C_tiles, 16, verbose=verbose)
+                        do_relu4d_unit_test(input_shape, N_tiles, H_tiles, W_tiles, C_tiles, 16, max_error=max_error, verbose=verbose)
                         if verbose:
                             print("Passed")
 
 
-def do_gemm_unit_test(data_shape: tuple[int, int], weight_shape: tuple[int, int], bias_shape: tuple[int], M_tiles: int, N_tiles: int, P_tiles: int, array_N: int, array_M: int, verbose: bool = False) -> None:
+def do_gemm_unit_test(data_shape: tuple[int, int], weight_shape: tuple[int, int], bias_shape: tuple[int], M_tiles: int, N_tiles: int, P_tiles: int, array_N: int, array_M: int, max_error: int = 0, verbose: bool = False) -> None:
     assert data_shape[1] == weight_shape[0]
     np.random.seed(0)
     data_array = np.random.randint(MIN_INT8, MAX_INT8, dtype=np.int8, size=data_shape)
@@ -96,12 +115,12 @@ def do_gemm_unit_test(data_shape: tuple[int, int], weight_shape: tuple[int, int]
     return o
 """
     name_to_variable_map = {"M": data_shape[0], "N": data_shape[1], "P": weight_shape[1]}
-    output_arrays = run_codelet(codelet_string, (data_array, weight_array, bias_array), name_to_variable_map, verbose=verbose)
+    output_arrays = run_codelet(codelet_string, (data_array, reverse_weight_matrix(weight_array), bias_array), name_to_variable_map, verbose=verbose)
     assert len(output_arrays) == 1
-    assert np.equal(output_arrays[0], expected_output_array).all(), f"Expected output array:\n{expected_output_array}\nActual output array:\n{output_arrays[0]}"
+    check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
 
 
-def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, verbose: bool = False) -> None:
+def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, max_error: int = 0, verbose: bool = False) -> None:
     inputs = [
         {"fast": True, "data_shape": (1, 16), "weight_shape": (16, 16), "bias_shape": (1, 16), "M_tiles": (1,), "N_tiles": (1,), "P_tiles": (1,)},
         {"fast": False, "data_shape": (1, 1024), "weight_shape": (1024, 2048), "bias_shape": (1, 2048), "M_tiles": (1, 2, 4, 8, 16, 32, 64), "N_tiles": (1,), "P_tiles": (1,)},
@@ -118,14 +137,14 @@ def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, verbose: bool 
                 for P_tiles in input_config["P_tiles"]:
                     if verbose:
                         print(f"Running gemm test with data shape {data_shape}, weight shape {weight_shape}, bias shape {bias_shape}, M_tiles={M_tiles}, N_tiles={N_tiles}, P_tiles={P_tiles}")
-                    do_gemm_unit_test(data_shape, weight_shape, bias_shape, M_tiles, N_tiles, P_tiles, 16, 16, verbose=verbose)
+                    do_gemm_unit_test(data_shape, weight_shape, bias_shape, M_tiles, N_tiles, P_tiles, 16, 16, max_error=max_error, verbose=verbose)
                     if verbose:
                         print("Passed")
 
 
 def unit_test_codelet_interpreter(only_fast: bool = True, verbose: bool = False) -> None:
     # unit_test_codelet_interpreter_on_relu4d(only_fast=only_fast, verbose=verbose)
-    unit_test_codelet_interpreter_on_gemm(only_fast=only_fast, verbose=verbose)
+    unit_test_codelet_interpreter_on_gemm(only_fast=only_fast, max_error=floating_point_max_error_to_32_bit_fixed_point_max_error(1.0, 16), verbose=verbose)
 
 
 if __name__ == "__main__":
