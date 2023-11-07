@@ -4,8 +4,6 @@ from .expression import evaluate_expression, StealthExpression, StealthLiteral, 
 
 
 class TilingCollector(StealthCodeletVisitor):
-    _cache: dict[int, dict[str, int]] = {}
-
     _tiling: dict[str, int]
 
     def __init__(self) -> None:
@@ -13,12 +11,7 @@ class TilingCollector(StealthCodeletVisitor):
         self._tiling = {}
     
     def visit(self, codelet: StealthCodelet) -> None:
-        key: int = id(codelet)
-        if key in TilingCollector._cache:
-            self._tiling = TilingCollector._cache[key]
-        else:
-            super().visit(codelet)
-            TilingCollector._cache[key] = self._tiling
+        super().visit(codelet)
     
     def visit_loop(self, statement: StealthLoop) -> None:
         number_of_iterations: StealthExpression = evaluate_expression(statement.number_of_iterations, {})

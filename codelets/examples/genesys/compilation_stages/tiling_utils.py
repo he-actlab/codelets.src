@@ -210,79 +210,84 @@ def set_codelet_tiling(cdlt: 'Codelet',
             assert v.value is not None
             eval_params[k] = v.value
 
-    while tile_info.levels > level > 0:
-        prev_level = level - 1
-        perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
-        perms, perms_copy = tee(perms)
-        assert perms is not None
-        fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
-        search_space = {}
-        stop_search = False
-        last_valid_permutation = None
-        selected_permutation = None
-        for p in perms:
-            if p in invalid_permutations:
-                continue
-            level_counter[level] += 1
+    if "1" in cdlt.domain_tiling:
+        pass
+        # cdlt.domain_tiling[0] = {key: 1 for key in cdlt.domain_tiling.keys()}
+    else:
+        while tile_info.levels > level > 0:
+            prev_level = level - 1
+            perms = tile_info.get_tile_permutations(level, perm_stack, cdlt)
+            perms, perms_copy = tee(perms)
+            assert perms is not None
+            fixed_shapes = tuple([tile_info.shapes[prev_level][l] for l in tile_info.dims])
+            search_space = {}
+            stop_search = False
+            last_valid_permutation = None
+            selected_permutation = None
+            for p in perms:
+                if p in invalid_permutations:
+                    continue
+                level_counter[level] += 1
 
-            # Checks done elsewhere
-            # perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
-        
-            # passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
-            # if not passes_hint:
-            #     print_info(level, p, "tile hints")
-            #     continue
-            # valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
-            # if valid_splits is None:
-            #     print_info(level, p, "valid splits")
-            #     continue
-            last_valid_permutation = p
-            search_space[p] = heuristic_fn(p)
-            stop_search = stopping_condition(search_space)
+                # Checks done elsewhere
+                # perm_shapes = get_sizes_from_splits(loop_dims_fixed, fixed_shapes, p)
+            
+                # passes_hint = tile_info.check_tile_hints(level, loop_deps_fixed, perm_shapes, p)
+                # if not passes_hint:
+                #     print_info(level, p, "tile hints")
+                #     continue
+                # valid_splits = tile_info.validate_splits(cdlt, p, level, hag)
+                # if valid_splits is None:
+                #     print_info(level, p, "valid splits")
+                #     continue
+                last_valid_permutation = p
+                search_space[p] = heuristic_fn(p)
+                stop_search = stopping_condition(search_space)
 
-            if stop_search:
-                selected_permutation = selection_metric(search_space, p)
-                break
-        # Explored all permutations
-        if not stop_search:
-            selected_permutation = selection_metric(search_space, last_valid_permutation)
-            # Need to reset permutation generator to restart search if return to this level
-            perm_stack[level-1] = perms_copy
-        # If no split available, move up a level and restart search.
-        # Else store current permutation and move down a level.
-        if selected_permutation is None:
-            prev_perm = parent_perms.pop()
-            # Add prev permutation to list of permutations which are known to be invalid
-            invalid_permutations[prev_perm] = 1
-            perm_stack.pop()
-            prev_splits = tile_info.move_up_tile_level(prev_level)
-            level -= 1
-        else:
-            selected_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
-                               enumerate(selected_permutation)}
+                if stop_search:
+                    selected_permutation = selection_metric(search_space, p)
+                    break
+            # Explored all permutations
+            if not stop_search:
+                selected_permutation = selection_metric(search_space, last_valid_permutation)
+                # Need to reset permutation generator to restart search if return to this level
+                perm_stack[level-1] = perms_copy
+            # If no split available, move up a level and restart search.
+            # Else store current permutation and move down a level.
+            if selected_permutation is None:
+                prev_perm = parent_perms.pop()
+                # Add prev permutation to list of permutations which are known to be invalid
+                invalid_permutations[prev_perm] = 1
+                perm_stack.pop()
+                prev_splits = tile_info.move_up_tile_level(prev_level)
+                level -= 1
+            else:
+                selected_splits = {list(tile_info.level_factors[level - 1].keys())[i]: v for i, v in
+                                enumerate(selected_permutation)}
 
-            parent_perms.append(selected_permutation)
-            new_perms = tile_info.move_down_tile_level(cdlt, level, selected_splits)
-            perm_stack.append(new_perms)
-            level += 1
+                parent_perms.append(selected_permutation)
+                new_perms = tile_info.move_down_tile_level(cdlt, level, selected_splits)
+                perm_stack.append(new_perms)
+                level += 1
 
-    if level == 0:
-        other_hint_str = []
-        for k, lh in tile_info.tile_hints.items():
-            if isinstance(lh, dict):
-                for key, hint in lh.items():
-                    other_hint_str.append(f"Level {k}, {cdlt.loop_param_map[key]}: {hint.fn_body_str}")
-        other_hint_str = "\n".join(other_hint_str)
-        hint_str = "\n".join([f"{k} : {v.fn_body_str}" for k, v in tile_info.tile_hints.items() if hasattr(v, 'fn_body_str')])
-        raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
-                           f"Dimensions: {cdlt.operand_dim_mapping()}\n"
-                           f"Operands: {[f'{o.name}: {o.shape}' for o in cdlt.operands]}\n"
-                           f"Times per level: {level_counter}\n"
-                           f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
-                           f"Constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n\n"
-                           f"Level Hints: {hint_str}\n"
-                           f"Loop hints: {other_hint_str}"
-                           )
+        if level == 0:
+            other_hint_str = []
+            for k, lh in tile_info.tile_hints.items():
+                if isinstance(lh, dict):
+                    for key, hint in lh.items():
+                        other_hint_str.append(f"Level {k}, {cdlt.loop_param_map[key]}: {hint.fn_body_str}")
+            other_hint_str = "\n".join(other_hint_str)
+            hint_str = "\n".join([f"{k} : {v.fn_body_str}" for k, v in tile_info.tile_hints.items() if hasattr(v, 'fn_body_str')])
+            raise RuntimeError(f"Unable to find adequate tiling for Codelet {cdlt.cdlt_uid}:"
+                            f"Dimensions: {cdlt.operand_dim_mapping()}\n"
+                            f"Operands: {[f'{o.name}: {o.shape}' for o in cdlt.operands]}\n"
+                            f"Times per level: {level_counter}\n"
+                            f"Op: {cdlt.op_name}{cdlt.instance_id}\n"
+                            f"Constraints:{[(k, t.fn_body_str) for k, t in tile_info.constraint_fps.items()]}\n\n"
+                            f"Level Hints: {hint_str}\n"
+                            f"Loop hints: {other_hint_str}"
+                            )
+    
     # Lastly, update operands
     for o in cdlt.all_operands:
         for idx, a in enumerate(o.data_moves):
