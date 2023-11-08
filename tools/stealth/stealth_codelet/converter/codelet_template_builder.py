@@ -40,8 +40,8 @@ class CodeletTemplateLoopBodyBuilder:
 
     def __init__(self, codelet: StealthCodelet, dummy_ops: dict[str, DummyOp], operands: dict[str, OperandTemplate]) -> None:
         self._codelet = codelet
-        self._dummy_ops = dummy_ops.copy()
-        self._operands = operands.copy()
+        self._dummy_ops = dummy_ops
+        self._operands = operands
     
     def build(self, codelet_template: CodeletTemplate, compute_operation_group: ComputeOperationGroup, compute_operation_output_operands: list[OperandTemplate], loop_indices: dict[str, LoopTemplate]) -> None:
         compute_operation_index: int = 0
@@ -153,10 +153,10 @@ class CodeletTemplateBuilder:
     def _is_operand_exist(self, operand_name: str) -> bool:
         return operand_name in self._operands
     
-    def build(self, codelet_template: CodeletTemplate, input_dtype, acc_dtype) -> None:
+    def build(self, codelet_template: CodeletTemplate, SIMD_SIZE, input_dtype, acc_dtype) -> None:
         self._create_dimension_dummy_ops(codelet_template)
         self._create_argument_operands(codelet_template, input_dtype, acc_dtype)
-        self._build_codelet_template_body(codelet_template, input_dtype, acc_dtype)
+        self._build_codelet_template_body(codelet_template, SIMD_SIZE, input_dtype, acc_dtype)
     
     def _create_dimension_dummy_ops(self, codelet_template: CodeletTemplate) -> None:
         self._dimension_dummy_op_creation_helper(codelet_template, self._codelet.inputs, is_input=True)
@@ -222,7 +222,7 @@ class CodeletTemplateBuilder:
         else:
             raise RuntimeError(f"Cannot convert {type(expression)} to dummy op.")
     
-    def _build_codelet_template_body(self, codelet_template: CodeletTemplate, input_dtype, acc_dtype) -> None:
+    def _build_codelet_template_body(self, codelet_template: CodeletTemplate, SIMD_SIZE, input_dtype, acc_dtype) -> None:
         compute_operation_groups: list[ComputeOperationGroup] = build_compute_operation_groups(self._codelet)
         self._create_top_level_allocated_operands(codelet_template, compute_operation_groups, input_dtype, acc_dtype)
         self._link_tile_and_element_stealth_operands_to_top_level_codelet_template_operands(compute_operation_groups)
@@ -230,8 +230,8 @@ class CodeletTemplateBuilder:
         loop_body_builder = CodeletTemplateLoopBodyBuilder(self._codelet, self._dummy_ops, self._operands)
 
         for compute_operation_group, compute_operation_group_output_operands in zip(compute_operation_groups, compute_operation_output_operands):
-            print(compute_operation_group)
-            start_config, end_config = self._create_config_functions(compute_operation_group)
+            # print(compute_operation_group)
+            start_config, end_config = self._create_config_functions(compute_operation_group, SIMD_SIZE)
 
             start_config(codelet_template)
             loop_templates: OrderedDict[str, LoopTemplate] = self._create_loop_templates(codelet_template, compute_operation_group)
@@ -268,11 +268,11 @@ class CodeletTemplateBuilder:
             ret.append([])
         return ret
     
-    def _create_config_functions(self, compute_operation_group: ComputeOperationGroup) -> tuple[Callable[[CodeletTemplate], None], Callable[[CodeletTemplate], None]]:
+    def _create_config_functions(self, compute_operation_group: ComputeOperationGroup, SIMD_SIZE) -> tuple[Callable[[CodeletTemplate], None], Callable[[CodeletTemplate], None]]:
         if compute_operation_group.is_systolic_array_operation:
             return (self._systolic_array_start_config, self._systolic_array_end_config)
         elif compute_operation_group.is_simd_operation:
-            return (partial(self._simd_start_config, immediates=[(immediate_name, self._constant_expression_to_dummy_op(self._codelet.get_immediate(immediate_name))) for immediate_name in compute_operation_group.immediates]), self._simd_end_config)
+            return (partial(self._simd_start_config, SIMD_SIZE=SIMD_SIZE, immediates=[(immediate_name, self._constant_expression_to_dummy_op(self._codelet.get_immediate(immediate_name))) for immediate_name in compute_operation_group.immediates]), self._simd_end_config)
         else:
             raise RuntimeError(f"Somehow got a compute operation group that is neither a systolic array operation nor a SIMD operation.")
 
@@ -290,15 +290,15 @@ class CodeletTemplateBuilder:
         codelet_template.configure("end", "OBUF")
         codelet_template.configure("end", "systolic_array")
     
-    def _simd_start_config(self, codelet_template: CodeletTemplate, immediates: list[tuple[str, Any]]) -> None:
+    def _simd_start_config(self, codelet_template: CodeletTemplate, SIMD_SIZE, immediates: list[tuple[str, Any]]) -> None:
         immediate_dummy_ops = []
         for immediate_name, immediate_value in immediates:
             immediate_dummy_ops.append(codelet_template.dummy_op(immediate_name, immediate_value))
-            temp_operand: OperandTemplate = codelet_template.create_temp_operand([self._codelet.get_simd_width()], "IMM", name=immediate_name)
-            self._add_operand(str(immediate_value), temp_operand)
+            temp_operand: OperandTemplate = codelet_template.create_temp_operand([SIMD_SIZE], "IMM", name=immediate_name)
+            self._add_operand(immediate_name, temp_operand)
         codelet_template.configure("start", "SIMD")
         for immediate_dummy_op in immediate_dummy_ops:
-            codelet_template.configure("start", immediate_value=immediate_dummy_op)
+            codelet_template.configure("start", immediate_value=immediate_dummy_op, target="IMM")
             
     def _simd_end_config(self, codelet_template: CodeletTemplate) -> None:
         codelet_template.configure("end", "SIMD")
@@ -330,6 +330,7 @@ def build_codelet_template(codelet: StealthCodelet) -> Callable[[ArchitectureGra
         acc_dtype = DTYPE_MAP[ f"FXP{hag.meta_cfg['ACC_WIDTH']}"] 
         builder = CodeletTemplateBuilder(codelet)
         with CodeletTemplate(codelet.operation_name) as codelet_template:
-            builder.build(codelet_template, input_dtype, acc_dtype)
+            SIMD_SIZE = codelet_template.dummy_op("SIMD_SIZE", codelet_template.hag.all_subgraph_nodes['SIMD'].dimensions[0])
+            builder.build(codelet_template, SIMD_SIZE, input_dtype, acc_dtype)
         return codelet_template
     return codelet_template_func

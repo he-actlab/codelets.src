@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Any
 
 
 class UniqueNameGenerator:
@@ -32,3 +33,7 @@ def int_to_name(i: int) -> str:
     for c in i_str:
         ret.append(D_TO_NAME_MAP[int(c)])
     return "_".join(ret)
+
+
+def repeat(element: Any, num_repeats: int) -> tuple[Any, ...]:
+    return tuple(element for _ in range(num_repeats))

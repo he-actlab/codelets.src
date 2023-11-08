@@ -67,7 +67,7 @@ def check_pe_array_dimensions(pe_array_width: int, pe_array_height: int) -> None
 
 def check_tiling(tiling: tuple[int, ...], number_of_dimensions: int) -> None:
     assert len(tiling) == number_of_dimensions
-    assert all(tile_size > 0 for tile_size in tiling)
+    assert all(tile_size > 0 for tile_size in tiling), f"All tile sizes must be greater than 0 ({tiling}))"
 
 
 def create_default_tiling(dimensions: tuple[Union[str, int], ...]) -> tuple[int, ...]:

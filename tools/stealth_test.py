@@ -23,7 +23,7 @@ def run_codelet(codelet_string: str, input_arrays: tuple[np.ndarray, ...], name_
     tree = parse_stealth_codelet(codelet_string, verbose=verbose)
     codelet = build_codelet_from_parse_tree(tree, codelet_string, verbose=verbose)
     codelet = substitute_variables(codelet, name_to_variable_map)
-    output_arrays = interpret(codelet, input_arrays)
+    output_arrays = interpret(codelet, input_arrays, 16, 16)
     return output_arrays
 
 
@@ -115,15 +115,51 @@ def do_gemm_unit_test(data_shape: tuple[int, int], weight_shape: tuple[int, int]
     return o
 """
     name_to_variable_map = {"M": data_shape[0], "N": data_shape[1], "P": weight_shape[1]}
-    output_arrays = run_codelet(codelet_string, (data_array, reverse_weight_matrix(weight_array), bias_array), name_to_variable_map, verbose=verbose)
+    output_arrays = run_codelet(codelet_string, (data_array, weight_array, bias_array), name_to_variable_map, verbose=verbose)
+    assert len(output_arrays) == 1
+    check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
+
+
+def do_gemm_unit_test_on_simd(data_shape: tuple[int, int], weight_shape: tuple[int, int], bias_shape: tuple[int], M_tiles: int, N_tiles: int, P_tiles: int, array_N: int, array_M: int, max_error: int = 0, verbose: bool = False) -> None:
+    assert data_shape[1] == weight_shape[0]
+    np.random.seed(0)
+    data_array = np.random.randint(MIN_INT8, MAX_INT8, dtype=np.int8, size=data_shape)
+    weight_array = np.random.randint(MIN_INT8, MAX_INT8, dtype=np.int8, size=weight_shape)
+    bias_array = np.random.randint(MIN_INT32, MAX_INT32, dtype=np.int32, size=bias_shape)
+    expected_output_array = np.matmul(np.int32(data_array), np.int32(weight_array)) + bias_array
+    codelet_string = f"""def gemm_bias(x: i32[M, N] @ DRAM, w: i32[N, P] @ DRAM, b: i32[P] @ DRAM):
+    o = alloc([M, P], DRAM, i32)
+    for p in loop({P_tiles}, P // {P_tiles}):
+        b1 = load(b[p], [P // {P_tiles}], VMEM2)
+        for n in loop({N_tiles}, N // {N_tiles}):
+            w1 = load(w[n, p], [N // {N_tiles}, P // {P_tiles}], VMEM2)
+            for m in loop({M_tiles}, M // {M_tiles}):
+                x1 = load(x[m, n], [M // {M_tiles}, N // {N_tiles}], VMEM1)
+                o1 = load(o[m, p], [M // {M_tiles}, P // {P_tiles}], VMEM1)
+                for p1 in loop((P // {P_tiles}) // {array_M}, {array_M}):
+                    b2 = load(b1[p1], [1, {array_N}], PE_ARRAY)
+                    for n1 in loop((N // {N_tiles}) // {array_N}, {array_N}):
+                        w2 = load(w1[n1, p1], [{array_N}, {array_M}], SIMD)
+                        for m1 in loop(M // {M_tiles}):
+                            x2 = load(x1[m1, n1], [1, {array_N}], SIMD)
+                            o2 = load(o1[m1, p1], [1, {array_M}], SIMD)
+                            o3 = macc(x2, w2, o2, SIMD)
+                            store(o1[m1, p1], o3)
+                store(o[m, p], o1)
+    return o
+"""
+    name_to_variable_map = {"M": data_shape[0], "N": data_shape[1], "P": weight_shape[1]}
+    output_arrays = run_codelet(codelet_string, (data_array, weight_array, bias_array), name_to_variable_map, verbose=verbose)
     assert len(output_arrays) == 1
     check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
 
 
 def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, max_error: int = 0, verbose: bool = False) -> None:
     inputs = [
-        {"fast": True, "data_shape": (1, 16), "weight_shape": (16, 16), "bias_shape": (1, 16), "M_tiles": (1,), "N_tiles": (1,), "P_tiles": (1,)},
-        {"fast": False, "data_shape": (1, 1024), "weight_shape": (1024, 2048), "bias_shape": (1, 2048), "M_tiles": (1, 2, 4, 8, 16, 32, 64), "N_tiles": (1,), "P_tiles": (1,)},
+        {"fast": True, "data_shape": (1, 16), "weight_shape": (16, 16), "bias_shape": (16,), "M_tiles": (1,), "N_tiles": (1,), "P_tiles": (1,)},
+        {"fast": True, "data_shape": (2, 16), "weight_shape": (16, 16), "bias_shape": (16,), "M_tiles": (1, 2), "N_tiles": (1,), "P_tiles": (1,)},
+        {"fast": True, "data_shape": (1, 16), "weight_shape": (16, 32), "bias_shape": (32,), "M_tiles": (1,), "N_tiles": (1,), "P_tiles": (1, 2)},
+        {"fast": False, "data_shape": (1, 1024), "weight_shape": (1024, 2048), "bias_shape": (2048,), "M_tiles": (1, 2, 4, 8, 16, 32, 64), "N_tiles": (1,), "P_tiles": (1,)},
         # {"fast": False, "data_shape": (1, 1024), "weight_shape": (1024, 2048), "bias_shape": (1, 2048), "M_tiles": (1, 2, 4, 8, 16, 32, 64), "N_tiles": (1, 2, 4, 8, 16, 32, 64), "P_tiles": (1, 2, 4, 8, 16, 32, 64)},
     ]
     for input_config in inputs:
@@ -144,7 +180,7 @@ def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, max_error: int
 
 def unit_test_codelet_interpreter(only_fast: bool = True, verbose: bool = False) -> None:
     # unit_test_codelet_interpreter_on_relu4d(only_fast=only_fast, verbose=verbose)
-    unit_test_codelet_interpreter_on_gemm(only_fast=only_fast, max_error=floating_point_max_error_to_32_bit_fixed_point_max_error(1.0, 16), verbose=verbose)
+    unit_test_codelet_interpreter_on_gemm(only_fast=only_fast, max_error=floating_point_max_error_to_32_bit_fixed_point_max_error(0, 16), verbose=verbose)
 
 
 if __name__ == "__main__":

@@ -235,3 +235,124 @@ def generate_simd_element_wise_min_codelet(input_operand_1: tuple[str, tuple[Uni
 
 def generate_simd_element_wise_pow_codelet(input_operand_1: tuple[str, tuple[Union[str, int], ...]], input_operand_2: tuple[str, tuple[Union[str, int], ...]], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_1_vmem: Optional[str] = None, input_2_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
     return _generate_simd_binary_element_wise_tensor_codelet("pow", input_operand_1, input_operand_2, output_operand, generate_pow, simd_width, dimension_tiling, loop_order, input_1_vmem, input_2_vmem, output_vmem)
+
+
+def _generate_simd_binary_element_wise_tensor_with_scalar_codelet(codelet_name: str, input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], compute_operation_generator_function: Callable[[str, Any], str], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    if isinstance(input_operand_1, int) and isinstance(input_operand_2, int):
+        raise ValueError("Cannot generate codelet for two scalars.")
+
+    if isinstance(input_operand_1, int):
+        is_scalar_first: bool = True
+        scalar = input_operand_1
+        input_operand_name, input_operand_shape = input_operand_2
+    else:
+        is_scalar_first: bool = False
+        scalar = input_operand_2
+        input_operand_name, input_operand_shape = input_operand_1
+
+    output_operand_name, output_operand_shape = output_operand
+    check_operand_names(input_operand_name, output_operand_name)
+    check_operand_shapes(input_operand_shape, output_operand_shape)
+    codelet_name = create_operation_name(codelet_name, input_operand_shape, ())
+    assert len(input_operand_shape) != 0, f"Operand must not be a scalar"
+    iterable_dimensions = input_operand_shape
+
+    input_operand_size_and_offset_indices: tuple[int, ...] = tuple(i for i in range(len(iterable_dimensions) - len(input_operand_shape), len(iterable_dimensions)))
+    input_operand_loop_dependencies: set[int] = set(input_operand_size_and_offset_indices) 
+    if dimension_tiling is None:
+        dimension_tiling = create_default_tiling(iterable_dimensions)
+    check_tiling(dimension_tiling, len(iterable_dimensions))
+    dimension_tile_sizes: tuple[int, ...] = create_tile_size_strings(iterable_dimensions, dimension_tiling)
+    if loop_order is None:
+        loop_order = create_default_loop_order(iterable_dimensions)
+    check_loop_order(loop_order, len(iterable_dimensions))
+    if input_vmem is None:
+        input_vmem = "VMEM1"
+    check_vmem(input_vmem)
+    if output_vmem is None:
+        output_vmem = "VMEM1"
+    check_vmem(output_vmem)
+    check_simd_width(simd_width)
+
+    input_tile_name: str = name_operand_tile(input_operand_name)
+    output_tile_name: str = name_operand_tile(output_operand_name)
+    input_element_name: str = name_operand_element(input_operand_name)
+    output_element_name: str = name_operand_element(output_operand_name)
+
+    intermediate_names_for_loop_indices: tuple[str, ...] = create_intermediate_names_for_loop_indices(iterable_dimensions)
+    outer_loop_indices: tuple[str, ...] = create_outer_loop_index_names(intermediate_names_for_loop_indices)
+    inner_loop_indices: tuple[str, ...] = create_inner_loop_index_names(intermediate_names_for_loop_indices)
+
+    dimension_in_order: tuple[Union[str, int], ...] = order_sequence(iterable_dimensions, loop_order)
+    dimension_tiling_in_order: tuple[int, ...] = order_sequence(dimension_tiling, loop_order)
+    outer_loop_indices_in_order: tuple[str, ...] = order_sequence(outer_loop_indices, loop_order)
+    inner_loop_indices_in_order: tuple[str, ...] = order_sequence(inner_loop_indices, loop_order)
+    inner_loop_stride_in_order: tuple[Union[str, int], ...] = tuple(simd_width if loop_number == (len(iterable_dimensions) - 1) else 1 for loop_number in loop_order)
+
+    header_string: str = generate_header(codelet_name, ((input_operand_name, "i32", input_operand_shape, "DRAM"),), ())
+    output_alloc: str = generate_allocation(output_operand_name, output_operand_shape, "DRAM", "i32")
+    outer_loop_strings: tuple[str, ...] = tuple(generate_outer_for_loop(loop_index, number_of_tiles, dim_size) for loop_index, dim_size, number_of_tiles in zip(outer_loop_indices_in_order, dimension_in_order, dimension_tiling_in_order))
+    output_tile_alloc: str = generate_allocation(output_tile_name, dimension_tile_sizes, output_vmem, "i32")
+    input_tile_load: str = generate_load(input_operand_name, index_with_tuple(outer_loop_indices, input_operand_size_and_offset_indices), input_tile_name, index_with_tuple(dimension_tile_sizes, input_operand_size_and_offset_indices), input_vmem)
+    inner_loop_strings: tuple[str, ...] = tuple(generate_inner_for_loop(loop_index, dim_size, number_of_tiles, loop_stride) for loop_index, dim_size, number_of_tiles, loop_stride in zip(inner_loop_indices_in_order, dimension_in_order, dimension_tiling_in_order, inner_loop_stride_in_order))
+    input_element_load: str = generate_load(input_tile_name, index_with_tuple(inner_loop_indices, input_operand_size_and_offset_indices), input_element_name, (simd_width,), "SIMD")
+    compute: str = compute_operation_generator_function(output_element_name, (scalar, input_element_name) if is_scalar_first else (input_element_name, scalar))
+    output_element_store: str = generate_store(output_element_name, output_tile_name, inner_loop_indices)
+    output_tile_store: str = generate_store(output_tile_name, output_operand_name, outer_loop_indices)
+    return_statement: str = generate_return((output_operand_name,))
+
+    number_of_tabs: int = 0
+    codelet_string: str = format_line(number_of_tabs, header_string)
+    number_of_tabs += 1
+    codelet_string += format_line(number_of_tabs, output_alloc)
+    codelet_string += create_loops_with_dependent_statements(
+        outer_loop_strings, loop_order, 
+        (
+            (input_tile_load, input_operand_loop_dependencies), 
+        ),
+        current_number_of_tabs=number_of_tabs
+    )
+    number_of_tabs += len(outer_loop_strings)
+    codelet_string += format_line(number_of_tabs, output_tile_alloc)
+    codelet_string += create_loops_with_dependent_statements(
+        inner_loop_strings, loop_order,
+        (
+            (input_element_load, input_operand_loop_dependencies),
+        ),
+        current_number_of_tabs=number_of_tabs
+    ) 
+    number_of_tabs += len(inner_loop_strings)
+    codelet_string += format_line(number_of_tabs, compute)
+    codelet_string += format_line(number_of_tabs, output_element_store)
+    number_of_tabs -= len(inner_loop_strings)
+    codelet_string += format_line(number_of_tabs, output_tile_store)
+    number_of_tabs -= len(outer_loop_strings)
+    codelet_string += format_line(number_of_tabs, return_statement)
+    return codelet_string
+
+def generate_simd_element_wise_add_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("add", input_operand_1, input_operand_2, output_operand, generate_add, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_sub_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("sub", input_operand_1, input_operand_2, output_operand, generate_sub, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_mul_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("mul", input_operand_1, input_operand_2, output_operand, generate_mul, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_div_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("div", input_operand_1, input_operand_2, output_operand, generate_div, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_max_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("max", input_operand_1, input_operand_2, output_operand, generate_max, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_min_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None, input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("min", input_operand_1, input_operand_2, output_operand, generate_min, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)
+
+
+def generate_simd_element_wise_pow_scalar_codelet(input_operand_1: Union[tuple[str, tuple[Union[str, int], ...]], int], input_operand_2: Union[tuple[str, tuple[Union[str, int], ...]], int], output_operand: tuple[str, tuple[Union[str, int], ...]], simd_width: int, dimension_tiling: Optional[tuple[int, ...]] = None, loop_order: Optional[tuple[int, ...]] = None,input_vmem: Optional[str] = None, output_vmem: Optional[str] = None) -> str:
+    return _generate_simd_binary_element_wise_tensor_with_scalar_codelet("pow", input_operand_1, input_operand_2, output_operand, generate_pow, simd_width, dimension_tiling, loop_order, input_vmem, output_vmem)

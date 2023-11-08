@@ -145,6 +145,7 @@ class MemoryTracker:
 
 class OnChipMemoryUseErrorMessageGetter(StealthCodeletVisitor):
     _VMEMS = ("VMEM1", "VMEM2")
+    _BUFS = ("IBUF", "WBUF", "BBUF", "OBUF")
     _COMPUTES = ("SIMD", "PE_ARRAY")
 
     _config: dict[str, Union[int, str, bool]]
@@ -172,6 +173,10 @@ class OnChipMemoryUseErrorMessageGetter(StealthCodeletVisitor):
     @property
     def _acc_dtype_width(self) -> int:
         return self._config["ACC_WIDTH"]
+    
+    @property
+    def _data_dtype_width(self) -> int:
+        return self._config["DATA_WIDTH"]
     
     @property
     def _pe_array_width(self) -> int:
@@ -208,6 +213,8 @@ class OnChipMemoryUseErrorMessageGetter(StealthCodeletVisitor):
         allocated_operand_integer_dimensions = tuple(map(lambda s: s.value, statement.size)) 
         if statement.location in OnChipMemoryUseErrorMessageGetter._VMEMS: 
             allocated_operand_total_size = math.prod(allocated_operand_integer_dimensions) * self._acc_dtype_width
+        elif statement.location in OnChipMemoryUseErrorMessageGetter._BUFS:
+            allocated_operand_total_size = math.prod(allocated_operand_integer_dimensions) * self._data_dtype_width
         elif statement.location == "DRAM":
             allocated_operand_total_size = math.prod(allocated_operand_integer_dimensions) * self._acc_dtype_width
         
@@ -228,6 +235,8 @@ class OnChipMemoryUseErrorMessageGetter(StealthCodeletVisitor):
         loaded_operand_integer_dimensions = tuple(map(lambda s: s.value, statement.size)) 
         if statement.location in OnChipMemoryUseErrorMessageGetter._VMEMS: 
             loaded_operand_total_size = math.prod(loaded_operand_integer_dimensions) * self._acc_dtype_width
+        elif statement.location in OnChipMemoryUseErrorMessageGetter._BUFS:
+            loaded_operand_total_size = math.prod(loaded_operand_integer_dimensions) * self._data_dtype_width
         
         if loaded_operand_total_size > self._memory_tracker.get_memory_capacity(statement.location):
             self._error_message = self._get_total_size_error_message(statement.destination_operand_name, loaded_operand_integer_dimensions, loaded_operand_total_size, statement.location)

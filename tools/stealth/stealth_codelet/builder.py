@@ -30,6 +30,7 @@ class StealthCodeletBuilder(Interpreter):
 
     _codelet_string: str
     _current_loop_stack: list[StealthLoop]
+    _imm_unique_name_generator: UniqueNameGenerator
 
     _operation_name: Optional[str]
     _used_var_names: set[str]
@@ -45,6 +46,7 @@ class StealthCodeletBuilder(Interpreter):
         super().__init__()
         self._codelet_string = codelet_string
         self._current_loop_stack = []
+        self._imm_unique_name_generator = UniqueNameGenerator()
 
         self._operation_name = None
         self._used_var_names = set()
@@ -343,16 +345,19 @@ class StealthCodeletBuilder(Interpreter):
                 raise CodeletError(f"Operation \"{operation_name}\" is only supported on the SIMD")
             if len(compute_arguments) != 2:
                 raise CodeletError(f"Expected 2 arguments for operation \"{operation_name}\" but instead got {len(compute_arguments)}")
-            
-            operand1 = self._operands[compute_arguments[0]]
-            operand2 = self._operands[compute_arguments[1]]
+ 
 
-            if len(operand1.shape) != 1:
-                raise CodeletError(f"Expected first argument of operation \"{operation_name}\" to be a 1D tensor but instead got a {len(operand1.shape)}D tensor")
-            if len(operand2.shape) != 1:
-                raise CodeletError(f"Expected second argument of operation \"{operation_name}\" to be a 1D tensor but instead got a {len(operand2.shape)}D tensor")
-            if operand1.shape != operand2.shape:
-                raise CodeletError(f"Expected arguments of operation \"{operation_name}\" to have the same shape but instead got {operand1.shape} and {operand2.shape}")
+            if compute_arguments[0] not in self._immediates:
+                operand1 = self._operands[compute_arguments[0]]
+                if len(operand1.shape) != 1:
+                    raise CodeletError(f"Expected first argument of operation \"{operation_name}\" to be a 1D tensor but instead got a {len(operand1.shape)}D tensor")
+            if compute_arguments[1] not in self._immediates:
+                operand2 = self._operands[compute_arguments[1]]
+                if len(operand2.shape) != 1:
+                    raise CodeletError(f"Expected second argument of operation \"{operation_name}\" to be a 1D tensor but instead got a {len(operand2.shape)}D tensor")
+            if compute_arguments[0] not in self._immediates and compute_arguments[1] not in self._immediates:
+                if operand1.shape != operand2.shape:
+                    raise CodeletError(f"Expected arguments of operation \"{operation_name}\" to have the same shape but instead got {operand1.shape} and {operand2.shape}")
         elif operation_name == "macc":
             raise NotImplementedError
         elif operation_name in ["relu", "leaky_relu", "sigmoid", "tanh", "exp", "log2", "sqrt", "inv_sqrt"]:
@@ -532,8 +537,8 @@ class StealthCodeletBuilder(Interpreter):
             if is_expression_constant(expression):
                 if location == "PE_ARRAY":
                     raise CodeletError(f"Constant expressions are not supported on the PE_ARRAY")
-                value = evaluate_expression(expression)
-                immediate_name = UniqueNameGenerator.get_unique_name("immediate")
+                value = evaluate_expression(expression, {})
+                immediate_name = self._imm_unique_name_generator.get_unique_name("immediate")
                 self._immediates[immediate_name] = value
                 arguments.append(immediate_name)
             elif isinstance(expression, StealthVariableName) and expression.name in self._operands:

@@ -7,7 +7,7 @@ def _pad_tuple(t: tuple[int, ...], length: int, pad_value: int = 0) -> tuple[int
 
 
 def _get_padded_size_and_offset(size: tuple[int, ...], offset: tuple[int, ...]) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    indexed_shape_length = max(len(size), len(offset))
+    indexed_shape_length = len(offset)
     size = _pad_tuple(size, indexed_shape_length, pad_value=1)
     offset = _pad_tuple(offset, indexed_shape_length)
     return size, offset
@@ -41,8 +41,10 @@ class Memory:
             assert all(isinstance(s, int) for s in size)
             assert all(isinstance(o, int) for o in offset)
             size, offset = _get_padded_size_and_offset(size, offset)
-            indices = tuple(slice(o, o + s) for o, s in zip(offset, size))
+            assert len(offset) == len(size[len(size) - len(offset):]) 
+            indices = tuple(slice(o, o + s) for o, s in zip(offset, size[len(size) - len(offset):]))
             loaded_value: np.ndarray = self._memory[source_operand_name][indices]
+            loaded_value = loaded_value.reshape(size)
         else:
             raise RuntimeError(f"Cannot load {size} elements from {offset} in {self._name}")
         return InterpreterOperand(loaded_value)

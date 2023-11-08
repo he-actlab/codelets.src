@@ -18,7 +18,7 @@ def _sequence_of_expressions_to_sequence_of_integers(expressions: list[StealthEx
     return tuple(ret)
 
 
-def _perform_compute_unit_operation(operation_name: str, compute_unit: str, arguments: list[np.ndarray]) -> np.ndarray:
+def _perform_compute_unit_operation(operation_name: str, compute_unit: str, arguments: list[np.ndarray], accumulator: np.ndarray) -> np.ndarray:
     if operation_name == "mvmul":
         if len(arguments) != 3:
             raise RuntimeError(f"Expected 3 arguments, but got {len(arguments)}")
@@ -58,8 +58,8 @@ def _perform_compute_unit_operation(operation_name: str, compute_unit: str, argu
                 raise RuntimeError(f"Expected an array with dtype int32, but got {arguments[2].dtype}")
             if arguments[3].dtype != np.int32:
                 raise RuntimeError(f"Expected an array with dtype int32, but got {arguments[3].dtype}")
-        return np.matmul(np.int32(arguments[0]), np.int32(arguments[1])) + arguments[2] + arguments[3]
-    elif operation_name in ["add", "sub", "mul", "div", "max", "min"]:
+        return np.matmul(np.int32(arguments[0]), np.int32(arguments[1])) + arguments[2] + arguments[3] 
+    elif operation_name in ["add", "sub", "mul", "div", "max", "min", "macc"]:
         if len(arguments) != 2:
             raise RuntimeError(f"Expected 2 arguments, but got {len(arguments)}")
         
@@ -75,6 +75,8 @@ def _perform_compute_unit_operation(operation_name: str, compute_unit: str, argu
             return np.maximum(arguments[0], arguments[1])
         elif operation_name == "min":
             return np.minimum(arguments[0], arguments[1])
+        elif operation_name == "macc":
+            return arguments[0] * arguments[1] + accumulator
         else:
             raise RuntimeError(f"Unknown operation: {operation_name}")
     elif operation_name in ["relu", "sigmoid", "tanh", "sqrt", "inv_sqrt"]:
@@ -106,20 +108,25 @@ class Interpreter:
     _locals: ChainMap
     _iterator_table: IteratorTable 
 
-    def __init__(self) -> None:
-        self._array_n = 16
-        self._array_m = 16
+    def __init__(self, array_n: int, array_m: int) -> None:
+        self._array_n = array_n
+        self._array_m = array_m
 
         self._state = State(self._array_n, self._array_m)
         self._operands = {}
         self._locals = ChainMap()
         self._iterator_table = IteratorTable()
+        self._accumulator = np.zeros((1, self._array_n), dtype=np.int32)
     
     def reset(self) -> None:
         self._state.reset()
         self._operands = {}
         self._locals = ChainMap()
         self._iterator_table.reset()
+        self.reset_accumulator()
+    
+    def reset_accumulator(self) -> None:
+        self._accumulator = np.zeros((1, self._array_n), dtype=np.int32)
 
     def interpret(self, codelet: StealthCodelet, arguments: Arguments) -> tuple[InterpreterOperand, ...]:
         self._operands = codelet._operands.copy()
@@ -202,7 +209,7 @@ class Interpreter:
             arguments.append(self._locals[operand]._value)
 
         operation_name = statement.operation_name
-        output_array = _perform_compute_unit_operation(operation_name, compute_unit, arguments)
+        output_array = _perform_compute_unit_operation(operation_name, compute_unit, arguments, self._accumulator)
         output_operand = InterpreterOperand(output_array, is_writable=True)
         self._locals[statement.destination_operand_name] = output_operand
     
@@ -242,8 +249,8 @@ class Interpreter:
         return self._iterator_table.get_iterator_value(loop_index_name)
 
 
-def interpret(codelet: StealthCodelet, inputs: tuple[np.ndarray]) -> tuple[np.ndarray]:
-    interpreter = Interpreter()
+def interpret(codelet: StealthCodelet, inputs: tuple[np.ndarray], array_n: int, array_m: int) -> tuple[np.ndarray]:
+    interpreter = Interpreter(array_n, array_m)
     interpreter.reset()
     input_operands: list[InterpreterOperand] = [InterpreterOperand(input_array, is_writable=False) for input_array in inputs]
     arguments = Arguments(input_operands)
