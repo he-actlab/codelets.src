@@ -402,7 +402,7 @@ def generate_profiled_simple_simd_ops_dataset(operation_id: int, config_path: st
         ),
         (
             "sub3d3d",
-            functools.partial(generate_simd_binary_element_wise_codelet, codelet_string_generation_function=generate_simd_element_wise_sub_codelet, operand_shapess=repeat(shape_3d, 2)),
+            functools.partial(generate_simd_binary_element_wise_codelet, codelet_string_generation_function=generate_simd_element_wise_sub_codelet, operand_shapes=repeat(shape_3d, 2)),
             shape_3d,
             repeat(shape_3d, 2),
             lambda x: x[0] - x[1],
@@ -413,7 +413,7 @@ def generate_profiled_simple_simd_ops_dataset(operation_id: int, config_path: st
             functools.partial(generate_simd_binary_element_wise_codelet, codelet_string_generation_function=generate_simd_element_wise_sub_scalar_codelet, operand_shapes=(shape_3d,), scalar=8, is_scalar_first=True),
             shape_3d,
             (shape_3d,),
-            lambda x: x[0] - x[1],
+            lambda x: 8 - x[0],
             unary_3d_contrived_input_shapes 
         ),
         (

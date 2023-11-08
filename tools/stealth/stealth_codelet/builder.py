@@ -579,7 +579,12 @@ class StealthCodeletBuilder(Interpreter):
                                         "rshift", "lshift",
                                         "relu", "leaky_relu", "sigmoid", "tanh",
                                         "exp", "sqrt", "inv_sqrt", "log2"]:
-            return self._operands[compute_arguments[0]].shape
+            if compute_arguments[0] in self._operands:
+                return self._operands[compute_arguments[0]].shape
+            elif len(compute_arguments) > 1 and compute_arguments[1] in self._operands:
+                return self._operands[compute_arguments[1]].shape
+            else:
+                raise RuntimeError(f"Something went wrong... Expected at least one operand to be an operand but instead got {compute_arguments}")
         else:
             raise NotImplementedError(f"{compute_operation_name} is not implemented yet")
     
