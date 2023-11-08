@@ -6,11 +6,19 @@ def _pad_tuple(t: tuple[int, ...], length: int, pad_value: int = 0) -> tuple[int
     return (pad_value,) * (length - len(t)) + t
 
 
-def _get_padded_size_and_offset(size: tuple[int, ...], offset: tuple[int, ...]) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    indexed_shape_length = len(offset)
-    size = _pad_tuple(size, indexed_shape_length, pad_value=1)
-    offset = _pad_tuple(offset, indexed_shape_length)
-    return size, offset
+def _get_padded_size(size: tuple[int, ...], offset: tuple[int, ...], tensor_shape: tuple[int, ...]) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    if len(size) != len(tensor_shape):
+        new_size = []
+        for tensor_dim_size in reversed(tensor_shape):
+            if tensor_dim_size != 1:
+                break
+            new_size.append(1)
+        new_size = size + tuple(new_size) 
+    else:
+        new_size = size
+    
+    new_size = _pad_tuple(new_size,  len(offset), pad_value=1)
+    return new_size
 
 
 class Memory:
@@ -40,9 +48,9 @@ class Memory:
         if isinstance(size, tuple) and isinstance(offset, tuple):
             assert all(isinstance(s, int) for s in size)
             assert all(isinstance(o, int) for o in offset)
-            size, offset = _get_padded_size_and_offset(size, offset)
-            assert len(offset) == len(size[len(size) - len(offset):]) 
-            indices = tuple(slice(o, o + s) for o, s in zip(offset, size[len(size) - len(offset):]))
+            new_size = _get_padded_size(size, offset, tuple(self._memory[source_operand_name].shape))
+            assert len(offset) == len(new_size[len(new_size) - len(offset):]) 
+            indices = tuple(slice(o, o + s) for o, s in zip(offset, new_size[len(new_size) - len(offset):]))
             loaded_value: np.ndarray = self._memory[source_operand_name][indices]
             loaded_value = loaded_value.reshape(size)
         else:
@@ -52,12 +60,14 @@ class Memory:
     def store(self, destination_operand_name: str, source_operand: InterpreterOperand, offset: tuple[int, ...]) -> None:
         if destination_operand_name not in self._memory:
             raise RuntimeError(f"{self._name} does not contain a variable named {destination_operand_name}")
-        size: tuple[int] = source_operand.shape
+        size: tuple[int, ...] = source_operand.shape
         if isinstance(offset, tuple):
             assert all(isinstance(o, int) for o in offset)
-            size, offset = _get_padded_size_and_offset(size, offset)
-            indices = tuple(slice(o, o + s) for o, s in zip(offset, size))
-            self._memory[destination_operand_name][indices] = source_operand._value
+            new_size = _get_padded_size(size, offset, tuple(self._memory[destination_operand_name].shape)) 
+            assert len(offset) == len(new_size[len(new_size) - len(offset):]) 
+            indices = tuple(slice(o, o + s) for o, s in zip(offset, new_size[len(new_size) - len(offset):]))
+            value_to_store = source_operand._value.reshape(new_size)
+            self._memory[destination_operand_name][indices] = value_to_store 
         else:
             raise RuntimeError(f"Cannot store {size} elements from {offset} in {self._name}")
     

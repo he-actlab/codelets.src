@@ -7,7 +7,7 @@ from .state import State
 from .iterator_table import IteratorTable, LoopStatus
 
 
-def _sequence_of_expressions_to_sequence_of_integers(expressions: list[StealthExpression], name_to_value_map: dict[str, int]) -> tuple[int]:
+def _sequence_of_expressions_to_sequence_of_integers(expressions: list[StealthExpression], name_to_value_map: dict[str, int]) -> tuple[int, ...]:
     ret: list[int] = []
     for expression in expressions:
         evaluated_expression: StealthExpression = evaluate_expression(expression, name_to_value_map)
@@ -64,13 +64,13 @@ def _perform_compute_unit_operation(operation_name: str, compute_unit: str, argu
             raise RuntimeError(f"Expected 2 arguments, but got {len(arguments)}")
         
         if operation_name == "add":
-            return arguments[0] + arguments[1]
+            return np.add(arguments[0], arguments[1], dtype=np.int32)
         elif operation_name == "sub":
-            return arguments[0] - arguments[1]
+            return np.subtract(arguments[0], arguments[1], dtype=np.int32)
         elif operation_name == "mul":
-            return arguments[0] * arguments[1]
+            return np.multiply(arguments[0], arguments[1], dtype=np.int32)
         elif operation_name == "div":
-            return arguments[0] // arguments[1]
+            return np.floor_divide(arguments[0], arguments[1], dtype=np.int32)
         elif operation_name == "max":
             return np.maximum(arguments[0], arguments[1])
         elif operation_name == "min":
@@ -131,7 +131,7 @@ class Interpreter:
     def interpret(self, codelet: StealthCodelet, arguments: Arguments) -> tuple[InterpreterOperand, ...]:
         self._operands = codelet._operands.copy()
         for immediate_name, immediate_value in codelet._immediates.items():
-            self._locals[immediate_name] = InterpreterOperand(np.array([immediate_value] * self._array_n), is_writable=False)
+            self._locals[immediate_name] = InterpreterOperand(np.array([immediate_value.value] * self._array_n), is_writable=False)
         if len(codelet._inputs) != len(arguments.inputs):
             raise RuntimeError(f"Expected {len(codelet._inputs)} inputs, but got {len(arguments.inputs)}")
         for input_operand, interpreter_operand in zip(codelet._inputs, arguments.inputs):

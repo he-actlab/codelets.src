@@ -23,13 +23,13 @@ class InterpreterOperand:
     
     def __getitem__(self, index: Union[int, tuple[int, ...], slice, tuple[slice, ...]]):
         if self._is_readable:
-            return self._value[index]
+            return self._value[index].copy()
         else:
             raise RuntimeError("Operand is not readable")
     
     def __setitem__(self, index: Union[int, tuple[int, ...], slice, tuple[slice, ...]], value: np.ndarray):
         if self._is_writable:
-            self._value[index] = value
+            self._value[index] = value.copy()
         else:
             raise RuntimeError("Operand is not writable")
     

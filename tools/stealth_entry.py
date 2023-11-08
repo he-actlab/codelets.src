@@ -2,6 +2,7 @@ import argparse
 import json
 import string
 import os
+import shutil
 from typing import Callable, Optional
 import numpy as np
 import tqdm
@@ -550,7 +551,7 @@ def main() -> None:
     parser.add_argument("--num_points", required=False, type=int, default=None, help="Number of data points to generate.")
 
     parser.add_argument("--num_jobs", required=False, type=int, default=1, help="Number of threads to launch (default is 1).")
-    parser.add_argument("--map_path", required=False, type=int, default=None, help="A path to move the generated file after running.")
+    parser.add_argument("--map_path", required=False, type=str, default=None, help="A path to move the generated file after running.")
 
     args = parser.parse_args() 
 
@@ -563,7 +564,7 @@ def main() -> None:
     
     if args.map_path is not None:
         assert os.path.exists(args.map_path)
-        os.rename(output_file_name, args.map_path + "/" + output_file_name)
+        shutil.move(output_file_name, args.map_path + "/" + output_file_name)
     
 
 if __name__ == "__main__":
