@@ -555,6 +555,9 @@ def main() -> None:
 
     args = parser.parse_args() 
 
+    if os.path.exists(os.getcwd() + "/stealth_outputs"):
+        shutil.rmtree(os.getcwd() + "/stealth_outputs")
+
     if args.dataset == "simd_relu4d":
         output_file_name = generate_simd_relu4d_dataset(args.operation_id, args.config_path, args.num_points, args.num_jobs)
     elif args.dataset == "profiled_simple_simd_ops":
