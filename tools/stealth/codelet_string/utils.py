@@ -120,3 +120,7 @@ def create_operation_name(operation_name: str, *operand_shapes: tuple[Union[str,
 
 def format_line(number_of_tabs: int, line: str) -> str:
     return TAB * number_of_tabs + line + "\n"
+
+
+def floating_point_to_fixed_point(floating_point_max_error: float, fixed_point_bits: int) -> int:
+    return int(floating_point_max_error * 2 ** fixed_point_bits)

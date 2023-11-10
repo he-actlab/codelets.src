@@ -3,6 +3,7 @@ from stealth.stealth_codelet.builder import build_codelet_from_parse_tree
 from stealth.stealth_codelet.interpreter import interpret
 from stealth.parse import parse_stealth_codelet
 from stealth.stealth_codelet.variable_substituter import substitute_variables
+from stealth.codelet_string import floating_point_to_fixed_point
 
 
 MAX_INT32 = 2 ** 31 - 1
@@ -13,10 +14,6 @@ MIN_INT8 = -2 ** 7
 
 def reverse_weight_matrix(weight_matrix: np.ndarray) -> np.ndarray:
     return np.flip(weight_matrix, axis=(0, 1))
-
-
-def floating_point_to_fixed_point(floating_point_max_error: float, fixed_point_bits: int) -> int:
-    return int(floating_point_max_error * 2 ** fixed_point_bits)
 
 
 def run_codelet(codelet_string: str, input_arrays: tuple[np.ndarray, ...], name_to_variable_map: dict[str, int], verbose: bool = False) -> tuple[np.ndarray, ...]:
@@ -37,6 +34,20 @@ def check_output_arrays(output_arrays: tuple[np.ndarray, ...], expected_output_a
             # output_error = np.sum(error_matrix)
             max_output_error = np.max(np.abs(np.subtract(output_array, expected_output_array)))
             assert max_output_error <= max_error, f"Max single-element error {max_output_error} exceeds max single-element error {max_error} where expected output array:\n{expected_output_array}\nActual output array:\n{output_array}"
+
+
+def do_add4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_tiles: int, W_tiles: int, C_tiles: int, simd_width: int, max_error: int = 0, verbose: bool = False) -> None:
+    np.random.seed(0)
+    input_array_1 = np.random.randint(MIN_INT32, MAX_INT32, dtype=np.int32, size=input_shape)
+    input_array_2 = np.random.randint(MIN_INT32, MAX_INT32, dtype=np.int32, size=input_shape)
+    expected_output_array = np.add(input_array_1, input_array_2)
+
+    codelet_string = "" # TODO: FILL!
+
+    name_to_variable_map = {"N": input_shape[0], "H": input_shape[1], "W": input_shape[2], "C": input_shape[3]}
+    output_arrays = run_codelet(codelet_string, (input_array_1, input_array_2), name_to_variable_map, verbose=verbose)
+    assert len(output_arrays) == 1
+    check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
 
 
 def do_relu4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_tiles: int, W_tiles: int, C_tiles: int, simd_width: int, max_error: int = 0, verbose: bool = False) -> None:
@@ -65,6 +76,26 @@ def do_relu4d_unit_test(input_shape: tuple[int, int, int, int], N_tiles: int, H_
     output_arrays = run_codelet(codelet_string, (input_array,), name_to_variable_map, verbose=verbose)
     assert len(output_arrays) == 1
     check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
+
+
+def unit_test_codelet_interpreter_on_add4d(only_fast: bool = True, max_error: int = 0, verbose: bool = False) -> None:
+    inputs = [
+        {"fast": True, "input_shape": (1, 4, 4, 16), "N_tiles": (1,), "H_tiles": (1, 2, 4), "W_tiles": (1, 2, 4), "C_tiles": (1,)},
+        {"fast": False, "input_shape": (1, 224, 224, 64), "N_tiles": (1,), "H_tiles": (2, 4, 8, 14, 28, 56, 112, 224), "W_tiles": (4, 7, 14, 28, 56, 224), "C_tiles": (1, 2, 4)}
+    ]
+    for input_config in inputs:
+        if only_fast and not input_config["fast"]:
+            continue
+        input_shape = input_config["input_shape"]
+        for N_tiles in input_config["N_tiles"]:
+            for H_tiles in input_config["H_tiles"]:
+                for W_tiles in input_config["W_tiles"]:
+                    for C_tiles in input_config["C_tiles"]:
+                        if verbose:
+                            print(f"Running add4d test with input shape {input_shape}, N_tiles={N_tiles}, H_tiles={H_tiles}, W_tiles={W_tiles}, C_tiles={C_tiles}")
+                        do_add4d_unit_test(input_shape, N_tiles, H_tiles, W_tiles, C_tiles, 16, max_error=max_error, verbose=verbose)
+                        if verbose:
+                            print("Passed")
 
 
 def unit_test_codelet_interpreter_on_relu4d(only_fast: bool = True, max_error: int = 0, verbose: bool = False) -> None:
@@ -96,9 +127,9 @@ def do_reduce_mean3d_unit_test(input_shape: tuple[int, int, int], N_tiles: int, 
     o = alloc([N, 1, H], DRAM, i32)
     for n in loop({N_tiles}, N // {N_tiles}):
         for l in loop({L_tiles}, L // {L_tiles}):
+            o1 = load(o[n, 0, l], [N // {N_tiles}, 1, L // {L_tiles}], VMEM2)
             for h in loop({H_tiles}, H // {H_tiles}):
                 x1 = load(x[n, h, l], [N // {N_tiles}, H // {H_tiles}, L // {L_tiles}], VMEM1)
-                o1 = load(o[n, 0, l], [N // {N_tiles}, 1, L // {L_tiles}], VMEM2)
                 for n1 in loop(N // {N_tiles}):
                     for l1 in loop((L // {L_tiles}) // {simd_width}, {simd_width}):
                         for h1 in loop(H // {H_tiles}):
@@ -141,6 +172,39 @@ def unit_test_codelet_interpreter_on_reduce_mean3d(only_fast: bool = True, max_e
                     do_reduce_mean3d_unit_test(input_shape, N_tiles, L_tiles, H_tiles, 16, max_error=max_error, verbose=verbose)
                     if verbose:
                         print("Passed")
+
+
+# def do_max_pool2d_unit_test(input_shape: tuple[int, int, int, int], kh: int, kw: int, sx: int, sy: int, N_tiles: int, KH_tiles: int, KW_tiles: int, IH_tiles: int, IW_tiles: int, C_tiles: int, simd_width: int, max_error: int = 0, verbose: bool = False) -> None:
+#     np.random.seed(0)
+#     input_array = np.random.randint(MIN_INT32, MAX_INT32, dtype=np.int32, size=input_shape)
+#     expected_output_array = np.maximum(input_array, 0)
+#     codelet_string = f"""def max_pool2d(x: i32[N, IH, IW, C] @ DRAM):
+#     o = alloc([N, OH, OW, C], DRAM, i32)
+#     for n in loop({N_tiles}, N // {N_tiles}):
+#         for c in loop({C_tiles}, C // {C_tiles}):
+#             for ih in loop({IH_tiles}, IH // {IH_tiles}):
+#                 for iw in loop({IW_tiles}, IW // {IW_tiles}):
+#                     for kh in loop({KH_tiles}, {kh} // {KH_tiles}):
+#                         for kw in loop({KW_tiles}, {kw} // {KW_tiles}):
+#                             x1 = load(x[n, ih * {sy} + kh, iw * {sx} + kw, c], [N // {N_tiles}, IH // {IH_tiles}, IW // {IW_tiles}, C // {C_tiles}], VMEM1)
+#                             o1 = load(o[n, oh, ow, c], [N // {N_tiles}, OH // {OH_tiles}, OW // {OW_tiles}, C // {C_tiles}], VMEM2)
+#                             for n1 in loop(N // {N_tiles}):
+#                                 for c1 in loop((C // {C_tiles}) // {simd_width}, {simd_width}):
+#                                     for oh1 in loop(OH // {OH_tiles}):
+#                                         for ow1 in loop(OW // {OW_tiles}):
+#                                             for kh1 in loop({kh} // {KH_tiles}):
+#                                                 for kw1 in loop({kw} // {KW_tiles}):
+#                                                     x1 = load(x[n1, oh1 * {sy} + kh, ow1 * {sx} + kw, c1], [{simd_width}], SIMD)
+#                                                     o1 = load(o[n, oh, ow, c1], [{simd_width}], SIMD)
+#                                                     o2 = max(x1, o1, SIMD)
+#                                                     store(o1[n1, oh1, ow1, c1], o2)
+#                             store(o[n, oh, ow, c], o1)
+#     return o
+# """
+#     name_to_variable_map = {"N": input_shape[0], "IH": input_shape[1], "IW": input_shape[2], "C": input_shape[3]}
+#     output_arrays = run_codelet(codelet_string, (input_array,), name_to_variable_map, verbose=verbose)
+#     assert len(output_arrays) == 1
+#     check_output_arrays(output_arrays, (expected_output_array,), max_error=max_error)
 
 
 def do_gemm_unit_test(data_shape: tuple[int, int], weight_shape: tuple[int, int], bias_shape: tuple[int], M_tiles: int, N_tiles: int, P_tiles: int, array_N: int, array_M: int, max_error: int = 0, verbose: bool = False) -> None:
@@ -202,8 +266,9 @@ def unit_test_codelet_interpreter_on_gemm(only_fast: bool = True, max_error: int
 
 
 def unit_test_codelet_interpreter(only_fast: bool = True, verbose: bool = False) -> None:
+    unit_test_codelet_interpreter_on_add4d(only_fast=only_fast, verbose=verbose)
     # unit_test_codelet_interpreter_on_relu4d(only_fast=only_fast, verbose=verbose)
-    unit_test_codelet_interpreter_on_reduce_mean3d(only_fast=only_fast, verbose=verbose)
+    # unit_test_codelet_interpreter_on_reduce_mean3d(only_fast=only_fast, verbose=verbose)
     # unit_test_codelet_interpreter_on_gemm(only_fast=only_fast, max_error=floating_point_to_fixed_point(0, 16), verbose=verbose)
 
 
