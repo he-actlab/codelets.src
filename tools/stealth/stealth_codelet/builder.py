@@ -4,6 +4,7 @@ from lark.visitors import Interpreter
 from .error import CodeletError, raise_codelet_parse_error
 from .expression import *
 from .core import *
+from .utils import get_compute_operation_output_shape
 from stealth.stealth_codelet.converter.utils import UniqueNameGenerator
 
 
@@ -276,7 +277,7 @@ class StealthCodeletBuilder(Interpreter):
             self.check_for_variable_name_is_not_defined(destination_operand_name, operation_destination_operand_name_child)
             compute_arguments, location = self.get_compute_args_from_operation_args_child(operation_args_child)
             self.check_compute_arguments(operation_name, compute_arguments, location)
-            output_operand_dimensions = self.get_output_operand_size(operation_name, compute_arguments, location)
+            output_operand_dimensions = self.get_output_operand_shape(operation_name, compute_arguments, location)
             self.add_operand(destination_operand_name, output_operand_dimensions, self._COMPUTE_OUTPUT_DTYPE[location], location)
             compute = StealthCompute(destination_operand_name, operation_name, compute_arguments, location)
             self.add_statement(compute)
@@ -436,17 +437,15 @@ class StealthCodeletBuilder(Interpreter):
 
         if isinstance(size_child, Token):
             self.raise_codelet_parse_error(f"Expected size argument but instead got {size_child.type}", size_child)
-        assert isinstance(size_child, Tree)
+        assert isinstance(size_child, Tree), f"Expected size argument but instead got {size_child.data}"
         if size_child.data != "size":
             self.raise_codelet_parse_error(f"Expected first argument to be size but instead got {size_child.data}", size_child)
-        if isinstance(location_child, Tree):
-            self.raise_codelet_parse_error(f"Expected location argument but instead got {location_child.data}", location_child)
-        if isinstance(dtype_child, Tree):
-            self.raise_codelet_parse_error(f"Expected dtype argument but instead got {dtype_child.data}", dtype_child)
+        assert isinstance(location_child, Tree) and len(location_child.children) == 1, f"Expected location argument but instead got {location_child}"
+        assert isinstance(dtype_child, Tree) and len(dtype_child.children) == 1, f"Expected dtype argument but instead got {dtype_child}"
 
         size: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in size_child.children)
-        location: str = self.get_name(location_child, name_type="location")
-        dtype: str = self.get_name(dtype_child, name_type="dtype")
+        location: str = self.get_name(location_child.children[0], name_type="location")
+        dtype: str = self.get_name(dtype_child.children[0], name_type="dtype")
 
         return size, location, dtype
     
@@ -478,14 +477,13 @@ class StealthCodeletBuilder(Interpreter):
         assert isinstance(size_child, Tree)
         if size_child.data != "size":
             self.raise_codelet_parse_error(f"Expected size argument but instead got {size_child.data}", size_child)
-        if isinstance(location_child, Tree):
-            self.raise_codelet_parse_error(f"Expected location argument but instead got {location_child.data}", location_child)
-        
+        assert isinstance(location_child, Tree) and len(location_child.children) == 1, f"Expected location argument but instead got {location_child}"
+
         source_operand_name: str = self.get_name(source_operand_child, name_type="source operand")
         self.check_for_variable_name_defined(source_operand_name, source_operand_child)
         source_operand_offset: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in source_operand_offset_children)
         size: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in size_child.children)
-        location: str = self.get_name(location_child, name_type="location")
+        location: str = self.get_name(location_child.children[0], name_type="location")
 
         return source_operand_name, source_operand_offset, size, location
 
@@ -511,13 +509,12 @@ class StealthCodeletBuilder(Interpreter):
             if isinstance(destination_operand_offset_child, Token):
                 self.raise_codelet_parse_error(f"Expected destination operand offset argument but instead got {destination_operand_offset_child.type}", destination_operand_offset_child)
             assert isinstance(destination_operand_offset_child, Tree)
-        if isinstance(source_operand_child, Tree):
-            self.raise_codelet_parse_error(f"Expected source operand argument but instead got {source_operand_child.data}", source_operand_child)
+        assert isinstance(source_operand_child, Tree) and len(source_operand_child.children) == 1, f"Expected source operand argument but instead got {source_operand_child}"
 
         destination_operand_name: str = self.get_name(destination_operand_child, name_type="destination operand")
         self.check_for_variable_name_defined(destination_operand_name, destination_operand_child)
         destination_operand_offset: tuple[StealthExpression] = tuple(self.get_stealth_expression_from_tree(child) for child in destination_operand_offset_children)
-        source_operand_name: str = self.get_name(source_operand_child, name_type="source operand")
+        source_operand_name: str = self.get_name(source_operand_child.children[0], name_type="source operand")
         self.check_for_variable_name_defined(source_operand_name, source_operand_child)
 
         return destination_operand_name, destination_operand_offset, source_operand_name
@@ -526,7 +523,8 @@ class StealthCodeletBuilder(Interpreter):
         assert all(isinstance(child, Tree) for child in operation_args_child.children)
 
         location_child = operation_args_child.children[-1]
-        location = self.get_name(location_child, name_type="location")
+        assert isinstance(location_child, Tree) and len(location_child.children) == 1, f"Expected location argument but instead got {location_child}"
+        location = self.get_name(location_child.children[0], name_type="location")
 
         arguments: list[str] = []
         for child in operation_args_child.children[:-1]:
@@ -572,21 +570,8 @@ class StealthCodeletBuilder(Interpreter):
             else:
                 raise RuntimeError(f"Unknown expression type: {expression_tree.type}")
     
-    def get_output_operand_size(self, compute_operation_name: str, compute_arguments: list[Union[str, StealthExpression]], compute_unit: str) -> list[StealthExpression]:
-        if compute_operation_name in ["mvmul", "mvmul_bias"]:
-            return self._operands[compute_arguments[-1]].shape
-        elif compute_operation_name in ["add", "sub", "mul", "div", "max", "min",
-                                        "rshift", "lshift",
-                                        "relu", "leaky_relu", "sigmoid", "tanh",
-                                        "exp", "sqrt", "inv_sqrt", "log2"]:
-            if compute_arguments[0] in self._operands:
-                return self._operands[compute_arguments[0]].shape
-            elif len(compute_arguments) > 1 and compute_arguments[1] in self._operands:
-                return self._operands[compute_arguments[1]].shape
-            else:
-                raise RuntimeError(f"Something went wrong... Expected at least one operand to be an operand but instead got {compute_arguments}")
-        else:
-            raise NotImplementedError(f"{compute_operation_name} is not implemented yet")
+    def get_output_operand_shape(self, compute_operation_name: str, compute_arguments: list[Union[str, StealthExpression]], compute_unit: str) -> list[StealthExpression]:
+        return get_compute_operation_output_shape(compute_operation_name, compute_arguments, self._operands, compute_unit, lambda operand: operand.shape)
     
 
 def build_codelet_from_parse_tree(tree: ParseTree, codelet_string: str, verbose: bool = False) -> StealthCodelet:

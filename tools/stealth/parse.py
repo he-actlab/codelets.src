@@ -22,7 +22,7 @@ split_pair: dimension "," dimension
 split_call: "split" "(" dimension ")"
 
 call_args: call_arg ("," call_arg)*
-call_arg: indexed_variable | size | NAME | INT
+call_arg: indexed_variable | size | expr 
 
 indexed_variable: NAME "[" expr ("," expr)* "]"
 

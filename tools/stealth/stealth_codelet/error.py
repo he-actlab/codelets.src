@@ -15,7 +15,11 @@ def raise_codelet_parse_error(message: str, obj, input_text) -> NoReturn:
         return lines[index] if 0 <= index < len(lines) else None
     
     if isinstance(obj, Token):
-        line = input_text.splitlines()[obj.line - 1]
+        input_text_line_by_line = input_text.splitlines()
+        if len(input_text_line_by_line) <= obj.line:
+            line = "N/A"
+        else:
+            line = input_text_line_by_line[obj.line - 1]
         indicator = ' ' * obj.column + '^'
         full_message = (f"{message} at line {obj.line}, column {obj.column}:\n"
                         f"{obj.line:4} | {line}\n"
