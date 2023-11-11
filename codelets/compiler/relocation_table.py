@@ -786,6 +786,3 @@ class EndToEndRelocationTable(RelocationTable):
         for fragment in self.relocatables["ACTIVATION"].bases.values():
             fragment.start += activation_memory_start
             fragment.end += activation_memory_start
-
-        self.print_layout()
- 
