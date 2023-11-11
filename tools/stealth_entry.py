@@ -21,6 +21,9 @@ from stealth.utils import repeat
 from codelets.examples.genesys import load_config
 
 
+_CURRENT_FILE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+
+
 def codelet_string_to_codelet(codelet_string: str, verbose: bool = False) -> StealthCodelet:
     parsed_codelet = parse_stealth_codelet(codelet_string, verbose=verbose)
     return build_codelet_from_parse_tree(parsed_codelet, codelet_string, verbose=verbose)
@@ -568,7 +571,16 @@ def main() -> None:
     if args.map_path is not None:
         assert os.path.exists(args.map_path)
         shutil.move(output_file_name, args.map_path + "/" + output_file_name)
-    
+
+
+def give_folder_execute_permissions(path: str) -> None:
+    for root, dirs, files in os.walk(path):
+        for dir in dirs:
+            os.chmod(os.path.join(root, dir), 0o777)
+        for file in files:
+            os.chmod(os.path.join(root, file), 0o777)
+
 
 if __name__ == "__main__":
+    give_folder_execute_permissions(_CURRENT_FILE_DIRECTORY + "/stealth/simulator/cacti")
     main()
