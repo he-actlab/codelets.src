@@ -1,5 +1,7 @@
 from typing import Optional, Union
 import math
+
+from tools.stealth.stealth_codelet.core import StealthLoop
 from .core import *
 from .expression import *
 from .tiling_collector import collect_tiling
@@ -7,51 +9,53 @@ from .visitor import StealthCodeletVisitor
 from .variable_substituter import substitute_variables
 
 
-def _get_tiling_splits_error_message(operand_dim_sizes: dict[str, int], codelet: StealthCodelet) -> Optional[str]:
-    tiling: dict[str, int] = collect_tiling(codelet)
-    for operand_dim_name, operand_dim_size in operand_dim_sizes.items():
-        number_of_tiles: int = tiling[operand_dim_name]
-        if operand_dim_size % number_of_tiles != 0:
-            return f"Dimension {operand_dim_name} of operand has size {operand_dim_size}, which is not divisible by the number of tiles specified {number_of_tiles}"
-        tile_size: int = operand_dim_size // number_of_tiles
-        if tile_size == 0:
-            return f"Dimension {operand_dim_name} of operand has size {operand_dim_size}, which is less than the number of tiles specified {number_of_tiles}"
-    return None
+class TilingSplitsErrorMessageGetter(StealthCodeletVisitor):
+    _compile_time_params: dict[str, int]
+    _error_message: Optional[str]
+
+    def __init__(self, compile_time_params: dict[str, int]) -> None:
+        self._compile_time_params = compile_time_params.copy()
+        self._error_message = None
+
+    @property
+    def error_message(self) -> Optional[str]:
+        return self._error_message
+    
+    def visit(self, codelet: StealthCodelet) -> None:
+        self._error_message = None
+        super().visit(codelet)
+
+    def visit_loop(self, statement: StealthLoop) -> None:
+        number_of_iterations = statement.number_of_iterations
+        evaluated_number_of_iterations = evaluate_expression(number_of_iterations, self._compile_time_params)
+        if not isinstance(evaluated_number_of_iterations, StealthLiteral):
+            raise RuntimeError(f"Number of iterations {number_of_iterations} is not able to be set at compile-time.")
+        if evaluated_number_of_iterations.value <= 0:
+            self._error_message = f"Number of iterations {number_of_iterations} for loop \"{statement.loop_index_variable_name} in ({statement.number_of_iterations, {statement.stride}})\" evaluates to {evaluated_number_of_iterations} at compile-time which is not greater than 0 and invalid.\nTry checking the tiling to ensure that each dimension has a valid split."
+        stride = statement.stride
+        evaluated_stride = evaluate_expression(stride, self._compile_time_params)
+        if not isinstance(evaluated_stride, StealthLiteral):
+            raise RuntimeError(f"Stride {stride} is not able to be set at compile-time.")
+        if evaluated_stride.value <= 0:
+            self._error_message = f"Stride {stride} for loop \"{statement.loop_index_variable_name} in ({statement.number_of_iterations, {statement.stride}})\" evaluates to {evaluated_stride} at compile-time which is not greater than 0 and invalid.\nTry checking the tiling to ensure that each dimension has a valid split."
+        super().visit_loop(statement)
 
 
-# def _get_operand_tile_dim_sizes(operand_dim_sizes: OrderedDict[str, int], codelet: StealthCodelet) -> OrderedDict[str, int]:
+def _get_tiling_splits_error_message(compile_time_params: dict[str, int], codelet: StealthCodelet) -> Optional[str]:
+    getter = TilingSplitsErrorMessageGetter(compile_time_params)
+    getter.visit(codelet)
+    return getter.error_message
+
+
+# def _get_tiling_splits_error_message(operand_dim_sizes: dict[str, int], codelet: StealthCodelet) -> Optional[str]:
 #     tiling: dict[str, int] = collect_tiling(codelet)
-#     operand_tile_dim_sizes: OrderedDict[str, int] = OrderedDict()
 #     for operand_dim_name, operand_dim_size in operand_dim_sizes.items():
 #         number_of_tiles: int = tiling[operand_dim_name]
+#         if operand_dim_size % number_of_tiles != 0:
+#             return f"Dimension {operand_dim_name} of operand has size {operand_dim_size}, which is not divisible by the number of tiles specified {number_of_tiles}"
 #         tile_size: int = operand_dim_size // number_of_tiles
-#         operand_tile_dim_sizes[operand_dim_name] = tile_size
-#     return operand_tile_dim_sizes
-
-
-# def get_simd_tiling_error_message(operand_dim_sizes: OrderedDict[str, int], simd_size: int, vmem_depth: int, param_buf_bw: int, codelet: StealthCodelet) -> Optional[str]:
-#     tiling_size_error_message: Optional[str] = _get_tiling_splits_error_message(operand_dim_sizes, codelet)
-#     if tiling_size_error_message is not None:
-#         return tiling_size_error_message 
-
-#     operand_tile_dim_sizes: OrderedDict[str, int] = _get_operand_tile_dim_sizes(operand_dim_sizes, codelet) 
-    
-#     if tuple(operand_dim_sizes.values())[-1] % simd_size != 0:
-#         return f"Dimension {tuple(operand_dim_sizes.keys())[-1]} of operand has size {tuple(operand_dim_sizes.values())[-1]}, which is not divisible by the SIMD size specified {simd_size}"
-#     if tuple(operand_tile_dim_sizes.values())[-1] % simd_size != 0:
-#         return f"Dimension {tuple(operand_tile_dim_sizes.keys())[-1]} of operand tile has size {tuple(operand_tile_dim_sizes.values())[-1]}, which is not divisible by the SIMD size specified {simd_size}"
-    
-#     if tuple(operand_dim_sizes.values())[-1] // (param_buf_bw // 32) == 0:
-#         return f"Dimension {tuple(operand_dim_sizes.keys())[-1]} of operand has size {tuple(operand_dim_sizes.values())[-1]}, which is not divisible by the parameter buffer bandwidth of {param_buf_bw // 32}"
-    
-#     total_tensor_size: int = math.prod(operand_dim_sizes.values()) * 32
-#     total_tile_size: int = math.prod(operand_tile_dim_sizes.values()) * 32
-
-#     vmem_size: int = vmem_depth * simd_size * 32
-
-#     if total_tile_size > vmem_size:
-#         return f"Operand tile with dimensions {tuple(operand_tile_dim_sizes.values())} has total size {total_tile_size} which is larger than the VMEM it is stored on ({vmem_size})"
-    
+#         if tile_size == 0:
+#             return f"Dimension {operand_dim_name} of operand has size {operand_dim_size}, which is less than the number of tiles specified {number_of_tiles}"
 #     return None
 
 

@@ -5,6 +5,7 @@ from ..core import *
 from .compute_operation_group import ComputeOperationGroup, build_compute_operation_groups
 from ..expression import *
 from .utils import input_output_dimension_to_name
+from ..utils import get_compute_operation_output_shape
 from codelets.templates.codelet_template import CodeletTemplate, LoopTemplate, DummyOp, FlexParam, OperandTemplate
 from codelets.examples.genesys import DTYPE_MAP, OP_DTYPES
 from codelets.adl.graph import ArchitectureGraph
@@ -256,7 +257,7 @@ class CodeletTemplateBuilder:
             for transfer_or_compute_operation in reversed(compute_operation_group.transfer_and_compute_operations):
                 if isinstance(transfer_or_compute_operation, StealthStore):
                     self._add_operand(transfer_or_compute_operation.source_operand_name, self._get_operand(transfer_or_compute_operation.destination_operand_name))
-        
+
     def _create_compute_operation_output_operands(self, codelet_template: CodeletTemplate, compute_operation_groups: list[ComputeOperationGroup], input_dtype, acc_dtype) -> list[list[OperandTemplate]]:
         ret: list[list[OperandTemplate]] = [[]]
         for compute_operation_group in compute_operation_groups:
@@ -264,9 +265,13 @@ class CodeletTemplateBuilder:
                 if self._is_operand_exist(compute_operation.destination_operand_name):
                     ret[-1].append(self._get_operand(compute_operation.destination_operand_name))
                 else:
-                    raise NotImplementedError("TODO: Create intermediate operands automatically.")
+                    ouput_operand_shape = self._get_output_operand_shape(compute_operation.operation_name, compute_operation.operands, compute_operation.location)
+                    raise NotImplementedError()
             ret.append([])
         return ret
+    
+    def _get_output_operand_shape(self, compute_operation_name: str, compute_arguments: list, compute_unit: str):
+        return get_compute_operation_output_shape(compute_operation_name, compute_arguments, self._operands, compute_unit, lambda operand: operand.shape_list)
     
     def _create_config_functions(self, compute_operation_group: ComputeOperationGroup, SIMD_SIZE) -> tuple[Callable[[CodeletTemplate], None], Callable[[CodeletTemplate], None]]:
         if compute_operation_group.is_systolic_array_operation:

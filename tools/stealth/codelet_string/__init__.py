@@ -8,5 +8,6 @@ from .simd_element_wise_codelet import generate_simd_element_wise_relu_codelet, 
     generate_simd_element_wise_mul_scalar_codelet, generate_simd_element_wise_div_scalar_codelet, \
     generate_simd_element_wise_max_scalar_codelet, generate_simd_element_wise_min_scalar_codelet, \
     generate_simd_element_wise_pow_scalar_codelet 
+from .simd_reduction_codelet import generate_simd_reduce_mean_codelet
 from .systolic_array_matmul_codelet import generate_systolic_array_matmul_codelet
 from .utils import floating_point_to_fixed_point
