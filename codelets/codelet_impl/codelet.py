@@ -567,6 +567,7 @@ class Codelet(object):
                     loop_order.append((rp, loop.loop_level))
                     break
         loop_order = [k[0] for k in sorted(loop_order, key=lambda x: x[1])]
+        loop_order = list(dict.fromkeys(loop_order))
         return loop_order
 
     def emit(self, output_type):

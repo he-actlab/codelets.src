@@ -71,45 +71,57 @@ def shuffle_weights(w_orig, arch_config, cdlt):
                                 result[dst_coord[0]][dst_coord[1]][dst_coord[2]][dst_coord[3]] = weights[src_coord[0]][src_coord[1]][src_coord[2]][src_coord[3]]
 
     else:
-        assert "linear" in cdlt.op_name or  "gemm" in cdlt.op_name or "matmul" in cdlt.op_name, f"Invalid layer type: {cdlt.op_name}"
+        assert "linear" in cdlt.op_name or "gemm" in cdlt.op_name or "matmul" in cdlt.op_name, f"Invalid layer type: {cdlt.op_name}"
         # [P, N, M] = [OC, IC, N]
         # [N, M, P] = [IC, N, OC]
         loop_order = cdlt.get_loop_order()
-        if loop_order == ['N', 'M', 'P']:
-            l2_iter, l2_stride = w_dim[1], tile_m
-            l1_iter, l1_stride = w_dim[0], tile_n
-            src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l1 + l1_inner, l2 + l2_inner)
-            dst_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l1 + l1_inner, l2 + l2_stride - l2_inner - 1)
-
-        else:
-            l2_iter, l2_stride = w_dim[0], tile_n
-            l1_iter, l1_stride = w_dim[1], tile_m
-            src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_inner)
-            dst_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_stride - l1_inner - 1)
-
-        for l2 in range(0, l2_iter, l2_stride):
-            for l1 in range(0, l1_iter, l1_stride):
-                for n in range(l2_stride):
-                    for m in range(l1_stride):
-
-                        # Reverse order within a tile because systolic array is filled from last column first.
-                        # Adjacent values in memory are filled in systolic array column.
-                        # So, if systolic array size is 32x32, weight at (0, 0) should be in (31,0) in memory
-                        # weight at (1, 0) should be in (31,1) in memory and so on.
-                        # dst_coord = (nn + n, mm + tile_m - m - 1)
-                        # src_coord = (nn+n, mm+m)
-                        # coord_map[src_coord] = dst_coord
-                        #
-                        # result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
-                        # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
-                        # src_coord = ic + n, oc + m
-                        # dst_coord = ic + n, oc + tile_m - m - 1
-                        src_coord = src_coord_fn(l2, l1, n, m)
-                        dst_coord = dst_coord_fn(l2, l1, n, m)
-                        coord_map[src_coord] = dst_coord
-
-                        result[dst_coord[0]][dst_coord[1]] = \
-                        weights[src_coord[0]][src_coord[1]]
+        C_weight = w_dim[1]
+        R_weight = w_dim[0]
+        assert len(cdlt.inputs[1].shape_list) >= 2
+        C_tile = cdlt.param_tiling[1][cdlt.inputs[1].shape_list[-1]]
+        R_tile = cdlt.param_tiling[1][cdlt.inputs[1].shape_list[-2]]
+        C_systolic = tile_n
+        R_systolic = tile_m
+        if loop_order == ["N", "M", "P"]:
+            src_coord_fn = lambda r, c, r_inner, c_inner: (r + r_inner, c + c_inner)
+            dst_coord_fn = lambda r, c, r_inner, c_inner: (r + r_inner, c + C_systolic - c_inner - 1)
+        # else:
+        #     l2_iter, l2_stride = w_dim[0], tile_n
+        #     l1_iter, l1_stride = w_dim[1], tile_m
+        #     src_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_inner)
+        #     dst_coord_fn = lambda l2, l1, l2_inner, l1_inner: (l2 + l2_inner, l1 + l1_stride - l1_inner - 1)
+        # Weight Tensor loop
+        for tile_w_idx in range(0, C_weight, C_tile):
+            for tile_h_idx in range(0, R_weight, R_tile):
+                # Weight Tile Loop
+                for sys_w_idx in range(0, C_tile, C_systolic):
+                    for sys_h_idx in range(0, R_tile, R_systolic):
+                        # Systolic Loop:
+                        r_start_idx = tile_h_idx + sys_h_idx
+                        c_start_idx = tile_w_idx + sys_w_idx
+                        for c in range(C_systolic):
+                            for r in range(R_systolic):
+                                # Reverse order within a tile because systolic array is filled from last column first.
+                                # Adjacent values in memory are filled in systolic array column.
+                                # So, if systolic array size is 32x32, weight at (0, 0) should be in (31,0) in memory
+                                # weight at (1, 0) should be in (31,1) in memory and so on.
+                                # dst_coord = (nn + n, mm + tile_m - m - 1)
+                                # src_coord = (nn+n, mm+m)
+                                # coord_map[src_coord] = dst_coord
+                                #
+                                # result[nn + n][mm + tile_m - m - 1] = weights[nn + n][mm + m]
+                                # result[kh][kw][nn + n][mm + tile_m - m - 1] = weights[kh][kw][nn + n][mm + m]
+                                # src_coord = ic + n, oc + m
+                                # dst_coord = ic + n, oc + tile_m - m - 1
+                                src_coord = src_coord_fn(r_start_idx, c_start_idx, r, c)
+                                dst_coord = dst_coord_fn(r_start_idx, c_start_idx, r, c)
+                                coord_map[src_coord] = dst_coord
+                                try:
+                                    result[dst_coord[0]][dst_coord[1]] = weights[src_coord[0]][src_coord[1]]
+                                except IndexError:
+                                    print(tile_w_idx, tile_h_idx, sys_w_idx, sys_h_idx)
+                                    print(C_weight, R_weight, C_tile, R_tile)
+                                    exit(0)
 
     return result, coord_map
 

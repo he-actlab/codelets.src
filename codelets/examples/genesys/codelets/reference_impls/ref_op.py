@@ -1,5 +1,7 @@
 from typing import Dict, List
 
+import os
+
 from codelets.codelet_impl import Codelet
 from codelets.adl.operation.operand import Operand
 from collections import namedtuple
@@ -88,13 +90,22 @@ class ReferenceOp(object):
 
             if found_inp:
                 continue
-
-            data = numpy_datagen(op.shape, op.dtype.bits(),
-                                 fxp_dtype=f"{op.dtype}",
-                                 scale=self.scale,
-                                 constant_val=constant_val,
-                                 print_range=print_range,
-                                 vrange=vrange)
+            
+            print(f"Attempting to load {self.program.name}_{self.cdlt.cdlt_uid}_{op.name}.txt")
+            compile_time_val_file_path = os.getcwd() + f"/compile_time_vals/{self.program.name}_{self.cdlt.cdlt_uid}_{op.name}.txt"
+            if os.path.exists(compile_time_val_file_path):
+                print(f"Loading {compile_time_val_file_path}")
+                with open(compile_time_val_file_path, "r") as f:
+                    data = np.fromfile(f, sep=" ", dtype=np.int64)
+                    print(op.shape)
+                    data = data.reshape(op.shape)
+            else:
+                data = numpy_datagen(op.shape, op.dtype.bits(),
+                                    fxp_dtype=f"{op.dtype}",
+                                    scale=self.scale,
+                                    constant_val=constant_val,
+                                    print_range=print_range,
+                                    vrange=vrange)
             new_op = create_operand_data(data, op)
             new_inputs.append(new_op)
         inouts['inputs'] = new_inputs

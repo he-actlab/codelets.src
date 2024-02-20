@@ -1521,9 +1521,10 @@ def gemm_tanh(hag):
         # nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
 
         M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 32768, simd_size=simd_size)
-        SHIFT = create_immediate_with_operand(cdlt, 'SHIFT', 17, simd_size=simd_size)
-        Z1 = create_immediate_with_operand(cdlt, 'Z1', 0, simd_size=simd_size)
-        M0 = create_immediate_with_operand(cdlt, 'M0', 32768, simd_size=simd_size)
+        SHIFT_BEFORE = create_immediate_with_operand(cdlt, 'SHIFT_BEFORE', 1, simd_size=simd_size)
+        SHIFT_AFTER = create_immediate_with_operand(cdlt, 'SHIFT_AFTER', 2, simd_size=simd_size)
+        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE_RECIP', 16384, simd_size=simd_size)
+        ZERO_POINT = create_immediate_with_operand(cdlt, 'ZERO_POINT', 1, simd_size=simd_size)
 
         with cdlt.loop(M) as m:
             with cdlt.loop(P) as p:
@@ -1531,12 +1532,10 @@ def gemm_tanh(hag):
                 indices = (m, p)
 
                 cdlt.compute("MUL", [gemm_out[indices], M_SCALE], [out[indices]], target="SIMD")
-                cdlt.compute("RSHIFT", [out[indices], SHIFT], [out[indices]], target="SIMD")
+                cdlt.compute("RSHIFT", [out[indices], SHIFT_BEFORE], [out[indices]], target="SIMD")
                 cdlt.compute("TANH", [out[indices]], [out[indices]],
                                 target="SIMD")
-                cdlt.compute("SUB", [out[indices], Z1], [out[indices]], target="SIMD")
-                cdlt.compute("MUL", [out[indices], M0], [out[indices]], target="SIMD")
-                cdlt.compute("RSHIFT", [out[indices], SHIFT], [out[indices]], target="SIMD")
+                cdlt.compute("MUL", [out[indices], M_SCALE_RECIP], [out[indices]], target="SIMD")
                 cdlt.compute("32FXP_8FXP", [out[indices]], [out[indices]], target="SIMD")
 
                 cdlt.transfer(out, ["VMEM1", "DRAM"])
@@ -1557,10 +1556,17 @@ def gemm_relu(hag):
         cdlt.set_outputs([out])
 
 
-
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD')
 
+        # M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 32768, simd_size=simd_size)
+        M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 65198, simd_size=simd_size)
+        # SHIFT_BEFORE = create_immediate_with_operand(cdlt, 'SHIFT_BEFORE', 1, simd_size=simd_size)
+        SHIFT_BEFORE = create_immediate_with_operand(cdlt, 'SHIFT_BEFORE', 11, simd_size=simd_size)
+        # M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE_RECIP', 16384, simd_size=simd_size)
+        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE_RECIP', 170700, simd_size=simd_size)
+        SHIFT_BY_16 = create_immediate_with_operand(cdlt, "SHIFT_BY_16", 5, simd_size=simd_size)
+        ZERO = create_immediate_with_operand(cdlt, "ZERO", 0, simd_size=simd_size)
         # b_s = create_immediate_with_operand(cdlt, 'b_s', CAST_FUNC(-1.769/QUANT_SCALE_FP, acc_dtype_name), simd_size=simd_size)
         # aop = create_immediate_with_operand(cdlt, 'a_op', CAST_FUNC(-0.2888, acc_dtype_name), simd_size=simd_size)
         # bop = create_immediate_with_operand(cdlt, 'bop', CAST_FUNC(-1.769, acc_dtype_name), simd_size=simd_size)
@@ -1574,8 +1580,11 @@ def gemm_relu(hag):
                 out.set_write_destination('VMEM1')
                 indices = (m, p)
 
-                cdlt.compute("RELU", [gemm_out[indices]], [out[indices]],
-                                target="SIMD")
+                cdlt.compute("LSHIFT", [gemm_out[indices], SHIFT_BY_16], [out[indices]], target="SIMD")
+                cdlt.compute("MUL", [out[indices], M_SCALE], [out[indices]], target="SIMD")
+                cdlt.compute("RELU", [out[indices]], [out[indices]], target="SIMD")
+                cdlt.compute("MUL", [out[indices], M_SCALE_RECIP], [out[indices]], target="SIMD")
+                cdlt.compute("32FXP_8FXP", [out[indices]], [out[indices]], target="SIMD")
 
                 cdlt.transfer(out, ["VMEM1", "DRAM"])
         cdlt.configure('end', 'SIMD')

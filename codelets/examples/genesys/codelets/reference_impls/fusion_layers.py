@@ -16,6 +16,12 @@ ACT_CL_TO_CF = [0, 3, 1, 2]  # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1]  # (N, C, H, W) -> (N, H, W, C)
 
 
+def to_fp(input_integer):
+    temp = Fxp(0, **FXP_CONFIGS["FXP32"])
+    input_fp = temp.set_val(input_integer, raw=True)
+    return input_fp
+
+
 class FusionOp(ReferenceOp):
     SYS_ARRAY_OPS = ["conv", "matmul", "gemm"]
 
@@ -172,7 +178,9 @@ class FusionOp(ReferenceOp):
         ]
 
         res = np.piecewise(xval, conds, fns)
-        return res
+        output = res
+        output = np.floor_divide(output, 4)
+        return output
 
     def sqrt(self, data):
         data = np.abs(data)
@@ -217,7 +225,19 @@ class FusionOp(ReferenceOp):
             bias, bias_op = bias
             output = output + bias
 
-        return output
+        if "dequant_scale" not in globals():
+            global dequant_scale
+            dequant_scale = 0.00048577
+        else:
+            dequant_scale = 0.013263990645569379
+        
+        output = np.left_shift(output, 16)
+        new_output = np.full(output.shape, fill_value = Fxp(), dtype=Fxp)
+        for i, val in np.ndenumerate(output):
+            temp = to_fp(val) 
+            temp *= dequant_scale 
+            new_output[i] = temp
+        return new_output
 
     def matmul(self, inouts, data, wgt):
         # TODO: Need to fix this
@@ -303,7 +323,25 @@ class FusionOp(ReferenceOp):
 
     def relu(self, inpt):
         output = np.maximum(inpt, 0, inpt)
-        return output
+        # Quantization stuff for ReLU
+        # output = np.int64(np.round(np.multiply(output, 2.6007278440860713)))
+        # output = np.minimum(output, 2 ** 8 - 1)
+        # output = np.maximum(output, 0)
+
+        if "requant_scale" not in globals():
+            global requant_scale
+            requant_scale = 2.5681473314159344
+        else:
+            requant_scale = 70.87368
+
+        new_output = np.full(output.shape, fill_value=0, dtype=np.int64)
+        for i, val in np.ndenumerate(output):
+            temp = val * requant_scale
+            temp = np.round(temp)
+            temp = min(temp, 2 ** 8 - 1)
+            temp = max(temp, 0)
+            new_output[i] = temp
+        return new_output
 
     def leaky_relu(self, xval, alpha):
         dtype = "FXP32"

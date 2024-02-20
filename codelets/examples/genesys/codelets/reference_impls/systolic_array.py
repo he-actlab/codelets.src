@@ -2,6 +2,7 @@ from typing import List
 from functools import partial
 import numpy as np
 from . import ReferenceOp, quantize_np, create_operand_data, transform_data
+import fxpmath
 from codelets.codelet_impl import Codelet
 from codelets.compiler.program import CodeletProgram
 WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
@@ -222,12 +223,29 @@ class Gemm(ReferenceOp):
                 # inouts['inputs'][2] = inouts['inputs'][2]._replace(data=np.zeros_like(inouts['inputs'][2].data))
                 output = output + inouts['inputs'][2].data
         
-        output = np.int8(output)
-        output = np.left_shift(output, 24)
-        output = np.right_shift(output, 16)
-        output = np.right_shift(output, 24)
+        if "gemm_requant_scale" not in globals():
+            global gemm_requant_scale
+            global gemm_zero_point
+            gemm_requant_scale = 0.01067978
+            gemm_zero_point = 25
+        else:
+            gemm_zero_point = 255
+            gemm_requant_scale = 0.0088365
+
+        # import sys
+        # np.set_printoptions(threshold=sys.maxsize)
+        # print("data:")
+        # print(data[0, :])
+        # print("weight:")
+        # print(wgt[:, 0])
+        # output = np.subtract(output, 1)
+        # output = np.floor_divide(output, 4)
+        # output = np.right_shift(output, 2)
+        output = np.int64(np.round(gemm_zero_point + np.multiply(output, gemm_requant_scale)))
 
         inouts['outputs'] = [output]
+        # print("output:")
+        # print(output[0][0])
         return inouts
 
     def debug_mmul(self, data, weights, bias):
