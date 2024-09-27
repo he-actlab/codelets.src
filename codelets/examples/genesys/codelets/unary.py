@@ -648,7 +648,7 @@ def load_unary_cdlts(cfg):
         "coarse_flatten": coarse_flatten,
         "coarse_flatten2d": coarse_flatten2d,
         "coarse_flatten3d": coarse_flatten3d,
-        "elem_tanh": partial(elem_unary_nd, "elem_tanh", "TANH", 4, 16),
+        "tanh": partial(elem_unary_nd, "tanh", "TANH", 4, 16),
         "elem_tanh3d": partial(elem_unary_nd, "elem_tanh3d", "TANH", 3, 16),
         "elem_tanh2d": elem_tanh2d,
         # TODO: Check if this needs to be 'sigmoid'

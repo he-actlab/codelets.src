@@ -4,11 +4,23 @@ import numpy as np
 from . import ReferenceOp, quantize_np, create_operand_data, transform_data
 import fxpmath
 from codelets.codelet_impl import Codelet
+from codelets.examples.genesys import FXP_CONFIGS
 from codelets.compiler.program import CodeletProgram
 WEIGHTS_CL_TO_CF = [3, 2, 0, 1] # (KH, KW, IC, OC) -> (OC, IC, KH, KW)
 WEIGHTS_CF_TO_CL = [2, 3, 1, 0] # (OC, IC, KH, KW) -> (KH, KW, IC, OC)
 ACT_CL_TO_CF = [0, 3, 1, 2] # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1] # (N, C, H, W) -> (N, H, W, C)
+
+
+def to_fix(input_fp):
+    result = fxpmath.Fxp(input_fp, **FXP_CONFIGS["FXP32"])
+    return result
+
+
+def to_fp(input_integer):
+    temp = fxpmath.Fxp(0, **FXP_CONFIGS["FXP32"])
+    input_fp = temp.set_val(input_integer, raw=True)
+    return input_fp
 
 
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
@@ -226,24 +238,29 @@ class Gemm(ReferenceOp):
         if "gemm_requant_scale" not in globals():
             global gemm_requant_scale
             global gemm_zero_point
-            gemm_requant_scale = 0.01067978
-            gemm_zero_point = 25
+            global gemm_right_shift
+            gemm_requant_scale = 0.6804809
+            gemm_right_shift = 6
+            gemm_zero_point = 26
         else:
+            gemm_requant_scale = 0.5611884
+            gemm_right_shift = 6
             gemm_zero_point = 255
-            gemm_requant_scale = 0.0088365
+        
+        # output = np.int64(np.round(gemm_zero_point + np.multiply(output, gemm_requant_scale)))
 
-        # import sys
-        # np.set_printoptions(threshold=sys.maxsize)
-        # print("data:")
-        # print(data[0, :])
-        # print("weight:")
-        # print(wgt[:, 0])
-        # output = np.subtract(output, 1)
-        # output = np.floor_divide(output, 4)
-        # output = np.right_shift(output, 2)
-        output = np.int64(np.round(gemm_zero_point + np.multiply(output, gemm_requant_scale)))
-
-        inouts['outputs'] = [output]
+        new_output = np.full(output.shape, fill_value = fxpmath.Fxp(), dtype=fxpmath.Fxp)
+        output = np.left_shift(output, 16)
+        for i, val in np.ndenumerate(output):
+            temp = to_fp(val) 
+            temp *= to_fix(gemm_requant_scale)
+            temp >>= gemm_right_shift
+            temp += gemm_zero_point
+            temp = np.int64(np.round(temp))
+            temp = np.maximum(np.minimum(temp, 255), 0)
+            new_output[i] = temp
+        
+        inouts['outputs'] = [new_output]
         # print("output:")
         # print(output[0][0])
         return inouts

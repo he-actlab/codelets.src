@@ -191,6 +191,8 @@ class DataGen(object):
                 assert isinstance(o.data, np.ndarray)
                 if o.data.dtype != np.int64:
                     # o.data = o.data.astype(np.int64)
+                    # o = o._replace(data=np.array(list(map(lambda f: f., o.data.flatten()))).reshape(o.data.shape), dtype=np.int64)
+                    print(o.data)
                     o = o._replace(data=o.data.astype(np.int64))
                     inouts['outputs'][idx] = o
 

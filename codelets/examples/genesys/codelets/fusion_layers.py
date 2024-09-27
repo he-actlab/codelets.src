@@ -1520,10 +1520,11 @@ def gemm_tanh(hag):
         # m0 = create_immediate_with_operand(cdlt, 'm0', QUANT_SCALE, simd_size=simd_size)
         # nshift = create_immediate_with_operand(cdlt, 'nshift', SIGN_SHIFT, simd_size=simd_size)
 
-        M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 32768, simd_size=simd_size)
+        M_SCALE = create_immediate_with_operand(cdlt, 'M_SCALE', 65198, simd_size=simd_size)
         SHIFT_BEFORE = create_immediate_with_operand(cdlt, 'SHIFT_BEFORE', 1, simd_size=simd_size)
         SHIFT_AFTER = create_immediate_with_operand(cdlt, 'SHIFT_AFTER', 2, simd_size=simd_size)
-        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE_RECIP', 16384, simd_size=simd_size)
+        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE_RECIP', 170700, simd_size=simd_size)
+        SHIFT_BY_16 = create_immediate_with_operand(cdlt, "SHIFT_BY_16", 5, simd_size=simd_size)
         ZERO_POINT = create_immediate_with_operand(cdlt, 'ZERO_POINT', 1, simd_size=simd_size)
 
         with cdlt.loop(M) as m:
@@ -1531,10 +1532,9 @@ def gemm_tanh(hag):
                 out.set_write_destination('VMEM1')
                 indices = (m, p)
 
-                cdlt.compute("MUL", [gemm_out[indices], M_SCALE], [out[indices]], target="SIMD")
-                cdlt.compute("RSHIFT", [out[indices], SHIFT_BEFORE], [out[indices]], target="SIMD")
-                cdlt.compute("TANH", [out[indices]], [out[indices]],
-                                target="SIMD")
+                cdlt.compute("LSHIFT", [gemm_out[indices], SHIFT_BY_16], [out[indices]], target="SIMD")
+                cdlt.compute("MUL", [out[indices], M_SCALE], [out[indices]], target="SIMD")
+                cdlt.compute("TANH", [out[indices]], [out[indices]], target="SIMD")
                 cdlt.compute("MUL", [out[indices], M_SCALE_RECIP], [out[indices]], target="SIMD")
                 cdlt.compute("32FXP_8FXP", [out[indices]], [out[indices]], target="SIMD")
 

@@ -255,7 +255,7 @@ def load_unary_impls(cfg):
         "coarse_flatten": Unary,
         "coarse_flatten2d": Unary,
         "coarse_flatten3d": Unary,
-        "elem_tanh": Unary,
+        "tanh": Unary,
         "elem_tanh2d": Unary,
         "elem_tanh3d": Unary,
         # TODO: Check if this needs to be 'sigmoid'

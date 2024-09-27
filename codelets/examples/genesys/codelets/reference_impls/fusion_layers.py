@@ -16,6 +16,11 @@ ACT_CL_TO_CF = [0, 3, 1, 2]  # (N, H, W, C) -> (N, C, H, W)
 ACT_CF_TO_CL = [0, 2, 3, 1]  # (N, C, H, W) -> (N, H, W, C)
 
 
+def to_fix(input_fp):
+    result = Fxp(input_fp, **FXP_CONFIGS["FXP32"])
+    return result
+
+
 def to_fp(input_integer):
     temp = Fxp(0, **FXP_CONFIGS["FXP32"])
     input_fp = temp.set_val(input_integer, raw=True)
@@ -199,6 +204,7 @@ class FusionOp(ReferenceOp):
     def gemm(self, inouts, data, wgt, bias=None):
         assert isinstance(data, tuple)
         assert isinstance(wgt, tuple)
+        print(f"input data: {data}")
         data, data_op = data
         wgt, wgt_op = wgt
         inouts["inputs"].append(
@@ -220,22 +226,28 @@ class FusionOp(ReferenceOp):
         else:
             output = np.matmul(np.int32(data), np.int32(wgt))
 
+        print(f"before adding bias: {output}")
         if bias is not None:
             assert isinstance(bias, tuple)
             bias, bias_op = bias
             output = output + bias
+        print(f"after adding bias: {output}")
 
         if "dequant_scale" not in globals():
             global dequant_scale
-            dequant_scale = 0.00048577
+            global right_shift
+            dequant_scale = 0.95517987
+            right_shift = 11
         else:
-            dequant_scale = 0.013263990645569379
+            dequant_scale = 0.5450851542409509
+            right_shift = 11
         
         output = np.left_shift(output, 16)
         new_output = np.full(output.shape, fill_value = Fxp(), dtype=Fxp)
         for i, val in np.ndenumerate(output):
             temp = to_fp(val) 
-            temp *= dequant_scale 
+            temp *= to_fix(dequant_scale)
+            temp >>= right_shift
             new_output[i] = temp
         return new_output
 
@@ -330,14 +342,14 @@ class FusionOp(ReferenceOp):
 
         if "requant_scale" not in globals():
             global requant_scale
-            requant_scale = 2.5681473314159344
+            requant_scale = 3.7865011403705857
         else:
-            requant_scale = 70.87368
+            requant_scale = 70.87375
 
         new_output = np.full(output.shape, fill_value=0, dtype=np.int64)
         for i, val in np.ndenumerate(output):
             temp = val * requant_scale
-            temp = np.round(temp)
+            temp = np.round(temp) 
             temp = min(temp, 2 ** 8 - 1)
             temp = max(temp, 0)
             new_output[i] = temp

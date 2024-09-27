@@ -118,9 +118,9 @@ def gemm(hag: ArchitectureNode):
         simd_size = cdlt.dummy_op("SIMD_SIZE", cdlt.hag.all_subgraph_nodes['SIMD'].dimensions[0])
         cdlt.configure('start', 'SIMD') 
 
-        ZERO_POINT = create_immediate_with_operand(cdlt, 'ZERO_POINT', 25, simd_size=simd_size) 
+        ZERO_POINT = create_immediate_with_operand(cdlt, 'ZERO_POINT', 1703936, simd_size=simd_size) 
         # M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE', 16384, simd_size=simd_size)
-        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE', 686, simd_size=simd_size)
+        M_SCALE_RECIP = create_immediate_with_operand(cdlt, 'M_SCALE', 44595, simd_size=simd_size)
         SHIFT = create_immediate_with_operand(cdlt, 'SHIFT', 16, simd_size=simd_size)
 
         with cdlt.loop(M) as m:
