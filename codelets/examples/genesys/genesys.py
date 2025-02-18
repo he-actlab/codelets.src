@@ -215,7 +215,8 @@ def run_srdfg_passes(graph, cfg, batch_size=1, verbose=False, fuse_layers=False,
     # Split dw_conv
     split_pass = pm.SplitOps(SPLIT_INFO)
     graph = split_pass(graph)
-    if cfg['GPU_SCALING']:
+    if cfg['GPU_SCALING'] is not None:
+        print(f"Scaling layers")
         scale_pass = pm.ScaleLayers(cfg['GPU_SCALING'], graph.op_name, debug=True)
         graph = scale_pass(graph)
     if fuse_layers:

@@ -6,6 +6,7 @@ CFG_BASE = pathlib.Path(f"{pathlib.Path(__file__).parent}/codelets/examples/gene
 MODELS =["resnet18","resnet50","gpt2-trimmed-opt",
          "efficientnet-lite4-opt-no-softmax","mobilenetv2-opt",
          "yolov3-opt-static","bert-base-cased-transpose-opt-trimmed-ort","vgg16"]
+CWD = pathlib.Path(f"{pathlib.Path(__file__).parent}")
 
 FACTORS = {}
 # Factors = oc, oh, ow
@@ -110,13 +111,7 @@ def get_scale_factors(scale_factor):
     assert all([np.prod(v) == scale_factor for v in all_factors])
     return all_factors
 
-
-def append_log_msg(fname, msg):
-    print(f"{msg}")
-    with open(fname, "a") as f:
-        f.write(f"{msg}\n")
-
-def run_benchmarks_for_cfg(scale_factor):
+def run_benchmarks_for_scaled_cfg(scale_factor):
     fname=f"compilation_results_sf{scale_factor}_v2.txt"
     with open(fname, "w") as f:
         f.write(f"Compilation results for {scale_factor}\n")
@@ -171,6 +166,89 @@ def run_benchmarks_for_cfg(scale_factor):
     with open(f"compilation_results_sf{scale_factor}_finalv2.txt", "w") as f:
         f.write(output_str)
 
+def append_log_msg(fname, msg):
+    print(f"{msg}")
+    with open(fname, "a") as f:
+        f.write(f"{msg}\n")
+
+def generate_fused_cfg(base_cfg_name, is_fused):
+    base_cfg_path = pathlib.Path(f"{CFG_BASE}/{base_cfg_name}")
+    with open(base_cfg_path, "r") as f:
+        base_cfg = json.load(f)
+
+    new_cfg_name = base_cfg_name.split(".")[0]
+    if is_fused and not base_cfg["FUSE_LAYERS"]:
+        new_cfg_name += f"_fused"
+    elif not is_fused and base_cfg['FUSE_LAYERS']:
+        new_cfg_name += f"_unfused"
+    new_cfg_path = pathlib.Path(f"{CFG_BASE}/{new_cfg_name}.json")
+
+    if is_fused != base_cfg['FUSE_LAYERS']:
+        base_cfg['FUSE_LAYERS'] = is_fused
+        with open(new_cfg_path, "w") as f:
+            json.dump(base_cfg, f, indent=4)
+
+    return new_cfg_name
+
+
+def run_benchmark(model, is_fused, cfg_name, log_file, ext):
+
+    bench_str = f"model={model}, fused=True, config={cfg_name}"
+    append_log_msg(log_file, f"Compiling {bench_str}...")
+    fused_ext = f"{ext}_fused" if is_fused else f"{ext}_unfused"
+    err_msg, out_msg, err_code = compile_benchmark(cfg_name, model, fused_ext)
+    if err_code != 0:
+        err_msg = f"{bench_str} failure output:\n{err_msg}\n{out_msg}"
+        log_msg = f"Failed compilation for {bench_str}\n{err_msg}"
+        success = False
+    else:
+        log_msg = f"Successful compilation for {bench_str}"
+        success = True
+
+    return log_msg, success
+
+
+
+def run_benchmarks_for_cfg(cfg_name, ext):
+    out_dir = f"{CWD}/tools/compilation_output/{ext}_output"
+    os.makedirs(str(out_dir), exist_ok=True)
+    fname= f"{out_dir}/compilation_results_{ext}.txt"
+    with open(fname, "w") as f:
+        f.write(f"Compilation results for {ext}\n")
+    fails = []
+    failure_outputs = []
+    successes = []
+    for is_fused in [True, False]:
+        bench_cfg = generate_fused_cfg(cfg_name, is_fused)
+        bench_cfg += ".json"
+        fuse_ext = "fused" if is_fused else "unfused"
+        for m in MODELS:
+            log_msg, success = run_benchmark(m, is_fused, bench_cfg, fname, ext)
+            bench_str = f"model={model}, fused={is_fused}, config={bench_cfg}"
+
+            if not success:
+                fails.append(bench_str)
+                failure_outputs.append(log_msg)
+                append_log_msg(fname, log_msg)
+            else:
+                successes.append(bench_str)
+                append_log_msg(fname, log_msg)
+                bench_name = f"{m}_{ext}_{fuse_ext}benchmark32x32_0"
+                shutil.move(f"{CWD}/tools/compilation_output/{bench_name}", f"{out_dir}/{bench_name}")
+
+
+    output_str = f"Successes" + "-" * 40 + "\n"
+    output_str += "\n".join(successes)
+    output_str += f"Failures" + "-" * 40 + "\n"
+    output_str += "\n".join(fails)
+    output_str += f"Failure outputs" + "-" * 40 + "\n"
+    output_str += "\n".join(failure_outputs)
+
+    with open(f"{out_dir}/compilation_results_{ext}_final.txt", "w") as f:
+        f.write(output_str)
+
+
+
 # Fixes
 # fused clip-dw has incorrect number of loops
 # fused dw conv includes an additional loop with incorrect number of iterations
@@ -200,5 +278,11 @@ if __name__ == "__main__":
     # if verbose:
     #     cmd.append("--verbose")
     # try_subprocess_exec(cmd, verbose=verbose)
-    run_benchmarks_for_cfg(216)
+    # run_benchmarks_for_cfg("benchmark_baseline_no_tile_constr.json", "baseline_no_tile_constr")
+    # run_benchmarks_for_cfg("benchmark_ld_st_overhead.json", "ld_st_overhead")
+    # run_benchmarks_for_cfg("benchmark_obuf_move_overhead.json", "obuf_move_overhead")
+    # run_benchmarks_for_cfg("benchmark_loop_overhead.json", "loop_overhead")
+    run_benchmarks_for_cfg("benchmark_tpu_comparison.json", "tpu_comparison")
+
+    # run_benchmarks_for_scaled_cfg(216)
 

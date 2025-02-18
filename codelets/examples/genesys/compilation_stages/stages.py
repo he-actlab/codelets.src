@@ -64,7 +64,8 @@ def update_operand_dtypes(program: 'CodeletProgram', node: pm.Node, cdlt: 'Codel
 
 def template_pad_pass(program, template: 'CodeletTemplate') -> 'CodeletTemplate':
     updated_dims = []
-    is_scaled = 'GPU_SCALING' in program.hag.meta_cfg.keys()
+    # is_scaled = 'GPU_SCALING' in program.hag.meta_cfg.keys()
+    is_scaled = program.hag.meta_cfg.get("GPU_SCALING", None) is not None
     if 'TRAINING' in program.hag.meta_cfg.keys() and program.hag.meta_cfg['TRAINING']:
         train = True
     else:

@@ -514,9 +514,9 @@ def softmax(hag):
                 cdlt.compute("MAX", [data[n, c], mx[n]], [mx[n]], target="SIMD")
                 cdlt.compute("SUB", [data[n, c], mx[n]], [out[n, c]], target="SIMD")
 
-                # Now, Comptue exp
+                # Now, Compute exp
                 if hag.meta_cfg['TPU_TEST']:
-                    cdlt.compute("MUL", [out[n, c], qln2], [out[n, c]], target="SIMD")
+                    cdlt.compute("LOG2", [out[n, c], qln2], [out[n, c]], target="SIMD")
                 else:
                     cdlt.compute("DIV", [out[n, c], qln2], [z[n, c]], target="SIMD")
                     cdlt.compute("MUL", [z[n, c], neg_one], [z[n, c]], target="SIMD")
@@ -615,7 +615,7 @@ def softmax4d(hag):
 
                         # Now, Comptue exp
                         if hag.meta_cfg['TPU_TEST']:
-                            cdlt.compute("DIV", [out[n, c, h, w], qln2], [out[n, c, h, w]], target="SIMD")
+                            cdlt.compute("LOG2", [out[n, c, h, w], qln2], [out[n, c, h, w]], target="SIMD")
                         else:
                             cdlt.compute("DIV", [out[n, c, h, w], qln2], [z[n, c, h, w]], target="SIMD")
                             cdlt.compute("MUL", [z[n, c, h, w], neg_one], [z[n, c, h, w]], target="SIMD")

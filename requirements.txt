@@ -12,5 +12,7 @@ onnx
 tqdm
 fxpmath
 torchvision
-onnx-simplifier
 gitpython
+onnxsim
+onnxoptimizer
+onnxruntime

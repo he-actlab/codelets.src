@@ -241,7 +241,7 @@ def gpu_scaling_off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode
     return instructions
 
 def off_chip_transfer_simd(ld_st, buffer_name, hag: ArchitectureNode):
-    if 'GPU_SCALING' in hag.meta_cfg:
+    if hag.meta_cfg.get('GPU_SCALING', None) is not None:
         return gpu_scaling_off_chip_transfer_simd(ld_st, buffer_name, hag)
     instructions = []
     ### TILE LOOP

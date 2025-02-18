@@ -134,7 +134,7 @@ def add_gemm_constraints(hag, cdlt):
     n_bandwidth = hag.get_subgraph_edge('DRAM', 'IBUF').bandwidth
     p_bandwidth = hag.get_subgraph_edge('DRAM', 'WBUF').bandwidth
     if hag.meta_cfg.get('GPU_SCALING', None) is not None:
-
+        print(f"Here gpu scaling!!!")
         n_hint0 = f"sizes['N']*{DTYPE_MAP[acc_dtype].bits()} <= {n_bandwidth}"
         p_hint0 = f"sizes['P']*{DTYPE_MAP[acc_dtype].bits()} <= {p_bandwidth}"
 

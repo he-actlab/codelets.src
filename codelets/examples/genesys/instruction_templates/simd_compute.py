@@ -632,8 +632,14 @@ def loop_overhead(op_name, hag):
     instructions.append(instr)
 
 
-    noop_instr = hag.get_primitive_template("NOP")
-    instructions.append(noop_instr)
+    add_instr = hag.get_primitive_template("ADD")
+    add_instr.set_field_by_name("DST_NS_ID", f"VMEM1")
+    add_instr.set_field_flex_param("DST_INDEX_ID", f"0")
+    add_instr.set_field_by_name("SRC1_NS_ID", f"VMEM1")
+    add_instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
+    add_instr.set_field_by_name("SRC2_NS_ID", "VMEM1")
+    add_instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
+    instructions.append(add_instr)
 
     return instructions
 
@@ -1079,24 +1085,73 @@ def single_operand_noop(op_name, operand, hag: ArchitectureNode, cond=None):
     instructions.append(noop_instr)
     return instructions
 
+
+def single_operand_mov(op_name, operand, hag: ArchitectureNode, cond=None):
+    instructions = []
+    loop_idx_offset = 0 if op_name != "POW" else 1
+    cond = cond or "True"
+    other_constr = LOOP_CONDS + ["loop_op.op_str in op.dependencies"]
+    macro_instr = hag.get_primitive_template("SET_ITER")
+    macro_instr.set_print_tabs("loop_op.loop_level")
+    macro_instr.add_iterable(*LOOP_ITER)
+    macro_instr.add_condition(" and ".join(other_constr + [cond]))
+    macro_instr.set_field_flex_param("LOOP_ID", f"(loop_op.loop_level % {ALL_LOOP_ID}) + {loop_idx_offset}")
+    macro_instr.set_field_flex_param("NUM_ITER", f"loop_op.iter_count // cdlt.param_tiling[2][cdlt.loop_param_map[loop_op.op_str]]")
+
+
+    sub_instr = hag.get_primitive_template("SET_INDEX")
+    set_index_fmt = "(loop_op.loop_level % {all_loop_id}) + ({operand}.get_mem_index({op_loc}) * {all_loop_id}) if op.get_operand_location({operand}.name) != 'IMM' else cdlt.temps.index({operand})"
+
+    sub_instr.set_print_tabs("loop_op.loop_level")
+    sub_instr.add_iterable(*LOOP_ITER)
+    sub_instr.add_condition(" and ".join(other_constr + [cond]))
+    sub_instr.set_field_flex_param("DST_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("DST_INDEX_ID",
+                                   set_index_fmt.format(all_loop_id=ALL_LOOP_ID, operand=operand,
+                                                        op_loc=f"op.get_operand_location({operand}.name)"))
+    sub_instr.set_field_flex_param("SRC1_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("SRC1_INDEX_ID", "0")
+    sub_instr.set_field_flex_param("SRC2_NS_ID", f"op.get_operand_location({operand}.name)")
+    sub_instr.set_field_flex_param("SRC2_INDEX_ID", "0")
+    macro_instr.add_base_instruction(sub_instr)
+    instructions.append(macro_instr)
+
+    instr = hag.get_primitive_template("SET_INST")
+    instr.add_condition(cond)
+    instr.set_field_flex_param("SINGLE_NESTED", "0")
+    instr.set_field_flex_param("NUM_INSTR", "1")
+    instructions.append(instr)
+    mov_instr = hag.get_primitive_template("MOVE")
+    mov_instr.add_condition(cond)
+    mov_instr.set_field_flex_param("DST_NS_ID", f"op.get_operand_location({operand}.name)")
+    mov_instr.set_field_flex_param("DST_INDEX_ID", f"0")
+    mov_instr.set_field_by_name("SRC1_NS_ID", f"OBUF")
+    mov_instr.set_field_flex_param("SRC1_INDEX_ID", f"0")
+    mov_instr.set_field_flex_param("SRC2_NS_ID", f"op.get_operand_location({operand}.name)")
+    mov_instr.set_field_flex_param("SRC2_INDEX_ID", f"0")
+    mov_instr.set_print_tabs("op.loop_level")
+    instructions.append(mov_instr)
+    return instructions
+
 def ld_st_overhead(op_name, hag: ArchitectureNode):
     first_read_cond = "{OPERAND}.get_first_read('SIMD') == op.op_str and ({OPERAND} in cdlt.inputs or op.get_operand_location({OPERAND}.name) == 'OBUF')"
     first_write_cond = "{OPERAND}.get_first_write('SIMD') == op.op_str and {OPERAND} in cdlt.outputs"
     instructions = []
     op0 = "op.sources[0]"
     instructions += single_base_sign_ext(op0, hag, cond=first_read_cond.format(OPERAND=op0))
-    instructions += single_operand_noop(op_name, op0, hag, first_read_cond.format(OPERAND=op0))
+    instructions += single_operand_mov(op_name, op0, hag, first_read_cond.format(OPERAND=op0))
 
     op1 = f"op.sources[1]"
     op1_cond = first_read_cond.format(OPERAND=op1)
     op1_cond = "len(op.sources) > 1 and op.get_operand_location(op.sources[1].name) != 'IMM' and " + op1_cond
     instructions += single_base_sign_ext(op1, hag, cond=op1_cond)
-    instructions += single_operand_noop(op_name, op1, hag, cond=op1_cond)
+    instructions += single_operand_mov(op_name, op1, hag, cond=op1_cond)
 
     dst = f"op.dests[0]"
     dst_cond = first_write_cond.format(OPERAND=dst)
     instructions += single_base_sign_ext(dst, hag, cond=dst_cond)
-    instructions += single_operand_noop(op_name, dst, hag, cond=dst_cond)
+    # instructions += single_operand_noop(op_name, dst, hag, cond=dst_cond)
+    instructions += single_operand_mov(op_name, dst, hag, cond=dst_cond)
     return instructions
 
 def obuf_read_overhead(hag):

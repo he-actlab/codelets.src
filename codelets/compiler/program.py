@@ -13,13 +13,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import polymath as pm
 from sympy import Basic
-from .relocation_table import RelocationTable, EndToEndRelocationTable, DebugRelocationTable
+from .relocation_table import RelocationTable
 import networkx as nx
 
 EMIT_OPTIONS = ["decimal", "operations", "string_final", "string_placeholders", "binary"]
 
 # TODO: Move to config
-RELOCATION_MODE = "end_to_end"
 
 @dataclass
 class CompilationStage:
@@ -77,7 +76,7 @@ class CodeletProgram(object):
         self._program_flex_templates = {"start": [], "end": []}
         self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
-        self._relocatables = EndToEndRelocationTable(hag.get_off_chip_storage(), addr_alignment=hag.meta_cfg['ADDR_ALIGNMENT']) if RELOCATION_MODE == "end_to_end" else DebugRelocationTable(hag.get_off_chip_storage(), addr_alignment=hag.meta_cfg['ADDR_ALIGNMENT'])
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage(), addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
         self._compilation_pipeline = defaultdict(list)
         self._preproc_stages = defaultdict(list)
         self._template_stages = defaultdict(list)
@@ -104,7 +103,7 @@ class CodeletProgram(object):
         self._program_flex_templates = {"start": [], "end": []}
         self._cdlt_flex_templates = {"start": {}, "end": {}}
         self._codelet_templates = {}
-        self._relocatables = EndToEndRelocationTable(self.hag.get_off_chip_storage(), addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT']) if RELOCATION_MODE == "end_to_end" else DebugRelocationTable(self.hag.get_off_chip_storage(), addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage(), addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
         self._compilation_pipeline = defaultdict(list)
         self._preproc_stages = defaultdict(list)
         self._template_stages = defaultdict(list)
@@ -202,13 +201,10 @@ class CodeletProgram(object):
             nbanks = self.relocatables.storage_node.banks
             width = self.relocatables.storage_node.width
             offsets = {k: v*nbanks*width for k, v in offsets.items()}
-        self._relocatables = EndToEndRelocationTable(self.hag.get_off_chip_storage(),
-                                             mem_layout=mem_layout,
-                                             offsets=offsets,
-                                             addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT']) if RELOCATION_MODE == "end_to_end" else DebugRelocationTable(self.hag.get_off_chip_storage(),
-                                                                                                                                                mem_layout=mem_layout,
-                                                                                                                                                offsets=offsets,
-                                                                                                                                                addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
+        self._relocatables = RelocationTable(self.hag.get_off_chip_storage(),
+                                                 mem_layout=mem_layout,
+                                                 offsets=offsets,
+                                                 addr_alignment=self.hag.meta_cfg['ADDR_ALIGNMENT'])
 
     def update_side_effect_param(self, name, scope, value, codelet_id=None, operation_id=None):
         if scope == 'program':
@@ -274,7 +270,7 @@ class CodeletProgram(object):
         # Codelet instructions are a special case, where all instruction are located at the
         # end of the namespace, but we store them separate from the other namespace items
         # to allow extensibility of instruction addresses
-        input_size = self.relocatables.get_input_namespace_size()
+        input_size = self.relocatables.get_namespace_size("SA_INPUTS")
         cdlt_uid = self.get_codelet(cdlt_id).cdlt_uid
         instr_addr = self.relocatables.get_relocation('INSTR_MEM', cdlt_uid).start
         return (input_size + instr_addr)//8
